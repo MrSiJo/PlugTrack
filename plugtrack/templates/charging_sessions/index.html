@@ -7,7 +7,7 @@
     <div class="col-12 d-flex justify-content-between align-items-center">
         <h1><i class="bi bi-battery-charging"></i> Charging Sessions</h1>
         <div>
-            <a href="{{ url_for('charging_sessions.export') }}" class="btn btn-outline-secondary btn-sm me-2">
+            <a href="{{ url_for('charging_sessions.export') }}?{{ request.query_string.decode() }}" class="btn btn-outline-secondary btn-sm me-2">
                 <i class="bi bi-download"></i> Export CSV
             </a>
             <a href="{{ url_for('charging_sessions.new') }}" class="btn btn-primary">
@@ -17,7 +17,88 @@
     </div>
 </div>
 
+<!-- Filters -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-funnel"></i> Filters</h5>
+            </div>
+            <div class="card-body">
+                <form method="GET" action="{{ url_for('charging_sessions.index') }}" class="row g-3">
+                    <div class="col-md-2">
+                        <label for="date_from" class="form-label">Date From</label>
+                        <input type="date" class="form-control" id="date_from" name="date_from" 
+                               value="{{ date_from.strftime('%Y-%m-%d') if date_from }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="date_to" class="form-label">Date To</label>
+                        <input type="date" class="form-control" id="date_to" name="date_to" 
+                               value="{{ date_to.strftime('%Y-%m-%d') if date_to }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="car_id" class="form-label">Car</label>
+                        <select class="form-select" id="car_id" name="car_id">
+                            <option value="">All Cars</option>
+                            {% for car in cars %}
+                            <option value="{{ car.id }}" {% if selected_car_id == car.id %}selected{% endif %}>
+                                {{ car.display_name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="charge_type" class="form-label">Type</label>
+                        <select class="form-select" id="charge_type" name="charge_type">
+                            <option value="">All Types</option>
+                            {% for type in charge_types %}
+                            <option value="{{ type }}" {% if selected_charge_type == type %}selected{% endif %}>
+                                {{ type }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="charge_network" class="form-label">Network</label>
+                        <select class="form-select" id="charge_network" name="charge_network">
+                            <option value="">All Networks</option>
+                            {% for network in networks %}
+                            <option value="{{ network }}" {% if selected_network == network %}selected{% endif %}>
+                                {{ network }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">&nbsp;</label>
+                        <div>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-search"></i> Apply
+                            </button>
+                            <a href="{{ url_for('charging_sessions.index') }}" class="btn btn-outline-secondary">
+                                <i class="bi bi-x-circle"></i> Clear
+                            </a>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% if sessions %}
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i>
+            Showing {{ sessions|length }} charging session{{ 's' if sessions|length != 1 else '' }}
+            {% if date_from or date_to or selected_car_id or selected_charge_type or selected_network %}
+            with applied filters
+            {% endif %}
+        </div>
+    </div>
+</div>
+
 <div class="row">
     <div class="col-12">
         <div class="card">
@@ -34,6 +115,7 @@
                                 <th>Cost/kWh</th>
                                 <th>Total Cost</th>
                                 <th>Location</th>
+                                <th>Network</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -52,6 +134,13 @@
                                 <td>{{ format_currency(session.cost_per_kwh, current_user.id) }}</td>
                                 <td>{{ format_currency(session.total_cost, current_user.id) }}</td>
                                 <td>{{ session.location_label }}</td>
+                                <td>
+                                    {% if session.charge_network %}
+                                    <span class="badge bg-secondary">{{ session.charge_network }}</span>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
                                 <td>
                                     <div class="btn-group btn-group-sm" role="group">
                                         <a href="{{ url_for('charging_sessions.edit', id=session.id) }}" 
@@ -81,11 +170,25 @@
     <div class="col-12">
         <div class="text-center py-5">
             <i class="bi bi-battery-charging text-muted" style="font-size: 4rem;"></i>
-            <h3 class="text-muted mt-3">No charging sessions yet</h3>
-            <p class="text-muted">Get started by adding your first charging session.</p>
+            <h3 class="text-muted mt-3">
+                {% if date_from or date_to or selected_car_id or selected_charge_type or selected_network %}
+                No sessions match your filters
+                {% else %}
+                No charging sessions yet
+                {% endif %}
+            </h3>
+            <p class="text-muted">
+                {% if date_from or date_to or selected_car_id or selected_charge_type or selected_network %}
+                Try adjusting your filters or <a href="{{ url_for('charging_sessions.index') }}">clear all filters</a>.
+                {% else %}
+                Get started by adding your first charging session.
+                {% endif %}
+            </p>
+            {% if not date_from and not date_to and not selected_car_id and not selected_charge_type and not selected_network %}
             <a href="{{ url_for('charging_sessions.new') }}" class="btn btn-primary btn-lg">
                 <i class="bi bi-plus"></i> Add Your First Session
             </a>
+            {% endif %}
         </div>
     </div>
 </div>

@@ -10,25 +10,25 @@
     </div>
 </div>
 
-{% if active_car %}
+{% if selected_car %}
 <div class="row mb-4">
     <div class="col-12">
         <div class="card border-primary">
             <div class="card-header bg-primary text-white">
-                <h5 class="mb-0"><i class="bi bi-car-front"></i> Active Car</h5>
+                <h5 class="mb-0"><i class="bi bi-car-front"></i> Selected Car</h5>
             </div>
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-6">
-                        <h4>{{ active_car.display_name }}</h4>
-                        <p class="text-muted mb-2">{{ active_car.battery_kwh }} kWh Battery</p>
-                        {% if active_car.efficiency_mpkwh %}
-                        <p class="text-muted mb-2">Efficiency: {{ active_car.efficiency_mpkwh }} mi/kWh</p>
+                        <h4>{{ selected_car.display_name }}</h4>
+                        <p class="text-muted mb-2">{{ selected_car.battery_kwh }} kWh Battery</p>
+                        {% if selected_car.efficiency_mpkwh %}
+                        <p class="text-muted mb-2">Efficiency: {{ selected_car.efficiency_mpkwh }} mi/kWh</p>
                         {% endif %}
                     </div>
                     <div class="col-md-6">
                         <p class="mb-1"><strong>Recommended 100% Charge:</strong></p>
-                        <p class="text-muted">{{ active_car.frequency_display }}</p>
+                        <p class="text-muted">{{ selected_car.frequency_display }}</p>
                     </div>
                 </div>
             </div>
@@ -40,8 +40,163 @@
     <div class="col-12">
         <div class="alert alert-info">
             <i class="bi bi-info-circle"></i> 
-            <strong>No active car found.</strong> 
-            <a href="{{ url_for('cars.new') }}" class="alert-link">Add your first car</a> to get started.
+            <strong>No car selected.</strong> 
+            <a href="{{ url_for('cars.new') }}" class="alert-link">Add your first car</a> to get started, or select a car from the filter above.
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Filters -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-funnel"></i> Quick Filters</h5>
+            </div>
+            <div class="card-body">
+                <form method="GET" action="{{ url_for('dashboard.index') }}" class="row g-3">
+                    <div class="col-md-3">
+                        <label for="date_from" class="form-label">Date From</label>
+                        <input type="date" class="form-control" id="date_from" name="date_from" 
+                               value="{{ date_from.strftime('%Y-%m-%d') if date_from }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="date_to" class="form-label">Date To</label>
+                        <input type="date" class="form-control" id="date_to" name="date_to" 
+                               value="{{ date_to.strftime('%Y-%m-%d') if date_to }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="car_id" class="form-label">Car</label>
+                        <select class="form-select" id="car_id" name="car_id">
+                            <option value="">All Cars</option>
+                            {% for car in cars %}
+                            <option value="{{ car.id }}" {% if selected_car and selected_car.id == car.id %}selected{% endif %}>
+                                {{ car.display_name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">&nbsp;</label>
+                        <div>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-search"></i> Apply
+                            </button>
+                            <a href="{{ url_for('analytics.index') }}?{{ request.query_string.decode() }}" 
+                               class="btn btn-outline-info">
+                                <i class="bi bi-graph-up"></i> Full Analytics
+                            </a>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Key Metrics -->
+<div class="row mb-4">
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-battery-charging text-primary" style="font-size: 2rem;"></i>
+                <h4 class="mt-2">{{ metrics.total_sessions }}</h4>
+                <p class="text-muted mb-0">Total Sessions</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-lightning text-warning" style="font-size: 2rem;"></i>
+                <h4 class="mt-2">{{ "%.1f"|format(metrics.total_kwh) }}</h4>
+                <p class="text-muted mb-0">kWh Delivered</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-{{ 'currency-pound' if get_currency_symbol(current_user.id) == '£' else 'currency-euro' if get_currency_symbol(current_user.id) == '€' else 'currency-dollar' }} text-success" style="font-size: 2rem;"></i>
+                <h4 class="mt-2">{{ format_currency(metrics.total_cost, current_user.id) }}</h4>
+                <p class="text-muted mb-0">Total Cost</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-speedometer2 text-info" style="font-size: 2rem;"></i>
+                <h4 class="mt-2">{{ "%.2f"|format(metrics.avg_cost_per_kwh) }}</h4>
+                <p class="text-muted mb-0">Avg Cost/kWh</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-arrow-right-circle text-danger" style="font-size: 2rem;"></i>
+                <h4 class="mt-2">{{ "%.2f"|format(metrics.avg_cost_per_mile) }}</h4>
+                <p class="text-muted mb-0">Cost/Mile</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-pie-chart text-secondary" style="font-size: 2rem;"></i>
+                <h4 class="mt-2">{{ "%.0f"|format(metrics.home_public_split.home.percentage) }}%</h4>
+                <p class="text-muted mb-0">Home Charging</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-gift text-success" style="font-size: 2rem;"></i>
+                <h4 class="mt-2">{{ metrics.free_sessions }}</h4>
+                <p class="text-muted mb-0">Free Sessions</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Info about cost calculations -->
+{% if metrics.free_sessions > 0 %}
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i>
+            <strong>Cost Calculations:</strong> 
+            Your average cost per kWh (£{{ "%.2f"|format(metrics.avg_cost_per_kwh) }}) is calculated from {{ metrics.paid_sessions }} paid charging sessions. 
+            You also have {{ metrics.free_sessions }} free charging session{{ 's' if metrics.free_sessions != 1 else '' }} ({{ "%.1f"|format(metrics.total_kwh) }} kWh total).
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Recommendations -->
+{% if recommendations %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-lightbulb"></i> Recommendations</h5>
+            </div>
+            <div class="card-body">
+                {% for rec in recommendations %}
+                <div class="alert alert-{{ rec.type }} mb-2">
+                    <div class="d-flex align-items-start">
+                        <i class="bi {{ rec.icon }} me-2 mt-1"></i>
+                        <div>
+                            <strong>{{ rec.title }}</strong><br>
+                            {{ rec.message }}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
         </div>
     </div>
 </div>
@@ -73,6 +228,7 @@
                                 <th>SoC Range</th>
                                 <th>kWh Delivered</th>
                                 <th>Cost/kWh</th>
+                                <th>Total Cost</th>
                                 <th>Location</th>
                                 <th>Notes</th>
                             </tr>
@@ -90,6 +246,7 @@
                                 <td>{{ session.soc_range }}</td>
                                 <td>{{ "%.1f"|format(session.charge_delivered_kwh) }} kWh</td>
                                 <td>{{ format_currency(session.cost_per_kwh, current_user.id) }}</td>
+                                <td>{{ format_currency(session.total_cost, current_user.id) }}</td>
                                 <td>{{ session.location_label }}</td>
                                 <td>
                                     {% if session.notes %}
@@ -117,31 +274,32 @@
     </div>
 </div>
 
+<!-- Period Summary -->
 <div class="row">
-    <div class="col-md-4">
-        <div class="card text-center">
-            <div class="card-body">
-                <i class="bi bi-battery-charging text-primary" style="font-size: 2rem;"></i>
-                <h4 class="mt-2">{{ total_sessions }}</h4>
-                <p class="text-muted mb-0">Total Sessions</p>
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-calendar-range"></i> Period Summary</h5>
             </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card text-center">
             <div class="card-body">
-                <i class="bi bi-lightning text-warning" style="font-size: 2rem;"></i>
-                <h4 class="mt-2">{{ "%.1f"|format(total_kwh) }}</h4>
-                <p class="text-muted mb-0">kWh Delivered</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card text-center">
-            <div class="card-body">
-                <i class="bi bi-{{ 'currency-pound' if get_currency_symbol(current_user.id) == '£' else 'currency-euro' if get_currency_symbol(current_user.id) == '€' else 'currency-dollar' }} text-success" style="font-size: 2rem;"></i>
-                <h4 class="mt-2">{{ format_currency(total_cost, current_user.id) }}</h4>
-                <p class="text-muted mb-0">Total Cost</p>
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <h6 class="text-muted">Period</h6>
+                        <p class="mb-0">{{ date_from.strftime('%Y-%m-%d') }} to {{ date_to.strftime('%Y-%m-%d') }}</p>
+                    </div>
+                    <div class="col-md-3">
+                        <h6 class="text-muted">Home vs Public</h6>
+                        <p class="mb-0">{{ "%.0f"|format(metrics.home_public_split.home.percentage) }}% / {{ "%.0f"|format(metrics.home_public_split.public.percentage) }}%</p>
+                    </div>
+                    <div class="col-md-3">
+                        <h6 class="text-muted">AC vs DC</h6>
+                        <p class="mb-0">{{ "%.0f"|format(metrics.ac_dc_split.AC.percentage) }}% / {{ "%.0f"|format(metrics.ac_dc_split.DC.percentage) }}%</p>
+                    </div>
+                    <div class="col-md-3">
+                        <h6 class="text-muted">Total Miles</h6>
+                        <p class="mb-0">{{ "%.1f"|format(metrics.total_miles) }} miles</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

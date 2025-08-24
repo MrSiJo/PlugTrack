@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics - PlugTrack{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    .metric-card {
+        transition: transform 0.2s;
+    }
+    .metric-card:hover {
+        transform: translateY(-2px);
+    }
+    .chart-container {
+        position: relative;
+        height: 300px;
+        margin-bottom: 2rem;
+    }
+    .recommendation-card {
+        border-left: 4px solid;
+    }
+    .recommendation-card.warning {
+        border-left-color: #ffc107;
+    }
+    .recommendation-card.info {
+        border-left-color: #17a2b8;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1><i class="bi bi-graph-up"></i> Analytics Dashboard</h1>
+        <p class="text-muted">Detailed insights into your EV charging patterns and costs.</p>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-funnel"></i> Filters</h5>
+            </div>
+            <div class="card-body">
+                <form method="GET" action="{{ url_for('analytics.index') }}" id="filters-form">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <label for="date_from" class="form-label">Date From</label>
+                            <input type="date" class="form-control" id="date_from" name="date_from" 
+                                   value="{{ date_from.strftime('%Y-%m-%d') if date_from }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="date_to" class="form-label">Date To</label>
+                            <input type="date" class="form-control" id="date_to" name="date_to" 
+                                   value="{{ date_to.strftime('%Y-%m-%d') if date_to }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="car_id" class="form-label">Car</label>
+                            <select class="form-select" id="car_id" name="car_id">
+                                <option value="">All Cars</option>
+                                {% for car in cars %}
+                                <option value="{{ car.id }}" {% if selected_car and selected_car.id == car.id %}selected{% endif %}>
+                                    {{ car.display_name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">&nbsp;</label>
+                            <div>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-search"></i> Apply Filters
+                                </button>
+                                <a href="{{ url_for('analytics.export') }}?{{ request.query_string.decode() }}" 
+                                   class="btn btn-outline-secondary">
+                                    <i class="bi bi-download"></i> Export CSV
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Key Metrics -->
+<div class="row mb-4">
+    <div class="col-md-2">
+        <div class="card text-center metric-card">
+            <div class="card-body">
+                <i class="bi bi-battery-charging text-primary" style="font-size: 1.5rem;"></i>
+                <h5 class="mt-2">{{ metrics.total_sessions }}</h5>
+                <p class="text-muted small mb-0">Sessions</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center metric-card">
+            <div class="card-body">
+                <i class="bi bi-lightning text-warning" style="font-size: 1.5rem;"></i>
+                <h5 class="mt-2">{{ "%.1f"|format(metrics.total_kwh) }}</h5>
+                <p class="text-muted small mb-0">kWh Delivered</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center metric-card">
+            <div class="card-body">
+                <i class="bi bi-currency-pound text-success" style="font-size: 1.5rem;"></i>
+                <h5 class="mt-2">{{ "%.2f"|format(metrics.total_cost) }}</h5>
+                <p class="text-muted small mb-0">Total Cost</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center metric-card">
+            <div class="card-body">
+                <i class="bi bi-speedometer2 text-info" style="font-size: 1.5rem;"></i>
+                <h5 class="mt-2">{{ "%.2f"|format(metrics.avg_cost_per_kwh) }}</h5>
+                <p class="text-muted small mb-0">Avg £/kWh</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center metric-card">
+            <div class="card-body">
+                <i class="bi bi-arrow-right-circle text-danger" style="font-size: 1.5rem;"></i>
+                <h5 class="mt-2">{{ "%.1f"|format(metrics.total_miles) }}</h5>
+                <p class="text-muted small mb-0">Miles Gained</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center metric-card">
+            <div class="card-body">
+                <i class="bi bi-currency-exchange text-secondary" style="font-size: 1.5rem;"></i>
+                <h5 class="mt-2">{{ "%.2f"|format(metrics.avg_cost_per_mile) }}</h5>
+                <p class="text-muted small mb-0">£/Mile</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts Row 1 -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-graph-up"></i> Cost per Mile Trend</h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="costPerMileChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-lightning"></i> Energy Delivered (AC/DC)</h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="energyDeliveredChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts Row 2 -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-speedometer2"></i> Efficiency Trend (mi/kWh)</h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="efficiencyChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-pie-chart"></i> Home vs Public Charging</h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="homePublicChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recommendations -->
+{% if recommendations %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-lightbulb"></i> Recommendations</h5>
+            </div>
+            <div class="card-body">
+                {% for rec in recommendations %}
+                <div class="alert alert-{{ rec.type }} recommendation-card mb-2">
+                    <div class="d-flex align-items-start">
+                        <i class="bi {{ rec.icon }} me-2 mt-1"></i>
+                        <div>
+                            <strong>{{ rec.title }}</strong><br>
+                            {{ rec.message }}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Active Car Info -->
+{% if active_car %}
+<div class="row">
+    <div class="col-12">
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-car-front"></i> Active Car: {{ active_car.display_name }}</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <p class="mb-1"><strong>Battery:</strong> {{ active_car.battery_kwh }} kWh</p>
+                        {% if active_car.efficiency_mpkwh %}
+                        <p class="mb-1"><strong>Efficiency:</strong> {{ active_car.efficiency_mpkwh }} mi/kWh</p>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-4">
+                        <p class="mb-1"><strong>Recommended 100% Charge:</strong></p>
+                        <p class="text-muted">{{ active_car.frequency_display }}</p>
+                    </div>
+                    <div class="col-md-4">
+                        <p class="mb-1"><strong>Current Period:</strong></p>
+                        <p class="text-muted">{{ date_from.strftime('%Y-%m-%d') }} to {{ date_to.strftime('%Y-%m-%d') }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Chart.js configuration
+const chartColors = {
+    primary: '#0d6efd',
+    secondary: '#6c757d',
+    success: '#198754',
+    danger: '#dc3545',
+    warning: '#ffc107',
+    info: '#0dcaf0'
+};
+
+// Cost per Mile Chart
+const costPerMileCtx = document.getElementById('costPerMileChart').getContext('2d');
+new Chart(costPerMileCtx, {
+    type: 'line',
+    data: {
+        labels: {{ chart_data.dates | tojson }},
+        datasets: [{
+            label: 'Cost per Mile (£)',
+            data: {{ chart_data.cost_per_mile | tojson }},
+            borderColor: chartColors.danger,
+            backgroundColor: chartColors.danger + '20',
+            tension: 0.1,
+            fill: true
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: 'Cost per Mile (£)'
+                }
+            }
+        }
+    }
+});
+
+// Energy Delivered Chart
+const energyDeliveredCtx = document.getElementById('energyDeliveredChart').getContext('2d');
+new Chart(energyDeliveredCtx, {
+    type: 'bar',
+    data: {
+        labels: {{ chart_data.dates | tojson }},
+        datasets: [{
+            label: 'AC Charging',
+            data: {{ chart_data.energy_delivered | tojson }},
+            backgroundColor: chartColors.success + '80',
+            borderColor: chartColors.success,
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: 'kWh Delivered'
+                }
+            }
+        }
+    }
+});
+
+// Efficiency Chart
+const efficiencyCtx = document.getElementById('efficiencyChart').getContext('2d');
+new Chart(efficiencyCtx, {
+    type: 'line',
+    data: {
+        labels: {{ chart_data.dates | tojson }},
+        datasets: [{
+            label: 'Efficiency (mi/kWh)',
+            data: {{ chart_data.efficiency | tojson }},
+            borderColor: chartColors.info,
+            backgroundColor: chartColors.info + '20',
+            tension: 0.1,
+            fill: true
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: 'Efficiency (mi/kWh)'
+                }
+            }
+        }
+    }
+});
+
+// Home vs Public Chart
+const homePublicCtx = document.getElementById('homePublicChart').getContext('2d');
+new Chart(homePublicCtx, {
+    type: 'doughnut',
+    data: {
+        labels: ['Home', 'Public'],
+        datasets: [{
+            data: [
+                {{ metrics.home_public_split.home.percentage | round(1) }},
+                {{ metrics.home_public_split.public.percentage | round(1) }}
+            ],
+            backgroundColor: [chartColors.success, chartColors.warning],
+            borderWidth: 2,
+            borderColor: '#fff'
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'bottom'
+            }
+        }
+    }
+});
+
+// Auto-refresh charts when filters change
+document.getElementById('filters-form').addEventListener('change', function() {
+    // This could be enhanced to use AJAX to refresh charts without page reload
+    // For now, the form submission will refresh the page with new data
+});
+</script>
+{% endblock %}

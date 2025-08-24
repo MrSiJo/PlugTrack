@@ -152,9 +152,13 @@
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
+                                <div class="alert alert-info mb-2">
+                                    <i class="bi bi-info-circle"></i>
+                                    <strong>Free Charging:</strong> Use 0.00 for sessions that didn't cost anything (e.g., dealer charging, workplace charging, etc.)
+                                </div>
                                 {{ form.cost_per_kwh.label(class="form-label") }}
-                                {{ form.cost_per_kwh(class="form-control", placeholder="e.g., 0.15") }}
-                                <small class="text-muted">Cost per kWh in your currency</small>
+                                {{ form.cost_per_kwh(class="form-control", placeholder="e.g., 0.15 or 0.00 for free") }}
+                                <small class="text-muted">Cost per kWh in your currency (use 0.00 for free charging)</small>
                                 {% if form.cost_per_kwh.errors %}
                                     <div class="text-danger">
                                         {% for error in form.cost_per_kwh.errors %}
@@ -301,6 +305,23 @@ document.addEventListener('DOMContentLoaded', function() {
     [costPerKwh, chargeDelivered, durationMins, socFrom, socTo].forEach(field => {
         if (field) {
             field.addEventListener('input', updateCalculations);
+        }
+    });
+    
+    // Form validation before submit
+    form.addEventListener('submit', function(e) {
+        // Ensure cost_per_kwh has a value (default to 0.00 if empty)
+        if (!costPerKwh.value || costPerKwh.value.trim() === '') {
+            costPerKwh.value = '0.00';
+        }
+        
+        // Ensure the value is a valid number >= 0
+        const cost = parseFloat(costPerKwh.value);
+        if (isNaN(cost) || cost < 0) {
+            e.preventDefault();
+            alert('Please enter a valid cost per kWh (must be 0.00 or greater)');
+            costPerKwh.focus();
+            return false;
         }
     });
     

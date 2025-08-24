@@ -38,7 +38,7 @@ class ChargingSessionForm(FlaskForm):
     charge_network = StringField('Charge Network', validators=[Optional(), Length(max=100)])
     charge_delivered_kwh = FloatField('Charge Delivered (kWh)', validators=[DataRequired(), NumberRange(min=0.1)])
     duration_mins = IntegerField('Duration (minutes)', validators=[DataRequired(), NumberRange(min=1)])
-    cost_per_kwh = FloatField('Cost per kWh', validators=[DataRequired(), NumberRange(min=0)])
+    cost_per_kwh = FloatField('Cost per kWh', validators=[Optional(), NumberRange(min=0)])
     soc_from = IntegerField('SoC From (%)', validators=[DataRequired(), NumberRange(min=0, max=100)])
     soc_to = IntegerField('SoC To (%)', validators=[DataRequired(), NumberRange(min=0, max=100)])
     notes = TextAreaField('Notes', validators=[Optional()])

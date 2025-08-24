@@ -1,27 +1,82 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify
+from flask import Blueprint, render_template, redirect, url_for, flash, request, Response
 from flask_login import login_required, current_user
 from models.charging_session import ChargingSession, db
 from models.car import Car
 from services.forms import ChargingSessionForm
-from datetime import datetime
-import csv
-from io import StringIO
+from services.reports import ReportsService
+from datetime import datetime, timedelta
 
 charging_sessions_bp = Blueprint('charging_sessions', __name__)
 
 @charging_sessions_bp.route('/charging-sessions')
 @login_required
 def index():
-    sessions = ChargingSession.query.filter_by(user_id=current_user.id)\
-        .order_by(ChargingSession.date.desc(), ChargingSession.created_at.desc()).all()
-    return render_template('charging_sessions/index.html', sessions=sessions)
+    """Charging sessions index page"""
+    # Get filter parameters
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    car_id = request.args.get('car_id')
+    charge_type = request.args.get('charge_type')
+    charge_network = request.args.get('charge_network')
+    
+    # Build query
+    query = ChargingSession.query.filter_by(user_id=current_user.id)
+    
+    # Apply filters
+    if date_from:
+        try:
+            date_from_obj = datetime.strptime(date_from, '%Y-%m-%d').date()
+            query = query.filter(ChargingSession.date >= date_from_obj)
+        except ValueError:
+            pass
+    
+    if date_to:
+        try:
+            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d').date()
+            query = query.filter(ChargingSession.date <= date_to_obj)
+        except ValueError:
+            pass
+    
+    if car_id:
+        query = query.filter_by(car_id=car_id)
+    
+    if charge_type:
+        query = query.filter_by(charge_type=charge_type)
+    
+    if charge_network:
+        query = query.filter(ChargingSession.charge_network.ilike(f'%{charge_network}%'))
+    
+    # Order by date (newest first)
+    sessions = query.order_by(ChargingSession.date.desc(), ChargingSession.created_at.desc()).all()
+    
+    # Get filter options
+    cars = Car.query.filter_by(user_id=current_user.id).all()
+    charge_types = ['AC', 'DC']
+    networks = db.session.query(ChargingSession.charge_network)\
+        .filter(ChargingSession.charge_network.isnot(None))\
+        .distinct()\
+        .all()
+    networks = [n[0] for n in networks if n[0]]
+    
+    return render_template('charging_sessions/index.html',
+                         sessions=sessions,
+                         cars=cars,
+                         charge_types=charge_types,
+                         networks=networks,
+                         date_from=date_from,
+                         date_to=date_to,
+                         selected_car_id=car_id,
+                         selected_charge_type=charge_type,
+                         selected_network=charge_network)
 
 @charging_sessions_bp.route('/charging-sessions/new', methods=['GET', 'POST'])
 @login_required
 def new():
+    """Add new charging session"""
     form = ChargingSessionForm()
+    
     # Populate car choices
-    form.car_id.choices = [(car.id, car.display_name) for car in Car.query.filter_by(user_id=current_user.id, active=True).all()]
+    form.car_id.choices = [(car.id, car.display_name) for car in Car.query.filter_by(user_id=current_user.id).all()]
     
     if form.validate_on_submit():
         session = ChargingSession(
@@ -40,6 +95,7 @@ def new():
             soc_to=form.soc_to.data,
             notes=form.notes.data
         )
+        
         db.session.add(session)
         db.session.commit()
         flash('Charging session added successfully!', 'success')
@@ -50,11 +106,12 @@ def new():
 @charging_sessions_bp.route('/charging-sessions/<int:id>/edit', methods=['GET', 'POST'])
 @login_required
 def edit(id):
+    """Edit charging session"""
     session = ChargingSession.query.filter_by(id=id, user_id=current_user.id).first_or_404()
     form = ChargingSessionForm(obj=session)
     
     # Populate car choices
-    form.car_id.choices = [(car.id, car.display_name) for car in Car.query.filter_by(user_id=current_user.id, active=True).all()]
+    form.car_id.choices = [(car.id, car.display_name) for car in Car.query.filter_by(user_id=current_user.id).all()]
     
     if form.validate_on_submit():
         session.car_id = form.car_id.data
@@ -80,6 +137,7 @@ def edit(id):
 @charging_sessions_bp.route('/charging-sessions/<int:id>/delete', methods=['POST'])
 @login_required
 def delete(id):
+    """Delete charging session"""
     session = ChargingSession.query.filter_by(id=id, user_id=current_user.id).first_or_404()
     db.session.delete(session)
     db.session.commit()
@@ -89,39 +147,36 @@ def delete(id):
 @charging_sessions_bp.route('/charging-sessions/export')
 @login_required
 def export():
-    sessions = ChargingSession.query.filter_by(user_id=current_user.id)\
-        .order_by(ChargingSession.date.desc()).all()
+    """Export charging sessions to CSV"""
+    # Get filter parameters
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    car_id = request.args.get('car_id')
+    charge_type = request.args.get('charge_type')
+    charge_network = request.args.get('charge_network')
     
-    # Create CSV data
-    si = StringIO()
-    cw = csv.writer(si)
+    # Convert date strings to datetime objects
+    if date_from:
+        date_from = datetime.strptime(date_from, '%Y-%m-%d').date()
+    if date_to:
+        date_to = datetime.strptime(date_to, '%Y-%m-%d').date()
     
-    # Write header
-    cw.writerow(['Date', 'Car', 'Odometer', 'Type', 'Speed (kW)', 'Location', 'Network', 
-                 'kWh Delivered', 'Duration (mins)', 'Cost/kWh', 'SoC From', 'SoC To', 'Notes'])
+    # Get CSV data
+    csv_data = ReportsService.export_sessions_csv(
+        current_user.id,
+        date_from=date_from,
+        date_to=date_to,
+        car_id=car_id,
+        charge_type=charge_type,
+        charge_network=charge_network
+    )
     
-    # Write data
-    for session in sessions:
-        car = Car.query.get(session.car_id)
-        cw.writerow([
-            session.date.strftime('%Y-%m-%d'),
-            car.display_name if car else 'Unknown',
-            session.odometer,
-            session.charge_type,
-            session.charge_speed_kw,
-            session.location_label,
-            session.charge_network or '',
-            session.charge_delivered_kwh,
-            session.duration_mins,
-            session.cost_per_kwh,
-            session.soc_from,
-            session.soc_to,
-            session.notes or ''
-        ])
+    # Generate filename
+    filename = ReportsService.get_export_filename(
+        date_from=date_from,
+        date_to=date_to,
+        car_id=car_id
+    )
     
-    output = si.getvalue()
-    si.close()
-    
-    from flask import Response
-    return Response(output, mimetype='text/csv', 
-                   headers={'Content-Disposition': 'attachment; filename=charging_sessions.csv'})
+    return Response(csv_data, mimetype='text/csv',
+                   headers={'Content-Disposition': f'attachment; filename={filename}'})

@@ -7,3 +7,5 @@ WTForms==3.1.1
 cryptography==41.0.7
 python-dotenv==1.0.0
 Werkzeug==3.0.1
+pandas==2.1.4
+numpy==1.24.3

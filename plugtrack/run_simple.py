@@ -1,8 +1,25 @@
+#!/usr/bin/env python3
+"""
+Simple startup script for PlugTrack development
+"""
+
+import os
+import sys
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Add the current directory to Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
+
+# Now we can import using absolute paths
+from config import Config
+from models.user import db, User
 from flask import Flask
 from flask_migrate import Migrate
 from flask_login import LoginManager
-from config import Config
-from models.user import db, User
 
 migrate = Migrate()
 login_manager = LoginManager()
@@ -44,3 +61,17 @@ def create_app(config_class=Config):
     })
     
     return app
+
+if __name__ == '__main__':
+    app = create_app()
+    
+    # Set default port and host
+    port = int(os.environ.get('PORT', 5000))
+    host = os.environ.get('HOST', '127.0.0.1')
+    debug = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
+    
+    print(f"Starting PlugTrack on http://{host}:{port}")
+    print(f"Debug mode: {debug}")
+    print("Press Ctrl+C to stop the server")
+    
+    app.run(host=host, port=port, debug=debug)

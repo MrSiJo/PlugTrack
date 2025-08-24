@@ -99,21 +99,55 @@ def new_home_rate():
             value=rate_json,
             encrypted=False
         )
+        
         db.session.add(setting)
         db.session.commit()
-        
         flash('Home charging rate added successfully!', 'success')
         return redirect(url_for('settings.index'))
-    else:
-        print("DEBUG: Form validation failed")
     
-    return render_template('settings/home_rate_form.html', form=form)
+    return render_template('settings/home_rate_form.html', form=form, title='Add Home Charging Rate')
+
+@settings_bp.route('/settings/home-charging/<int:id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_home_rate(id):
+    """Edit existing home charging rate"""
+    setting = Settings.query.filter_by(id=id, user_id=current_user.id).first_or_404()
+    
+    try:
+        import json
+        rate_data = json.loads(setting.value)
+        form = HomeChargingRateForm()
+        
+        if form.validate_on_submit():
+            # Update rate data
+            rate_data = {
+                'rate_per_kwh': form.rate_per_kwh.data,
+                'valid_from': form.valid_from.data.isoformat(),
+                'valid_to': form.valid_to.data.isoformat() if form.valid_to.data else None
+            }
+            
+            setting.value = json.dumps(rate_data)
+            db.session.commit()
+            flash('Home charging rate updated successfully!', 'success')
+            return redirect(url_for('settings.index'))
+        
+        # Pre-populate form with existing data
+        form.rate_per_kwh.data = rate_data.get('rate_per_kwh')
+        form.valid_from.data = datetime.fromisoformat(rate_data.get('valid_from')).date()
+        if rate_data.get('valid_to'):
+            form.valid_to.data = datetime.fromisoformat(rate_data.get('valid_to')).date()
+        
+        return render_template('settings/home_rate_form.html', form=form, setting=setting, title='Edit Home Charging Rate')
+        
+    except (json.JSONDecodeError, KeyError, ValueError):
+        flash('Invalid rate data found', 'error')
+        return redirect(url_for('settings.index'))
 
 @settings_bp.route('/settings/home-charging/<int:id>/delete', methods=['POST'])
 @login_required
 def delete_home_rate(id):
     """Delete home charging rate"""
-    setting = Settings.query.filter_by(id=id, user_id=current_user.id, key='home_charging_rate').first_or_404()
+    setting = Settings.query.filter_by(id=id, user_id=current_user.id).first_or_404()
     db.session.delete(setting)
     db.session.commit()
     flash('Home charging rate deleted successfully!', 'success')
@@ -123,10 +157,14 @@ def delete_home_rate(id):
 @login_required
 def notifications():
     """Notification settings page"""
-    return render_template('settings/notifications.html')
+    # TODO: Create notifications.html template
+    flash('Notifications settings not yet implemented', 'info')
+    return redirect(url_for('settings.index'))
 
 @settings_bp.route('/settings/ai-integration')
 @login_required
 def ai_integration():
     """AI integration settings page"""
-    return render_template('settings/ai_integration.html')
+    # TODO: Create ai_integration.html template
+    flash('AI integration settings not yet implemented', 'info')
+    return redirect(url_for('settings.index'))
