@@ -1,8 +1,8 @@
 // PlugTrack JavaScript functionality
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Auto-hide alerts after 5 seconds
-    const alerts = document.querySelectorAll('.alert');
+    // Auto-hide alerts after 5 seconds (but exclude recommendation alerts)
+    const alerts = document.querySelectorAll('.alert:not(.recommendation-alert)');
     alerts.forEach(function(alert) {
         setTimeout(function() {
             if (alert.parentNode) {

@@ -134,11 +134,21 @@
         </div>
     </div>
     <div class="col-md-2">
-        <div class="card text-center metric-card">
+        <div class="card text-center">
             <div class="card-body">
-                <i class="bi bi-currency-exchange text-secondary" style="font-size: 1.5rem;"></i>
-                <h5 class="mt-2">{{ "%.2f"|format(metrics.avg_cost_per_mile) }}</h5>
-                <p class="text-muted small mb-0">£/Mile</p>
+                <i class="bi bi-arrow-right-circle text-danger" style="font-size: 2rem;"></i>
+                <h4 class="mt-2">{{ "%.2f"|format(metrics.avg_cost_per_mile) }}</h4>
+                <p class="text-muted mb-0">£/Mile</p>
+                {% if efficiency_info.final_efficiency %}
+                <small class="text-muted">
+                    {{ "%.2f"|format(efficiency_info.final_efficiency) }} mi/kWh
+                    {% if efficiency_info.source == 'dynamic' %}
+                        (calculated)
+                    {% elif efficiency_info.source == 'car_profile' %}
+                        (from settings)
+                    {% endif %}
+                </small>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -210,9 +220,11 @@
             </div>
             <div class="card-body">
                 {% for rec in recommendations %}
-                <div class="alert alert-{{ rec.type }} recommendation-card mb-2">
+                <div class="alert alert-{{ rec.type }} recommendation-alert mb-2">
                     <div class="d-flex align-items-start">
-                        <i class="bi {{ rec.icon }} me-2 mt-1"></i>
+                        <div class="me-2">
+                            <i class="bi {{ rec.icon }} fs-4"></i>
+                        </div>
                         <div>
                             <strong>{{ rec.title }}</strong><br>
                             {{ rec.message }}

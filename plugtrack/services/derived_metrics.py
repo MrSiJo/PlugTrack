@@ -1,6 +1,6 @@
 from models.charging_session import ChargingSession
 from models.car import Car
-from sqlalchemy import func, and_, or_, not_
+from sqlalchemy import func, and_, or_, not_, case
 from datetime import datetime, timedelta
 import pandas as pd
 
@@ -114,10 +114,27 @@ class DerivedMetricsService:
         # Calculate total miles and cost per mile (requires car efficiency data)
         total_miles = 0
         avg_cost_per_mile = 0
-        if car_id:
+        
+        # Get any available car for efficiency calculations if no specific car selected
+        if not car_id:
+            available_car = Car.query.filter_by(user_id=user_id).first()
+            # Try dynamic efficiency first, fall back to car profile
+            dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id)
+            car_efficiency = available_car.efficiency_mpkwh if available_car else None
+            final_efficiency = dynamic_efficiency or car_efficiency
+            
+            if final_efficiency:
+                total_miles = total_kwh * final_efficiency
+                avg_cost_per_mile = total_cost / total_miles if total_miles > 0 else 0
+        else:
             car = Car.query.get(car_id)
-            if car and car.efficiency_mpkwh:
-                total_miles = total_kwh * car.efficiency_mpkwh
+            # Try dynamic efficiency first, fall back to car profile
+            dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id, car_id)
+            car_efficiency = car.efficiency_mpkwh if car else None
+            final_efficiency = dynamic_efficiency or car_efficiency
+            
+            if final_efficiency:
+                total_miles = total_kwh * final_efficiency
                 avg_cost_per_mile = total_cost / total_miles if total_miles > 0 else 0
         
         return {
@@ -173,8 +190,18 @@ class DerivedMetricsService:
         # Get AC/DC split data
         ac_dc_data = query.with_entities(
             ChargingSession.date,
-            func.sum(ChargingSession.charge_delivered_kwh).filter(ChargingSession.charge_type == 'AC').label('ac_kwh'),
-            func.sum(ChargingSession.charge_delivered_kwh).filter(ChargingSession.charge_type == 'DC').label('dc_kwh')
+            func.sum(
+                case(
+                    (ChargingSession.charge_type == 'AC', ChargingSession.charge_delivered_kwh),
+                    else_=0
+                )
+            ).label('ac_kwh'),
+            func.sum(
+                case(
+                    (ChargingSession.charge_type == 'DC', ChargingSession.charge_delivered_kwh),
+                    else_=0
+                )
+            ).label('dc_kwh')
         ).group_by(ChargingSession.date).order_by(ChargingSession.date).all()
         
         # Format for Chart.js
@@ -192,19 +219,39 @@ class DerivedMetricsService:
         
         # Calculate actual efficiency (mi/kWh) for each day
         efficiency = []
-        if car_id:
-            car = Car.query.get(car_id)
-            if car and car.efficiency_mpkwh:
+        # Get any available car for efficiency calculations if no specific car selected
+        if not car_id:
+            available_car = Car.query.filter_by(user_id=user_id).first()
+            # Try dynamic efficiency first, fall back to car profile
+            dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id)
+            car_efficiency = available_car.efficiency_mpkwh if available_car else None
+            final_efficiency = dynamic_efficiency or car_efficiency
+            
+            if final_efficiency:
                 for d in daily_data:
                     if d.total_kwh > 0:
-                        # Use the car's efficiency rating
-                        efficiency.append(car.efficiency_mpkwh)
+                        # Use the calculated efficiency
+                        efficiency.append(final_efficiency)
                     else:
                         efficiency.append(0)
             else:
                 efficiency = [0] * len(dates)
         else:
-            efficiency = [0] * len(dates)
+            car = Car.query.get(car_id)
+            # Try dynamic efficiency first, fall back to car profile
+            dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id, car_id)
+            car_efficiency = car.efficiency_mpkwh if car else None
+            final_efficiency = dynamic_efficiency or car_efficiency
+            
+            if final_efficiency:
+                for d in daily_data:
+                    if d.total_kwh > 0:
+                        # Use the calculated efficiency
+                        efficiency.append(final_efficiency)
+                    else:
+                        efficiency.append(0)
+            else:
+                efficiency = [0] * len(dates)
         
         # AC/DC split data
         ac_energy = [float(d.ac_kwh or 0) for d in ac_dc_data]
@@ -212,13 +259,19 @@ class DerivedMetricsService:
         
         # Calculate cost per mile for each day (requires car efficiency data)
         cost_per_mile = []
-        if car_id:
-            car = Car.query.get(car_id)
-            if car and car.efficiency_mpkwh:
+        # Use the same car logic for cost per mile
+        if not car_id:
+            available_car = Car.query.filter_by(user_id=user_id).first()
+            # Use the same efficiency calculation as above
+            dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id)
+            car_efficiency = available_car.efficiency_mpkwh if available_car else None
+            final_efficiency = dynamic_efficiency or car_efficiency
+            
+            if final_efficiency:
                 for d in daily_data:
                     date_str = str(d.date)
                     if d.total_kwh > 0:
-                        miles = d.total_kwh * car.efficiency_mpkwh
+                        miles = d.total_kwh * final_efficiency
                         if date_str in cost_lookup:
                             daily_cost = cost_lookup[date_str]['daily_cost']
                             cost_per_mile.append(daily_cost / miles if miles > 0 else 0)
@@ -227,8 +280,30 @@ class DerivedMetricsService:
                             cost_per_mile.append(0)
                     else:
                         cost_per_mile.append(0)
+            else:
+                cost_per_mile = [0] * len(dates)
         else:
-            cost_per_mile = [0] * len(dates)
+            car = Car.query.get(car_id)
+            # Use the same efficiency calculation as above
+            dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id, car_id)
+            car_efficiency = car.efficiency_mpkwh if car else None
+            final_efficiency = dynamic_efficiency or car_efficiency
+            
+            if final_efficiency:
+                for d in daily_data:
+                    date_str = str(d.date)
+                    if d.total_kwh > 0:
+                        miles = d.total_kwh * final_efficiency
+                        if date_str in cost_lookup:
+                            daily_cost = cost_lookup[date_str]['daily_cost']
+                            cost_per_mile.append(daily_cost / miles if miles > 0 else 0)
+                        else:
+                            # Free charging day
+                            cost_per_mile.append(0)
+                    else:
+                        cost_per_mile.append(0)
+            else:
+                cost_per_mile = [0] * len(dates)
         
         return {
             'dates': dates,
@@ -303,15 +378,131 @@ class DerivedMetricsService:
                 recommendations.append({
                     'type': 'info',
                     'title': 'Home Charging Advantage',
-                    'message': f'Home charging is cheaper (£{avg_home_cost:.2f}/kWh vs £{avg_public_cost:.2f}/kWh)',
+                    'message': f'Home charging is cheaper (£{avg_home_cost:.4f}/kWh vs £{avg_public_cost:.4f}/kWh average for public charging)',
                     'icon': 'bi-house'
                 })
             else:
                 recommendations.append({
                     'type': 'info',
                     'title': 'Public Charging Advantage',
-                    'message': f'Public charging is cheaper (£{avg_public_cost:.2f}/kWh vs £{avg_home_cost:.2f}/kWh)',
+                    'message': f'Public charging is cheaper (£{avg_public_cost:.4f}/kWh vs £{avg_home_cost:.4f}/kWh average for home charging)',
                     'icon': 'bi-lightning'
                 })
         
+        # Add general insights based on charging patterns
+        total_sessions = ChargingSession.query.filter_by(user_id=user_id, car_id=active_car.id).count()
+        
+        if total_sessions >= 3:  # Only show after some data is collected
+            # Check for free charging opportunities
+            free_sessions = ChargingSession.query.filter(
+                and_(
+                    ChargingSession.user_id == user_id,
+                    ChargingSession.car_id == active_car.id,
+                    ChargingSession.cost_per_kwh == 0
+                )
+            ).count()
+            
+            if free_sessions > 0:
+                recommendations.append({
+                    'type': 'success',
+                    'title': 'Free Charging Utilized',
+                    'message': f'Great job! You\'ve had {free_sessions} free charging session(s). Keep an eye out for workplace, dealer, or public free charging opportunities.',
+                    'icon': 'bi-gift'
+                })
+            
+            # Check charging efficiency
+            recent_sessions = ChargingSession.query.filter_by(
+                user_id=user_id, 
+                car_id=active_car.id
+            ).order_by(ChargingSession.date.desc()).limit(5).all()
+            
+            if recent_sessions:
+                avg_duration = sum(s.duration_mins for s in recent_sessions) / len(recent_sessions)
+                avg_kwh = sum(s.charge_delivered_kwh for s in recent_sessions) / len(recent_sessions)
+                
+                if avg_kwh > 0:
+                    avg_power = (avg_kwh / (avg_duration / 60))
+                    
+                    if avg_power < 3.0:  # Low power charging
+                        recommendations.append({
+                            'type': 'info',
+                            'title': 'Slow Charging Detected',
+                            'message': f'Your recent sessions average {avg_power:.1f} kW. Consider faster chargers for longer trips, or use slow charging for battery health.',
+                            'icon': 'bi-speedometer'
+                        })
+                    elif avg_power > 20.0:  # High power charging
+                        recommendations.append({
+                            'type': 'info',
+                            'title': 'Fast Charging Used',
+                            'message': f'You\'re using fast chargers ({avg_power:.1f} kW average). Remember that frequent fast charging can impact battery longevity.',
+                            'icon': 'bi-lightning-charge'
+                        })
+        
+        # If no specific recommendations, provide general tips
+        if not recommendations:
+            recommendations.append({
+                'type': 'info',
+                'title': 'Getting Started',
+                'message': 'Add more charging sessions to get personalized recommendations. Track your costs, locations, and charging patterns for better insights.',
+                'icon': 'bi-info-circle'
+            })
+        
         return recommendations
+
+    @staticmethod
+    def calculate_dynamic_efficiency(user_id, car_id=None):
+        """Calculate mi/kWh efficiency from historical charging session data"""
+        # Build base query
+        query = ChargingSession.query.filter_by(user_id=user_id)
+        if car_id:
+            query = query.filter_by(car_id=car_id)
+        
+        # Get sessions with meaningful data (exclude very short sessions)
+        sessions = query.filter(
+            and_(
+                ChargingSession.charge_delivered_kwh > 0.5,  # Exclude tiny sessions
+                ChargingSession.duration_mins > 5  # Exclude very short sessions
+            )
+        ).order_by(ChargingSession.date.desc()).limit(20).all()  # Use last 20 sessions
+        
+        if not sessions:
+            return None
+        
+        total_miles = 0
+        total_kwh = 0
+        
+        for session in sessions:
+            # Calculate miles based on SoC change and battery capacity
+            if session.car and session.car.battery_kwh:
+                soc_change = session.soc_to - session.soc_from
+                if soc_change > 0:
+                    # Estimate miles based on SoC change and battery capacity
+                    # This assumes linear relationship between SoC and range
+                    estimated_miles = (soc_change / 100) * session.car.battery_kwh * 4.0  # Rough estimate
+                    total_miles += estimated_miles
+                    total_kwh += session.charge_delivered_kwh
+        
+        if total_kwh > 0:
+            efficiency = total_miles / total_kwh
+            return round(efficiency, 2)
+        
+        return None
+
+    @staticmethod
+    def get_current_efficiency_info(user_id, car_id=None):
+        """Get current efficiency information for display"""
+        dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id, car_id)
+        
+        if car_id:
+            car = Car.query.get(car_id)
+            car_efficiency = car.efficiency_mpkwh if car else None
+        else:
+            available_car = Car.query.filter_by(user_id=user_id).first()
+            car_efficiency = available_car.efficiency_mpkwh if available_car else None
+        
+        return {
+            'dynamic_efficiency': dynamic_efficiency,
+            'car_profile_efficiency': car_efficiency,
+            'final_efficiency': dynamic_efficiency or car_efficiency,
+            'source': 'dynamic' if dynamic_efficiency else 'car_profile' if car_efficiency else 'none'
+        }

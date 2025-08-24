@@ -30,6 +30,29 @@
                         <p class="mb-1"><strong>Recommended 100% Charge:</strong></p>
                         <p class="text-muted">{{ selected_car.frequency_display }}</p>
                     </div>
+                    <div class="col-md-6">
+                        <p class="mb-1"><strong>Efficiency Used:</strong></p>
+                        <p class="text-muted">
+                            {% if efficiency_info.final_efficiency %}
+                                {{ "%.2f"|format(efficiency_info.final_efficiency) }} mi/kWh
+                                <small class="text-muted">
+                                    {% if efficiency_info.source == 'dynamic' %}
+                                        (calculated from your charging history)
+                                    {% elif efficiency_info.source == 'car_profile' %}
+                                        (from car settings)
+                                    {% endif %}
+                                </small>
+                            {% else %}
+                                <span class="text-warning">No efficiency data available</span>
+                            {% endif %}
+                        </p>
+                        {% if efficiency_info.source == 'dynamic' %}
+                        <small class="text-info">
+                            <i class="bi bi-info-circle"></i>
+                            Efficiency is automatically calculated from your charging patterns. The car profile value is optional.
+                        </small>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </div>
@@ -151,6 +174,10 @@
             </div>
         </div>
     </div>
+</div>
+
+<!-- Additional Metrics Row -->
+<div class="row mb-4">
     <div class="col-md-2">
         <div class="card text-center">
             <div class="card-body">
@@ -186,7 +213,7 @@
             </div>
             <div class="card-body">
                 {% for rec in recommendations %}
-                <div class="alert alert-{{ rec.type }} mb-2">
+                <div class="alert alert-{{ rec.type }} recommendation-alert mb-2">
                     <div class="d-flex align-items-start">
                         <i class="bi {{ rec.icon }} me-2 mt-1"></i>
                         <div>

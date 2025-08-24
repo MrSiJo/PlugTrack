@@ -42,11 +42,22 @@ def index():
     
     # Get chart data
     chart_data = DerivedMetricsService.get_chart_data(
-        current_user.id,
-        date_from=date_from,
-        date_to=date_to,
+        current_user.id, 
+        date_from=date_from, 
+        date_to=date_to, 
         car_id=car_id
     )
+    
+    # Get efficiency information
+    efficiency_info = DerivedMetricsService.get_current_efficiency_info(current_user.id, car_id)
+    
+    # Debug logging
+    print(f"DEBUG: Chart data generated for user {current_user.id}")
+    print(f"DEBUG: Dates: {chart_data['dates']}")
+    print(f"DEBUG: Cost per mile: {chart_data['cost_per_mile']}")
+    print(f"DEBUG: Efficiency: {chart_data['efficiency']}")
+    print(f"DEBUG: AC Energy: {chart_data['ac_energy']}")
+    print(f"DEBUG: DC Energy: {chart_data['dc_energy']}")
     
     # Get cars for filter dropdown
     cars = Car.query.filter_by(user_id=current_user.id).all()
@@ -54,6 +65,7 @@ def index():
     return render_template('analytics/index.html',
                          metrics=metrics,
                          recommendations=recommendations,
+                         efficiency_info=efficiency_info,
                          chart_data=chart_data,
                          cars=cars,
                          date_from=date_from,

@@ -39,7 +39,11 @@ def index():
         car_id=car_id
     )
     
+    # Get recommendations
     recommendations = DerivedMetricsService.get_recommendations(current_user.id, available_car)
+    
+    # Get efficiency information
+    efficiency_info = DerivedMetricsService.get_current_efficiency_info(current_user.id, car_id)
     
     # Get recent charging sessions for display
     recent_sessions = ChargingSession.query.filter_by(user_id=current_user.id)\
@@ -52,6 +56,7 @@ def index():
     return render_template('dashboard/index.html',
                          metrics=metrics,
                          recommendations=recommendations,
+                         efficiency_info=efficiency_info,
                          recent_sessions=recent_sessions,
                          cars=cars,
                          date_from=date_from,
