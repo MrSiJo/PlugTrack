@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - PlugTrack{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1><i class="bi bi-speedometer2"></i> Dashboard</h1>
+        <p class="text-muted">Welcome back, {{ current_user.username }}! Here's your EV charging overview.</p>
+    </div>
+</div>
+
+{% if active_car %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-car-front"></i> Active Car</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h4>{{ active_car.display_name }}</h4>
+                        <p class="text-muted mb-2">{{ active_car.battery_kwh }} kWh Battery</p>
+                        {% if active_car.efficiency_mpkwh %}
+                        <p class="text-muted mb-2">Efficiency: {{ active_car.efficiency_mpkwh }} mi/kWh</p>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-6">
+                        <p class="mb-1"><strong>Recommended 100% Charge:</strong></p>
+                        <p class="text-muted">{{ active_car.frequency_display }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> 
+            <strong>No active car found.</strong> 
+            <a href="{{ url_for('cars.new') }}" class="alert-link">Add your first car</a> to get started.
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-battery-charging"></i> Recent Charging Sessions</h5>
+                <div>
+                    <a href="{{ url_for('charging_sessions.new') }}" class="btn btn-primary btn-sm">
+                        <i class="bi bi-plus"></i> Add Session
+                    </a>
+                    <a href="{{ url_for('charging_sessions.index') }}" class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-list"></i> View All
+                    </a>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if recent_sessions %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Car</th>
+                                <th>Type</th>
+                                <th>SoC Range</th>
+                                <th>kWh Delivered</th>
+                                <th>Cost/kWh</th>
+                                <th>Location</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for session in recent_sessions %}
+                            <tr>
+                                <td>{{ session.date.strftime('%Y-%m-%d') }}</td>
+                                <td>{{ session.car.display_name }}</td>
+                                <td>
+                                    <span class="badge bg-{{ 'success' if session.charge_type == 'AC' else 'warning' }}">
+                                        {{ session.charge_type }}
+                                    </span>
+                                </td>
+                                <td>{{ session.soc_range }}</td>
+                                <td>{{ "%.1f"|format(session.charge_delivered_kwh) }} kWh</td>
+                                <td>${{ "%.2f"|format(session.cost_per_kwh) }}</td>
+                                <td>{{ session.location_label }}</td>
+                                <td>
+                                    {% if session.notes %}
+                                    <span class="text-muted" title="{{ session.notes }}">
+                                        <i class="bi bi-chat-text"></i>
+                                    </span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="bi bi-battery-charging text-muted" style="font-size: 3rem;"></i>
+                    <p class="text-muted mt-2">No charging sessions yet.</p>
+                    <a href="{{ url_for('charging_sessions.new') }}" class="btn btn-primary">
+                        <i class="bi bi-plus"></i> Add Your First Session
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-battery-charging text-primary" style="font-size: 2rem;"></i>
+                <h4 class="mt-2">{{ total_sessions }}</h4>
+                <p class="text-muted mb-0">Total Sessions</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-lightning text-warning" style="font-size: 2rem;"></i>
+                <h4 class="mt-2">{{ "%.1f"|format(total_kwh) }}</h4>
+                <p class="text-muted mb-0">kWh Delivered</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-currency-dollar text-success" style="font-size: 2rem;"></i>
+                <h4 class="mt-2">${{ "%.2f"|format(total_cost) }}</h4>
+                <p class="text-muted mb-0">Total Cost</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,12 @@
+# PlugTrack Environment Configuration
+# Copy this file to .env and update the values
+
+# Flask Configuration
+SECRET_KEY=your-secret-key-here-change-in-production
+FLASK_DEBUG=False
+
+# Database Configuration
+DATABASE_URL=sqlite:///plugtrack.db
+
+# Encryption Key (generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+ENCRYPTION_KEY=your-encryption-key-here
