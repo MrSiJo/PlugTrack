@@ -38,6 +38,7 @@ instance/
 *.sqlite3
 *.sqlite
 app.db
+plugtrack.db
 
 # ========================================
 # Logs
@@ -61,7 +62,7 @@ app.db
 .env
 *.env.local
 .env.*
-!example.env   # keep a template if you want
+!env_example.txt   # keep the template
 
 # ========================================
 # Node / Frontend (if added later)
@@ -82,3 +83,9 @@ yarn-error.log*
 # ========================================
 .DS_Store
 Thumbs.db
+
+# ========================================
+# PlugTrack Specific
+# ========================================
+# Keep demo credentials in code but ensure they're not production secrets
+# Demo credentials are intentionally included for first-time setup

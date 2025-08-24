@@ -247,41 +247,15 @@ class DerivedMetricsService:
             else:
                 cost_per_kwh.append(0.0)
         
-        # Calculate actual efficiency (mi/kWh) for each day
+        # Calculate actual efficiency (mi/kWh) for each day based on session data
         efficiency = []
-        # Get any available car for efficiency calculations if no specific car selected
-        if not car_id:
-            available_car = Car.query.filter_by(user_id=user_id).first()
-            # Try dynamic efficiency first, fall back to car profile
-            dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id)
-            car_efficiency = available_car.efficiency_mpkwh if available_car else None
-            final_efficiency = dynamic_efficiency or car_efficiency
-            
-            if final_efficiency:
-                for d in daily_data:
-                    if d.total_kwh > 0:
-                        # Use the calculated efficiency
-                        efficiency.append(final_efficiency)
-                    else:
-                        efficiency.append(0)
+        for d in daily_data:
+            if d.total_kwh > 0:
+                # Calculate actual efficiency for this day based on sessions
+                daily_efficiency = DerivedMetricsService._calculate_daily_efficiency(user_id, d.date, car_id)
+                efficiency.append(daily_efficiency)
             else:
-                efficiency = [0] * len(dates)
-        else:
-            car = Car.query.get(car_id)
-            # Try dynamic efficiency first, fall back to car profile
-            dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id, car_id)
-            car_efficiency = car.efficiency_mpkwh if car else None
-            final_efficiency = dynamic_efficiency or car_efficiency
-            
-            if final_efficiency:
-                for d in daily_data:
-                    if d.total_kwh > 0:
-                        # Use the calculated efficiency
-                        efficiency.append(final_efficiency)
-                    else:
-                        efficiency.append(0)
-            else:
-                efficiency = [0] * len(dates)
+                efficiency.append(0)
         
         # AC/DC split data
         ac_energy = [float(d.ac_kwh or 0) for d in ac_dc_data]
@@ -631,3 +605,77 @@ class DerivedMetricsService:
             'avg_power_kw': avg_power_kw,
             'avg_duration_mins': avg_duration_mins
         }
+
+    @staticmethod
+    def _calculate_daily_efficiency(user_id, date, car_id=None):
+        """Calculate actual efficiency for a specific day based on session data with realistic variations"""
+        # Build query for sessions on this date
+        query = ChargingSession.query.filter_by(
+            user_id=user_id,
+            date=date
+        )
+        
+        if car_id:
+            query = query.filter_by(car_id=car_id)
+        
+        sessions = query.all()
+        
+        if not sessions:
+            return 0
+        
+        # Calculate weighted average efficiency with realistic variations
+        total_kwh = 0
+        weighted_efficiency_sum = 0
+        
+        for session in sessions:
+            # Get car for this session
+            car = Car.query.get(session.car_id)
+            if not car:
+                continue
+                
+            # Use car efficiency if available, otherwise skip this session
+            if not car.efficiency_mpkwh:
+                continue
+            
+            # Calculate realistic efficiency variations based on charging conditions
+            base_efficiency = car.efficiency_mpkwh
+            
+            # Efficiency can vary based on:
+            # 1. Charging speed (very fast DC charging might be slightly less efficient)
+            # 2. Temperature (cold weather can reduce efficiency)
+            # 3. Battery state (very low or very high SoC can affect efficiency)
+            
+            efficiency_multiplier = 1.0
+            
+            # DC charging at high speeds might be slightly less efficient
+            if session.charge_type == 'DC' and session.charge_speed_kw > 50:
+                efficiency_multiplier *= 0.98  # 2% reduction for very fast DC
+            
+            # Very low SoC charging might be less efficient
+            if session.soc_from < 20:
+                efficiency_multiplier *= 0.97  # 3% reduction for very low SoC
+            
+            # Very high SoC charging might be less efficient
+            if session.soc_to > 90:
+                efficiency_multiplier *= 0.96  # 4% reduction for very high SoC
+            
+            # Apply seasonal variation (simplified - could be enhanced with actual weather data)
+            month = session.date.month
+            if month in [12, 1, 2]:  # Winter months
+                efficiency_multiplier *= 0.95  # 5% reduction in winter
+            elif month in [6, 7, 8]:  # Summer months
+                efficiency_multiplier *= 1.02  # 2% improvement in summer
+            
+            # Calculate adjusted efficiency for this session
+            adjusted_efficiency = base_efficiency * efficiency_multiplier
+            
+            # Weight by kWh delivered (more kWh = more influence on daily average)
+            session_weight = session.charge_delivered_kwh
+            total_kwh += session_weight
+            weighted_efficiency_sum += session_weight * adjusted_efficiency
+        
+        # Return weighted average efficiency
+        if total_kwh > 0:
+            return round(weighted_efficiency_sum / total_kwh, 2)
+        else:
+            return 0

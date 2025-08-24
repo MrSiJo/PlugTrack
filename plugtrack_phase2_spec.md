@@ -47,8 +47,10 @@ For each charge session, calculate (not stored in DB, but derived on query):
 ### 5. Recommended Charge Strategy (Phase 2 – Rules Engine)
 Introduce simple **rule-based recommendations** (non-AI):  
 - If SoC < recommended minimum (from car profile), suggest home charge.  
-- If next 100% charge is overdue (based on `recommended_full_charge_frequency`), show reminder on dashboard.  
-- If average home cost per kWh < public rate by a large margin → show “cheapest to charge at home” banner.  
+- If next 100% charge is overdue (based on `recommended_full_charge_frequency`), show reminder in top navigation dropdown.  
+- If average home cost per kWh < public rate by a large margin → show "cheapest to charge at home" advice in top navigation dropdown.  
+
+> **Note**: Recommendations are displayed in a notification-style dropdown in the top navigation bar, not directly on the dashboard. This provides persistent access to important charging advice across all pages.
 
 ---
 
@@ -86,8 +88,10 @@ Charts:
 [Cost per Mile Trend]   [Energy Delivered AC/DC]
 [Efficiency Trend]      [Tariff History Impact]
 
-Reminders:
-- Last 100% charge: 37 days ago (Recommended: 30)
+> **Recommendations**: Available via lightbulb icon in top navigation bar
+> - 100% charge overdue reminders
+> - Home vs public charging cost advice
+> - Battery health recommendations
 ```
 
 ### Sessions Page
