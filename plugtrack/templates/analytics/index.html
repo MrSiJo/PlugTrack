@@ -16,15 +16,7 @@
         height: 300px;
         margin-bottom: 2rem;
     }
-    .recommendation-card {
-        border-left: 4px solid;
-    }
-    .recommendation-card.warning {
-        border-left-color: #ffc107;
-    }
-    .recommendation-card.info {
-        border-left-color: #17a2b8;
-    }
+
 </style>
 {% endblock %}
 
@@ -134,21 +126,11 @@
         </div>
     </div>
     <div class="col-md-2">
-        <div class="card text-center">
+        <div class="card text-center metric-card">
             <div class="card-body">
-                <i class="bi bi-arrow-right-circle text-danger" style="font-size: 2rem;"></i>
-                <h4 class="mt-2">{{ "%.2f"|format(metrics.avg_cost_per_mile) }}</h4>
-                <p class="text-muted mb-0">£/Mile</p>
-                {% if efficiency_info.final_efficiency %}
-                <small class="text-muted">
-                    {{ "%.2f"|format(efficiency_info.final_efficiency) }} mi/kWh
-                    {% if efficiency_info.source == 'dynamic' %}
-                        (calculated)
-                    {% elif efficiency_info.source == 'car_profile' %}
-                        (from settings)
-                    {% endif %}
-                </small>
-                {% endif %}
+                <i class="bi bi-arrow-right-circle text-danger" style="font-size: 1.5rem;"></i>
+                <h5 class="mt-2">{{ "%.2f"|format(metrics.avg_cost_per_mile) }}</h5>
+                <p class="text-muted small mb-0">£/Mile</p>
             </div>
         </div>
     </div>
@@ -210,53 +192,27 @@
     </div>
 </div>
 
-<!-- Recommendations -->
-{% if recommendations %}
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-lightbulb"></i> Recommendations</h5>
-            </div>
-            <div class="card-body">
-                {% for rec in recommendations %}
-                <div class="alert alert-{{ rec.type }} recommendation-alert mb-2">
-                    <div class="d-flex align-items-start">
-                        <div class="me-2">
-                            <i class="bi {{ rec.icon }} fs-4"></i>
-                        </div>
-                        <div>
-                            <strong>{{ rec.title }}</strong><br>
-                            {{ rec.message }}
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
 
-<!-- Active Car Info -->
-{% if active_car %}
+
+<!-- Selected Car Info -->
+{% if selected_car %}
 <div class="row">
     <div class="col-12">
         <div class="card border-primary">
             <div class="card-header bg-primary text-white">
-                <h5 class="mb-0"><i class="bi bi-car-front"></i> Active Car: {{ active_car.display_name }}</h5>
+                <h5 class="mb-0"><i class="bi bi-car-front"></i> Selected Car: {{ selected_car.display_name }}</h5>
             </div>
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-4">
-                        <p class="mb-1"><strong>Battery:</strong> {{ active_car.battery_kwh }} kWh</p>
-                        {% if active_car.efficiency_mpkwh %}
-                        <p class="mb-1"><strong>Efficiency:</strong> {{ active_car.efficiency_mpkwh }} mi/kWh</p>
+                        <p class="mb-1"><strong>Battery:</strong> {{ selected_car.battery_kwh }} kWh</p>
+                        {% if selected_car.efficiency_mpkwh %}
+                        <p class="mb-1"><strong>Efficiency:</strong> {{ selected_car.efficiency_mpkwh }} mi/kWh</p>
                         {% endif %}
                     </div>
                     <div class="col-md-4">
                         <p class="mb-1"><strong>Recommended 100% Charge:</strong></p>
-                        <p class="text-muted">{{ active_car.frequency_display }}</p>
+                        <p class="text-muted">{{ selected_car.frequency_display }}</p>
                     </div>
                     <div class="col-md-4">
                         <p class="mb-1"><strong>Current Period:</strong></p>
@@ -417,6 +373,30 @@ new Chart(homePublicCtx, {
 document.getElementById('filters-form').addEventListener('change', function() {
     // This could be enhanced to use AJAX to refresh charts without page reload
     // For now, the form submission will refresh the page with new data
+});
+
+// Make recommendations available to the global recommendations dropdown
+window.recommendations = {{ recommendations|tojson|safe }};
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Update recommendations dropdown
+    if (typeof updateRecommendationsDropdown === 'function') {
+        updateRecommendationsDropdown(window.recommendations);
+    }
+    
+    // Reset recommendations viewed state when new data is loaded
+    // This ensures the counter reappears when recommendations change
+    if (window.recommendations && window.recommendations.length > 0) {
+        const recommendationsHash = JSON.stringify(window.recommendations.map(r => ({ title: r.title, message: r.message })));
+        const lastViewedHash = localStorage.getItem('lastViewedRecommendationsHash');
+        
+        // If recommendations have changed, reset the viewed state
+        if (lastViewedHash !== recommendationsHash) {
+            if (typeof resetRecommendationsViewed === 'function') {
+                resetRecommendationsViewed();
+            }
+        }
+    }
 });
 </script>
 {% endblock %}

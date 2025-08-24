@@ -49,6 +49,22 @@
                 </ul>
                 <ul class="navbar-nav">
                     <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" id="recommendationsDropdown">
+                            <i class="bi bi-lightbulb"></i> 
+                            <span class="badge bg-warning text-dark" id="recommendationsCount">0</span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" id="recommendationsMenu" style="width: 400px;">
+                            <li><h6 class="dropdown-header">Recommendations</h6></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li id="recommendationsList">
+                                <div class="text-center text-muted py-3">
+                                    <i class="bi bi-lightbulb" style="font-size: 2rem;"></i>
+                                    <p class="mb-0">No recommendations available</p>
+                                </div>
+                            </li>
+                        </ul>
+                    </li>
+                    <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
                             <i class="bi bi-person-circle"></i> {{ current_user.username }}
                         </a>
@@ -83,5 +99,107 @@
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     {% block extra_scripts %}{% endblock %}
     {% block scripts %}{% endblock %}
+    
+    <script>
+    // Global function to update recommendations dropdown
+    function updateRecommendationsDropdown(recommendations) {
+        const countElement = document.getElementById('recommendationsCount');
+        const listElement = document.getElementById('recommendationsList');
+        
+        if (countElement && listElement) {
+            if (recommendations && recommendations.length > 0) {
+                countElement.textContent = recommendations.length;
+                countElement.className = 'badge bg-success text-white';
+                
+                // Check if recommendations have been viewed
+                const recommendationsHash = JSON.stringify(recommendations.map(r => ({ title: r.title, message: r.message })));
+                const lastViewedHash = localStorage.getItem('lastViewedRecommendationsHash');
+                const hasBeenViewed = localStorage.getItem('recommendationsViewed') === 'true';
+                
+                // Only show counter if recommendations haven't been viewed or if they've changed
+                if (!hasBeenViewed || lastViewedHash !== recommendationsHash) {
+                    countElement.style.display = 'inline-block';
+                    countElement.style.opacity = '1';
+                    // Store the new hash
+                    localStorage.setItem('lastViewedRecommendationsHash', recommendationsHash);
+                    localStorage.setItem('recommendationsViewed', 'false');
+                } else {
+                    countElement.style.display = 'none';
+                    countElement.style.opacity = '0';
+                }
+                
+                let html = '';
+                recommendations.forEach(function(rec) {
+                    html += `
+                        <li class="px-3 py-2">
+                            <div class="d-flex align-items-start">
+                                <i class="bi ${rec.icon} me-2 mt-1 text-${rec.type === 'success' ? 'success' : rec.type === 'warning' ? 'warning' : 'info'}"></i>
+                                <div class="flex-grow-1">
+                                    <strong class="d-block">${rec.title}</strong>
+                                    <small class="text-muted">${rec.message}</small>
+                                </div>
+                            </div>
+                        </li>
+                    `;
+                });
+                listElement.innerHTML = html;
+            } else {
+                countElement.textContent = '0';
+                countElement.className = 'badge bg-warning text-dark';
+                countElement.style.display = 'inline-block';
+                countElement.style.opacity = '1';
+                listElement.innerHTML = `
+                    <div class="text-center text-muted py-3">
+                        <i class="bi bi-lightbulb" style="font-size: 2rem;"></i>
+                        <p class="mb-0">No recommendations available</p>
+                    </div>
+                `;
+            }
+        }
+    }
+    
+    // Function to reset recommendations viewed state (call this when new recommendations are generated)
+    function resetRecommendationsViewed() {
+        localStorage.removeItem('recommendationsViewed');
+        localStorage.removeItem('lastViewedRecommendationsHash');
+    }
+    
+    // Make reset function globally available
+    window.resetRecommendationsViewed = resetRecommendationsViewed;
+    
+    // Hide recommendation counter after dropdown is opened
+    document.addEventListener('DOMContentLoaded', function() {
+        const recommendationsDropdown = document.getElementById('recommendationsDropdown');
+        const countElement = document.getElementById('recommendationsCount');
+        const recommendationsIcon = document.querySelector('#recommendationsDropdown i.bi-lightbulb');
+        
+        if (recommendationsDropdown && countElement) {
+            recommendationsDropdown.addEventListener('click', function() {
+                // Mark recommendations as viewed
+                localStorage.setItem('recommendationsViewed', 'true');
+                
+                // Smoothly fade out the counter
+                countElement.style.transition = 'opacity 0.3s ease-out';
+                countElement.style.opacity = '0';
+                
+                // Hide the counter after animation
+                setTimeout(() => {
+                    countElement.style.display = 'none';
+                }, 300);
+                
+                // Change icon color to indicate it's been viewed
+                if (recommendationsIcon) {
+                    recommendationsIcon.classList.remove('text-warning');
+                    recommendationsIcon.classList.add('text-light');
+                }
+            });
+        }
+        
+        // Check if recommendations exist in the page context
+        if (typeof window.recommendations !== 'undefined') {
+            updateRecommendationsDropdown(window.recommendations);
+        }
+    });
+    </script>
 </body>
 </html>

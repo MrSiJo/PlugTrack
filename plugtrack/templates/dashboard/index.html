@@ -14,44 +14,57 @@
 <div class="row mb-4">
     <div class="col-12">
         <div class="card border-primary">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0"><i class="bi bi-car-front"></i> Selected Car</h5>
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center" 
+                 style="cursor: pointer;" 
+                 data-bs-toggle="collapse" 
+                 data-bs-target="#carDetails" 
+                 aria-expanded="false" 
+                 aria-controls="carDetails">
+                <h5 class="mb-0">
+                    <i class="bi bi-car-front"></i> 
+                    Selected Car<span id="carNameCollapsed"> - {{ selected_car.display_name }}</span>
+                </h5>
+                <i class="bi bi-chevron-down" id="carChevron"></i>
             </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h4>{{ selected_car.display_name }}</h4>
-                        <p class="text-muted mb-2">{{ selected_car.battery_kwh }} kWh Battery</p>
-                        {% if selected_car.efficiency_mpkwh %}
-                        <p class="text-muted mb-2">Efficiency: {{ selected_car.efficiency_mpkwh }} mi/kWh</p>
-                        {% endif %}
-                    </div>
-                    <div class="col-md-6">
-                        <p class="mb-1"><strong>Recommended 100% Charge:</strong></p>
-                        <p class="text-muted">{{ selected_car.frequency_display }}</p>
-                    </div>
-                    <div class="col-md-6">
-                        <p class="mb-1"><strong>Efficiency Used:</strong></p>
-                        <p class="text-muted">
-                            {% if efficiency_info.final_efficiency %}
-                                {{ "%.2f"|format(efficiency_info.final_efficiency) }} mi/kWh
-                                <small class="text-muted">
-                                    {% if efficiency_info.source == 'dynamic' %}
-                                        (calculated from your charging history)
-                                    {% elif efficiency_info.source == 'car_profile' %}
-                                        (from car settings)
-                                    {% endif %}
-                                </small>
-                            {% else %}
-                                <span class="text-warning">No efficiency data available</span>
+            <div class="collapse" id="carDetails">
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h4>{{ selected_car.display_name }}</h4>
+                            <p class="text-muted mb-2">{{ selected_car.battery_kwh }} kWh Battery</p>
+                            {% if selected_car.efficiency_mpkwh %}
+                            <p class="text-muted mb-2">Efficiency: {{ selected_car.efficiency_mpkwh }} mi/kWh</p>
                             {% endif %}
-                        </p>
-                        {% if efficiency_info.source == 'dynamic' %}
-                        <small class="text-info">
-                            <i class="bi bi-info-circle"></i>
-                            Efficiency is automatically calculated from your charging patterns. The car profile value is optional.
-                        </small>
-                        {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <p class="mb-1"><strong>Recommended 100% Charge:</strong></p>
+                            <p class="text-muted">{{ selected_car.frequency_display }}</p>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <p class="mb-1"><strong>Efficiency Used:</strong></p>
+                            <p class="text-muted">
+                                {% if efficiency_info.final_efficiency %}
+                                    {{ "%.2f"|format(efficiency_info.final_efficiency) }} mi/kWh
+                                    <small class="text-muted">
+                                        {% if efficiency_info.source == 'dynamic' %}
+                                            (calculated from your charging history)
+                                        {% elif efficiency_info.source == 'car_profile' %}
+                                            (from car settings)
+                                        {% endif %}
+                                    </small>
+                                {% else %}
+                                    <span class="text-warning">No efficiency data available</span>
+                                {% endif %}
+                            </p>
+                            {% if efficiency_info.source == 'dynamic' %}
+                            <small class="text-info">
+                                <i class="bi bi-info-circle"></i>
+                                Efficiency is automatically calculated from your charging patterns. The car profile value is optional.
+                            </small>
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -120,7 +133,7 @@
 
 <!-- Key Metrics -->
 <div class="row mb-4">
-    <div class="col-md-2">
+    <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
                 <i class="bi bi-battery-charging text-primary" style="font-size: 2rem;"></i>
@@ -129,7 +142,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-2">
+    <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
                 <i class="bi bi-lightning text-warning" style="font-size: 2rem;"></i>
@@ -138,7 +151,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-2">
+    <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
                 <i class="bi bi-{{ 'currency-pound' if get_currency_symbol(current_user.id) == '£' else 'currency-euro' if get_currency_symbol(current_user.id) == '€' else 'currency-dollar' }} text-success" style="font-size: 2rem;"></i>
@@ -147,7 +160,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-2">
+    <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
                 <i class="bi bi-speedometer2 text-info" style="font-size: 2rem;"></i>
@@ -156,7 +169,11 @@
             </div>
         </div>
     </div>
-    <div class="col-md-2">
+</div>
+
+<!-- Second Row of Metrics -->
+<div class="row mb-4">
+    <div class="col-md-4">
         <div class="card text-center">
             <div class="card-body">
                 <i class="bi bi-arrow-right-circle text-danger" style="font-size: 2rem;"></i>
@@ -165,7 +182,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-2">
+    <div class="col-md-4">
         <div class="card text-center">
             <div class="card-body">
                 <i class="bi bi-pie-chart text-secondary" style="font-size: 2rem;"></i>
@@ -174,11 +191,7 @@
             </div>
         </div>
     </div>
-</div>
-
-<!-- Additional Metrics Row -->
-<div class="row mb-4">
-    <div class="col-md-2">
+    <div class="col-md-4">
         <div class="card text-center">
             <div class="card-body">
                 <i class="bi bi-gift text-success" style="font-size: 2rem;"></i>
@@ -198,32 +211,6 @@
             <strong>Cost Calculations:</strong> 
             Your average cost per kWh (£{{ "%.2f"|format(metrics.avg_cost_per_kwh) }}) is calculated from {{ metrics.paid_sessions }} paid charging sessions. 
             You also have {{ metrics.free_sessions }} free charging session{{ 's' if metrics.free_sessions != 1 else '' }} ({{ "%.1f"|format(metrics.total_kwh) }} kWh total).
-        </div>
-    </div>
-</div>
-{% endif %}
-
-<!-- Recommendations -->
-{% if recommendations %}
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-lightbulb"></i> Recommendations</h5>
-            </div>
-            <div class="card-body">
-                {% for rec in recommendations %}
-                <div class="alert alert-{{ rec.type }} recommendation-alert mb-2">
-                    <div class="d-flex align-items-start">
-                        <i class="bi {{ rec.icon }} me-2 mt-1"></i>
-                        <div>
-                            <strong>{{ rec.title }}</strong><br>
-                            {{ rec.message }}
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
         </div>
     </div>
 </div>
@@ -331,4 +318,57 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Make recommendations available to the global recommendations dropdown
+window.recommendations = {{ recommendations|tojson|safe }};
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle car details collapse/expand
+    const carDetails = document.getElementById('carDetails');
+    const carChevron = document.getElementById('carChevron');
+    const carNameCollapsed = document.getElementById('carNameCollapsed');
+    
+    if (carDetails && carChevron) {
+        carDetails.addEventListener('show.bs.collapse', function() {
+            carChevron.classList.remove('bi-chevron-down');
+            carChevron.classList.add('bi-chevron-up');
+            // Hide car name when expanded to avoid duplication
+            if (carNameCollapsed) {
+                carNameCollapsed.style.display = 'none';
+            }
+        });
+        
+        carDetails.addEventListener('hide.bs.collapse', function() {
+            carChevron.classList.remove('bi-chevron-up');
+            carChevron.classList.add('bi-chevron-down');
+            // Show car name when collapsed
+            if (carNameCollapsed) {
+                carNameCollapsed.style.display = 'inline';
+            }
+        });
+    }
+    
+    // Update recommendations dropdown
+    if (typeof updateRecommendationsDropdown === 'function') {
+        updateRecommendationsDropdown(window.recommendations);
+    }
+    
+    // Reset recommendations viewed state when new data is loaded
+    // This ensures the counter reappears when recommendations change
+    if (window.recommendations && window.recommendations.length > 0) {
+        const recommendationsHash = JSON.stringify(window.recommendations.map(r => ({ title: r.title, message: r.message })));
+        const lastViewedHash = localStorage.getItem('lastViewedRecommendationsHash');
+        
+        // If recommendations have changed, reset the viewed state
+        if (lastViewedHash !== recommendationsHash) {
+            if (typeof resetRecommendationsViewed === 'function') {
+                resetRecommendationsViewed();
+            }
+        }
+    }
+});
+</script>
 {% endblock %}
