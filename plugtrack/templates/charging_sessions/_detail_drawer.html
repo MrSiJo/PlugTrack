@@ -1,0 +1,202 @@
+{% macro render_session_detail_drawer() %}
+<!-- Session Detail Drawer Modal -->
+<div class="modal fade" id="sessionDetailModal" tabindex="-1" aria-labelledby="sessionDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="sessionDetailModalLabel">
+                    <i class="bi bi-info-circle"></i> Session Details
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="sessionDetailContent">
+                    <!-- Content will be loaded dynamically -->
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="editSessionBtn">
+                    <i class="bi bi-pencil"></i> Edit
+                </button>
+                <button type="button" class="btn btn-outline-primary" id="simulateBlendBtn">
+                    <i class="bi bi-lightning-charge"></i> Simulate Blend
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Session Detail Content Template -->
+<template id="sessionDetailTemplate">
+    <div class="session-detail-content">
+        <!-- Summary Section -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h6 class="text-muted text-uppercase mb-2">Summary</h6>
+                <div class="card">
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <strong>Date:</strong> <span class="session-date"></span><br>
+                                <strong>Car:</strong> <span class="session-car"></span><br>
+                                <strong>Type:</strong> <span class="session-type"></span>
+                            </div>
+                            <div class="col-md-6">
+                                <strong>Location:</strong> <span class="session-location"></span><br>
+                                <strong>Network:</strong> <span class="session-network"></span><br>
+                                <strong>Notes:</strong> <span class="session-notes"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Key Numbers Section -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h6 class="text-muted text-uppercase mb-2">Key Numbers</h6>
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <div class="card text-center">
+                            <div class="card-body">
+                                <h5 class="card-title text-primary session-kwh">-</h5>
+                                <p class="card-text small">kWh Delivered</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card text-center">
+                            <div class="card-body">
+                                <h5 class="card-title text-success session-total-cost">-</h5>
+                                <p class="card-text small">Total Cost</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card text-center">
+                            <div class="card-body">
+                                <h5 class="card-title text-info session-cost-per-mile">-</h5>
+                                <p class="card-text small">Cost per Mile</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card text-center">
+                            <div class="card-body">
+                                <h5 class="card-title text-warning session-miles-gained">-</h5>
+                                <p class="card-text small">Miles Gained</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SoC and Power Section -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h6 class="text-muted text-uppercase mb-2">Battery & Power</h6>
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">SoC Range</h6>
+                                <p class="card-text session-soc-range">-</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">% per kWh</h6>
+                                <p class="card-text session-percent-per-kwh">-</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">Avg Power</h6>
+                                <p class="card-text session-avg-power">-</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Comparative Context Section -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h6 class="text-muted text-uppercase mb-2">Comparative Context</h6>
+                <div id="comparativeContext">
+                    <!-- Will be populated dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Hints Section -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h6 class="text-muted text-uppercase mb-2">Smart Hints</h6>
+                <div id="sessionHints">
+                    <!-- Will be populated dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- Comparative Context Template -->
+<template id="comparativeContextTemplate">
+    <div class="comparative-context">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">vs Last Similar Session</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="comparative-deltas">
+                            <!-- Will be populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">vs 30-Day Average</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="rolling-averages">
+                            <!-- Will be populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- Hint Template -->
+<template id="hintTemplate">
+    <div class="alert alert-{type} alert-dismissible hint-item" data-hint-code="{code}">
+        <div class="d-flex align-items-start">
+            <i class="bi {icon} me-2 mt-1"></i>
+            <div class="flex-grow-1">
+                <h6 class="alert-heading">{title}</h6>
+                <p class="mb-0">{message}</p>
+            </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+</template>
+{% endmacro %}

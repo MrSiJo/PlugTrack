@@ -1,0 +1,157 @@
+{% macro render_blend_planner() %}
+<!-- Blended Charge Planner Modal -->
+<div class="modal fade" id="blendPlannerModal" tabindex="-1" aria-labelledby="blendPlannerModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="blendPlannerModalLabel">
+                    <i class="bi bi-lightning-charge"></i> Blended Charge Planner
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Help text -->
+                <div class="alert alert-info mb-3">
+                    <i class="bi bi-lightbulb"></i>
+                    <strong>Blended Charging Strategy:</strong> Use fast DC charging to get to a reasonable SoC, then finish charging at home where it's cheaper. This saves money while maintaining convenience.
+                </div>
+                
+                <form id="blendPlannerForm">
+                    <div class="row g-3">
+                        <!-- Input Parameters -->
+                        <div class="col-md-6">
+                            <h6 class="text-muted text-uppercase mb-2">Input Parameters</h6>
+                            
+                            <div class="mb-3">
+                                <label for="startSoc" class="form-label">Start SoC (%)</label>
+                                <input type="number" class="form-control" id="startSoc" name="startSoc" min="0" max="100" required>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="dcStopSoc" class="form-label">DC Stop SoC (%)</label>
+                                <input type="number" class="form-control" id="dcStopSoc" name="dcStopSoc" min="0" max="100" required>
+                                <div class="form-text">Stop DC charging here, then continue at home</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="homeTargetSoc" class="form-label">Home Target SoC (%)</label>
+                                <input type="number" class="form-control" id="homeTargetSoc" name="homeTargetSoc" min="0" max="100" required>
+                                <div class="form-text">Final target SoC after home charging</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Rate Information -->
+                        <div class="col-md-6">
+                            <h6 class="text-muted text-uppercase mb-2">Rate Information</h6>
+                            
+                            <div class="mb-3">
+                                <label for="dcCostPerKwh" class="form-label">DC Cost per kWh (£)</label>
+                                <input type="number" class="form-control" id="dcCostPerKwh" name="dcCostPerKwh" step="0.0001" min="0" required>
+                                <div class="form-text">Public DC charger rate</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="homeCostPerKwh" class="form-label">Home Cost per kWh (£)</label>
+                                <input type="number" class="form-control" id="homeCostPerKwh" name="homeCostPerKwh" step="0.0001" min="0" required>
+                                <div class="form-text">Your home electricity rate</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="dcPowerKw" class="form-label">DC Charger Power (kW)</label>
+                                <input type="number" class="form-control" id="dcPowerKw" name="dcPowerKw" step="0.1" min="0" required>
+                                <div class="form-text">DC charger rated power</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="homePowerKw" class="form-label">Home Charger Power (kW)</label>
+                                <input type="number" class="form-control" id="homePowerKw" name="homePowerKw" step="0.1" min="0" required>
+                                <div class="form-text">Your home charger power (e.g., 2.3 kW)</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="batteryKwh" class="form-label">Battery Capacity (kWh)</label>
+                                <input type="number" class="form-control" id="batteryKwh" name="batteryKwh" step="0.1" min="0" required>
+                                <div class="form-text">Car battery capacity</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Calculate Button -->
+                    <div class="row mt-3">
+                        <div class="col-12 text-center">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="bi bi-calculator"></i> Calculate Blend
+                            </button>
+                        </div>
+                    </div>
+                </form>
+                
+                <!-- Results Section -->
+                <div id="blendResults" class="mt-4" style="display: none;">
+                    <hr>
+                    <h6 class="text-muted text-uppercase mb-3">Results</h6>
+                    
+                    <div class="row g-3">
+                        <!-- DC Phase -->
+                        <div class="col-md-6">
+                            <div class="card border-primary">
+                                <div class="card-header bg-primary text-white">
+                                    <h6 class="mb-0"><i class="bi bi-lightning-charge"></i> DC Phase</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="text-center">
+                                        <h4 class="text-primary" id="dcSummary">-</h4>
+                                        <p class="text-muted small mb-0">Energy • Time • Cost</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Home Phase -->
+                        <div class="col-md-6">
+                            <div class="card border-success">
+                                <div class="card-header bg-success text-white">
+                                    <h6 class="mb-0"><i class="bi bi-house"></i> Home Phase</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="text-center">
+                                        <h4 class="text-success" id="homeSummary">-</h4>
+                                        <p class="text-muted small mb-0">Energy • Time • Cost</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Total Summary -->
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <div class="card border-info">
+                                <div class="card-header bg-info text-white">
+                                    <h6 class="mb-0"><i class="bi bi-calculator"></i> Total</h6>
+                                </div>
+                                <div class="card-body text-center">
+                                    <h3 class="text-info" id="totalSummary">-</h3>
+                                    <p class="text-muted mb-0">Blended Cost • Cost per Mile</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="row mt-3">
+                        <div class="col-12 text-center">
+                            <button type="button" class="btn btn-outline-primary me-2" id="copyToNotesBtn">
+                                <i class="bi bi-clipboard"></i> Copy to Notes
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" id="closeBlendBtn">
+                                <i class="bi bi-x-circle"></i> Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endmacro %}

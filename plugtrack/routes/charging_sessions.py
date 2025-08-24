@@ -1,9 +1,11 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, Response
+from flask import Blueprint, render_template, redirect, url_for, flash, request, Response, jsonify
 from flask_login import login_required, current_user
 from models.charging_session import ChargingSession, db
 from models.car import Car
 from services.forms import ChargingSessionForm
 from services.reports import ReportsService
+from services.derived_metrics import DerivedMetricsService
+from services.hints import HintsService
 from datetime import datetime, timedelta
 
 charging_sessions_bp = Blueprint('charging_sessions', __name__)
@@ -180,3 +182,71 @@ def export():
     
     return Response(csv_data, mimetype='text/csv',
                    headers={'Content-Disposition': f'attachment; filename={filename}'})
+
+@charging_sessions_bp.route('/charging-sessions/<int:id>/details')
+@login_required
+def details(id):
+    """Get detailed session information for the detail drawer"""
+    session = ChargingSession.query.filter_by(id=id, user_id=current_user.id).first_or_404()
+    car = Car.query.get(session.car_id)
+    
+    # Get derived metrics
+    metrics = DerivedMetricsService.calculate_session_metrics(session, car)
+    
+    # Get similar sessions for comparison
+    similar_sessions = DerivedMetricsService.get_similar_sessions(session, limit=3)
+    
+    # Get rolling averages
+    rolling_avgs = DerivedMetricsService.get_rolling_averages(session.user_id, session.car_id, days=30)
+    
+    # Get hints
+    hints = HintsService.get_session_hints(session, car)
+    
+    # Calculate deltas vs similar sessions
+    deltas = {}
+    if similar_sessions:
+        last_similar = similar_sessions[0]
+        last_similar_metrics = DerivedMetricsService.calculate_session_metrics(last_similar, car)
+        
+        deltas['vs_last_similar'] = {
+            'cost_per_mile_delta': metrics['cost_per_mile'] - last_similar_metrics['cost_per_mile'],
+            'avg_power_kw_delta': metrics['avg_power_kw'] - last_similar_metrics['avg_power_kw'],
+            'percent_per_kwh_delta': metrics['percent_per_kwh'] - last_similar_metrics['percent_per_kwh']
+        }
+    
+    # Calculate deltas vs rolling averages
+    if rolling_avgs['avg_cost_per_mile'] > 0:
+        deltas['vs_30_day_avg'] = {
+            'cost_per_mile_delta': metrics['cost_per_mile'] - rolling_avgs['avg_cost_per_mile'],
+            'avg_power_kw_delta': metrics['avg_power_kw'] - rolling_avgs['avg_power_kw']
+        }
+    
+    return jsonify({
+        'session': {
+            'id': session.id,
+            'date': session.date.strftime('%Y-%m-%d'),
+            'car_name': car.display_name if car else 'Unknown Car',
+            'charge_type': session.charge_type,
+            'location': session.location_label,
+            'network': session.charge_network,
+            'notes': session.notes
+        },
+        'metrics': metrics,
+        'deltas': deltas,
+        'hints': hints,
+        'rolling_averages': rolling_avgs
+    })
+
+@charging_sessions_bp.route('/charging-sessions/<int:id>/dismiss-hint', methods=['POST'])
+@login_required
+def dismiss_hint(id):
+    """Dismiss a hint for a session"""
+    session = ChargingSession.query.filter_by(id=id, user_id=current_user.id).first_or_404()
+    data = request.get_json()
+    hint_code = data.get('hint_code')
+    
+    if not hint_code:
+        return jsonify({'error': 'Hint code required'}), 400
+    
+    HintsService.dismiss_hint(session.id, hint_code)
+    return jsonify({'success': True})

@@ -1,0 +1,44 @@
+{% macro render_insight_chips(session, metrics) %}
+<div class="d-flex flex-wrap gap-1 mb-2">
+    <!-- mi/kWh chip -->
+    <span class="badge bg-info" title="Miles gained per kWh: {{ "%.1f"|format(metrics.miles_gained) }} mi / {{ "%.1f"|format(session.charge_delivered_kwh) }} kWh = {{ "%.1f"|format(metrics.efficiency_used) }} mi/kWh">
+        {{ "%.1f"|format(metrics.efficiency_used) }} mi/kWh
+    </span>
+    
+    <!-- £/mi chip -->
+    {% set cost_per_mile_p = metrics.cost_per_mile * 100 %}
+    {% if cost_per_mile_p <= metrics.threshold_ppm * 0.75 %}
+        {% set badge_class = "bg-success" %}
+    {% elif cost_per_mile_p <= metrics.threshold_ppm * 1.25 %}
+        {% set badge_class = "bg-warning" %}
+    {% else %}
+        {% set badge_class = "bg-danger" %}
+    {% endif %}
+    <span class="badge {{ badge_class }}" title="Cost per mile: £{{ "%.3f"|format(metrics.cost_per_mile) }} = {{ "%.1f"|format(cost_per_mile_p) }}p/mi">
+        {{ "%.1f"|format(cost_per_mile_p) }}p/mi
+    </span>
+    
+    <!-- %/kWh chip -->
+    <span class="badge bg-secondary" title="Battery percentage added per kWh: {{ metrics.battery_added_percent }}% / {{ "%.1f"|format(session.charge_delivered_kwh) }} kWh = {{ "%.1f"|format(metrics.percent_per_kwh) }}%/kWh">
+        {{ "%.1f"|format(metrics.percent_per_kwh) }}%/kWh
+    </span>
+    
+    <!-- avg kW chip -->
+    {% if metrics.avg_power_kw > 0 %}
+    <span class="badge bg-primary" title="Average power: {{ "%.1f"|format(session.charge_delivered_kwh) }} kWh / {{ "%.1f"|format(session.duration_hours) }}h = {{ "%.1f"|format(metrics.avg_power_kw) }} kW">
+        {{ "%.1f"|format(metrics.avg_power_kw) }} kW
+    </span>
+    {% endif %}
+    
+    <!-- Petrol comparison badge -->
+    {% if metrics.is_cheaper_than_petrol %}
+    <span class="badge bg-success" title="This charging session is cheaper than petrol (threshold: {{ "%.1f"|format(metrics.threshold_ppm) }}p/mi)">
+        ✓ cheaper
+    </span>
+    {% else %}
+    <span class="badge bg-danger" title="This charging session is more expensive than petrol (threshold: {{ "%.1f"|format(metrics.threshold_ppm) }}p/mi)">
+        × dearer
+    </span>
+    {% endif %}
+</div>
+{% endmacro %}

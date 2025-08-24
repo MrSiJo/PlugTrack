@@ -26,6 +26,7 @@ def create_app(config_class=Config):
     
     # Register blueprints
     from routes import auth_bp, cars_bp, charging_sessions_bp, settings_bp, dashboard_bp, analytics_bp
+    from routes.blend import blend_bp
     
     app.register_blueprint(auth_bp)
     app.register_blueprint(cars_bp)
@@ -33,6 +34,7 @@ def create_app(config_class=Config):
     app.register_blueprint(settings_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(analytics_bp)
+    app.register_blueprint(blend_bp)
     
     # Add template globals for currency formatting
     from utils.currency import format_currency, get_currency_symbol, get_currency_info

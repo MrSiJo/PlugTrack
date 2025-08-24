@@ -1,6 +1,7 @@
-from models.user import User
-from models.car import Car
-from models.charging_session import ChargingSession
-from models.settings import Settings
+from .user import User
+from .car import Car
+from .charging_session import ChargingSession
+from .settings import Settings
+from .session_meta import SessionMeta
 
-__all__ = ['User', 'Car', 'ChargingSession', 'Settings']
+__all__ = ['User', 'Car', 'ChargingSession', 'Settings', 'SessionMeta']

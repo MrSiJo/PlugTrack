@@ -1,5 +1,7 @@
 from models.charging_session import ChargingSession
 from models.car import Car
+from models.settings import Settings
+from models.session_meta import SessionMeta
 from sqlalchemy import func, and_, or_, not_, case
 from datetime import datetime, timedelta
 import pandas as pd
@@ -10,13 +12,16 @@ class DerivedMetricsService:
     @staticmethod
     def calculate_session_metrics(session, car):
         """Calculate metrics for a single charging session"""
+        # Get user settings for calculations
+        petrol_threshold = float(Settings.get_setting(session.user_id, 'petrol_threshold_p_per_kwh', '52.5'))
+        default_efficiency = float(Settings.get_setting(session.user_id, 'default_efficiency_mpkwh', '3.7'))
+        
         # Total cost
         total_cost = session.charge_delivered_kwh * session.cost_per_kwh
         
         # Miles gained (estimated based on car efficiency)
-        miles_gained = 0
-        if car and car.efficiency_mpkwh:
-            miles_gained = session.charge_delivered_kwh * car.efficiency_mpkwh
+        efficiency = car.efficiency_mpkwh if car and car.efficiency_mpkwh else default_efficiency
+        miles_gained = session.charge_delivered_kwh * efficiency
         
         # Cost per mile
         cost_per_mile = 0
@@ -26,15 +31,40 @@ class DerivedMetricsService:
         # Battery added percentage
         battery_added_percent = session.soc_to - session.soc_from
         
+        # Percentage per kWh (indicates effective usable capacity vs losses)
+        percent_per_kwh = 0
+        if session.charge_delivered_kwh > 0:
+            percent_per_kwh = battery_added_percent / session.charge_delivered_kwh
+        
+        # Average power (when duration present)
+        avg_power_kw = 0
+        if session.duration_mins and session.duration_mins > 0:
+            avg_power_kw = session.charge_delivered_kwh / (session.duration_mins / 60)
+        
+        # DC taper flag (heuristic)
+        dc_taper_flag = False
+        if session.charge_type == 'DC' and session.soc_to > 65:
+            dc_taper_flag = True
+        
+        # Petrol threshold comparison
+        threshold_ppm = petrol_threshold / efficiency if efficiency > 0 else 0
+        is_cheaper_than_petrol = (cost_per_mile * 100) <= threshold_ppm if cost_per_mile > 0 else False
+        
         # Home vs public charging
-        is_home_charging = 'home' in session.location_label.lower() or 'garage' in session.location_label.lower()
+        is_home_charging = session.is_home_charging
         
         return {
             'total_cost': total_cost,
             'miles_gained': miles_gained,
             'cost_per_mile': cost_per_mile,
             'battery_added_percent': battery_added_percent,
-            'is_home_charging': is_home_charging
+            'percent_per_kwh': percent_per_kwh,
+            'avg_power_kw': avg_power_kw,
+            'dc_taper_flag': dc_taper_flag,
+            'threshold_ppm': threshold_ppm,
+            'is_cheaper_than_petrol': is_cheaper_than_petrol,
+            'is_home_charging': is_home_charging,
+            'efficiency_used': efficiency
         }
 
     @staticmethod
@@ -505,4 +535,99 @@ class DerivedMetricsService:
             'car_profile_efficiency': car_efficiency,
             'final_efficiency': dynamic_efficiency or car_efficiency,
             'source': 'dynamic' if dynamic_efficiency else 'car_profile' if car_efficiency else 'none'
+        }
+
+    @staticmethod
+    def get_similar_sessions(session, limit=5):
+        """Find similar sessions for comparison and delta calculations"""
+        # Get sessions with same car and either:
+        # 1. Same charge type and overlapping SoC window (±10% of soc_from), OR
+        # 2. Same location/network
+        
+        # Build base query for same car
+        base_query = ChargingSession.query.filter(
+            and_(
+                ChargingSession.user_id == session.user_id,
+                ChargingSession.car_id == session.car_id,
+                ChargingSession.id != session.id  # Exclude current session
+            )
+        )
+        
+        # Get sessions with same charge type and overlapping SoC window
+        soc_window_query = base_query.filter(
+            and_(
+                ChargingSession.charge_type == session.charge_type,
+                ChargingSession.soc_from >= max(0, session.soc_from - 10),
+                ChargingSession.soc_from <= min(100, session.soc_from + 10)
+            )
+        ).order_by(ChargingSession.date.desc()).limit(limit)
+        
+        # Get sessions with same location/network
+        location_query = base_query.filter(
+            or_(
+                ChargingSession.location_label.ilike(f'%{session.location_label}%'),
+                ChargingSession.charge_network == session.charge_network
+            )
+        ).order_by(ChargingSession.date.desc()).limit(limit)
+        
+        # Combine and deduplicate results
+        similar_sessions = []
+        seen_ids = set()
+        
+        for s in soc_window_query.all():
+            if s.id not in seen_ids:
+                similar_sessions.append(s)
+                seen_ids.add(s.id)
+        
+        for s in location_query.all():
+            if s.id not in seen_ids and len(similar_sessions) < limit:
+                similar_sessions.append(s)
+                seen_ids.add(s.id)
+        
+        return similar_sessions[:limit]
+
+    @staticmethod
+    def get_rolling_averages(user_id, car_id, days=30):
+        """Get rolling averages for comparison with current session"""
+        from datetime import datetime, timedelta
+        
+        date_from = datetime.now().date() - timedelta(days=days)
+        
+        query = ChargingSession.query.filter(
+            and_(
+                ChargingSession.user_id == user_id,
+                ChargingSession.car_id == car_id,
+                ChargingSession.date >= date_from
+            )
+        )
+        
+        # Calculate averages
+        result = query.with_entities(
+            func.avg(ChargingSession.charge_delivered_kwh).label('avg_kwh'),
+            func.avg(ChargingSession.cost_per_kwh).label('avg_cost_per_kwh'),
+            func.avg(ChargingSession.duration_mins).label('avg_duration_mins')
+        ).first()
+        
+        # Get car for efficiency calculations
+        car = Car.query.get(car_id)
+        efficiency = car.efficiency_mpkwh if car else float(Settings.get_setting(user_id, 'default_efficiency_mpkwh', '3.7'))
+        
+        avg_kwh = result.avg_kwh or 0
+        avg_cost_per_kwh = result.avg_cost_per_kwh or 0
+        avg_duration_mins = result.avg_duration_mins or 0
+        
+        # Calculate derived averages
+        avg_total_cost = avg_kwh * avg_cost_per_kwh
+        avg_miles_gained = avg_kwh * efficiency
+        avg_cost_per_mile = avg_total_cost / avg_miles_gained if avg_miles_gained > 0 else 0
+        avg_power_kw = avg_kwh / (avg_duration_mins / 60) if avg_duration_mins > 0 else 0
+        
+        return {
+            'avg_kwh': avg_kwh,
+            'avg_cost_per_kwh': avg_cost_per_kwh,
+            'avg_total_cost': avg_total_cost,
+            'avg_miles_gained': avg_miles_gained,
+            'avg_cost_per_mile': avg_cost_per_mile,
+            'avg_power_kw': avg_power_kw,
+            'avg_duration_mins': avg_duration_mins
         }

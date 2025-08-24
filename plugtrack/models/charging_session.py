@@ -19,6 +19,7 @@ class ChargingSession(db.Model):
     soc_from = db.Column(db.Integer, nullable=False)  # State of Charge percentage
     soc_to = db.Column(db.Integer, nullable=False)
     notes = db.Column(db.Text, nullable=True)
+    venue_type = db.Column(db.String(20), nullable=True)  # 'home' or 'public' - optional for Phase 3
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     def __repr__(self):
@@ -41,3 +42,19 @@ class ChargingSession(db.Model):
         if self.duration_hours > 0:
             return self.charge_delivered_kwh / self.duration_hours
         return 0
+    
+    @property
+    def is_home_charging(self):
+        """Detect if this is home charging based on venue_type or location_label"""
+        if self.venue_type:
+            return self.venue_type.lower() == 'home'
+        
+        # Fallback to location-based detection
+        try:
+            from models.settings import Settings
+            home_aliases = Settings.get_setting(self.user_id, 'home_aliases_csv', 'home,house,garage')
+            aliases = [alias.strip().lower() for alias in home_aliases.split(',')]
+            return any(alias in self.location_label.lower() for alias in aliases)
+        except:
+            # Fallback to simple detection if settings not available
+            return 'home' in self.location_label.lower() or 'garage' in self.location_label.lower()

@@ -200,3 +200,4 @@ TOTAL: £12.92 • 9.7 p/mi    [Copy to notes] [Close]
 - Detail drawer provides clear breakdown + comparisons in ≤1s.
 - Mini blended planner outputs coherent cost/time with your tariffs.
 - Hints are relevant, dismissible, and persist per session.
+
