@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 """
-Basic test script to verify PlugTrack application structure
+Test script for PlugTrack package - run from PlugTrack directory
 """
 
 import sys
 import os
 
+# Add the plugtrack directory to Python path
+plugtrack_dir = os.path.join(os.path.dirname(__file__), 'plugtrack')
+sys.path.insert(0, plugtrack_dir)
+
 def test_imports():
     """Test that all modules can be imported"""
     try:
-        # Add current directory to path
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        sys.path.insert(0, current_dir)
-        
-        # Test imports
         from models.user import User, db
         from models.car import Car
         from models.charging_session import ChargingSession
@@ -30,10 +29,6 @@ def test_imports():
 def test_app_creation():
     """Test that the Flask app can be created"""
     try:
-        # Import after fixing path
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        sys.path.insert(0, current_dir)
-        
         from __init__ import create_app
         app = create_app()
         
@@ -72,7 +67,7 @@ def test_encryption():
 
 def main():
     """Run all tests"""
-    print("Running PlugTrack basic tests...\n")
+    print("Running PlugTrack package tests...\n")
     
     tests = [
         test_imports,

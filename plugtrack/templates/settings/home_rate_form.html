@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}Add Home Charging Rate - PlugTrack{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1><i class="bi bi-house"></i> Add Home Charging Rate</h1>
+        <p class="text-muted">Configure a new electricity rate for home charging.</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body">
+                <form method="POST">
+                    {{ form.hidden_tag() }}
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.rate_per_kwh.label(class="form-label") }}
+                                {{ form.rate_per_kwh(class="form-control", placeholder="e.g., 0.15") }}
+                                <small class="text-muted">Rate per kWh in {{ get_currency_symbol(current_user.id) }}/kWh</small>
+                                {% if form.rate_per_kwh.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.rate_per_kwh.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.valid_from.label(class="form-label") }}
+                                {{ form.valid_from(class="form-control", type="date") }}
+                                {% if form.valid_from.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.valid_from.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        {{ form.valid_to.label(class="form-label") }}
+                        {{ form.valid_to(class="form-control", type="date") }}
+                        <small class="text-muted">Optional - leave blank if this rate is ongoing</small>
+                        {% if form.valid_to.errors %}
+                            <div class="text-danger">
+                                {% for error in form.valid_to.errors %}
+                                    <small>{{ error }}</small>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <a href="{{ url_for('settings.index') }}" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check"></i> Add Rate
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle"></i> Tips</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2"><i class="bi bi-check-circle text-success"></i> Check your electricity bill for current rates</li>
+                    <li class="mb-2"><i class="bi bi-check-circle text-success"></i> Include any standing charges in the rate</li>
+                    <li class="mb-2"><i class="bi bi-check-circle text-success"></i> Set valid dates for time-of-use tariffs</li>
+                    <li class="mb-2"><i class="bi bi-check-circle text-success"></i> Leave end date blank for ongoing rates</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-calculator"></i> Example</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-2"><strong>Standard Rate:</strong></p>
+                <ul class="list-unstyled mb-0">
+                    <li>Rate: {{ get_currency_symbol(current_user.id) }}0.15/kWh</li>
+                    <li>Valid From: Today</li>
+                    <li>Valid To: (blank - ongoing)</li>
+                </ul>
+                <hr>
+                <p class="mb-2"><strong>Time-of-Use Rate:</strong></p>
+                <ul class="list-unstyled mb-0">
+                    <li>Peak: {{ get_currency_symbol(current_user.id) }}0.25/kWh</li>
+                    <li>Off-peak: {{ get_currency_symbol(current_user.id) }}0.10/kWh</li>
+                    <li>Set different rates for different time periods</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Set default date to today
+    const validFromField = document.querySelector('input[name="valid_from"]');
+    if (validFromField) {
+        const today = new Date().toISOString().split('T')[0];
+        validFromField.value = today;
+    }
+});
+</script>
+{% endblock %}

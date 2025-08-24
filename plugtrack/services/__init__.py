@@ -1,4 +1,4 @@
-from .encryption import EncryptionService
-from .forms import *
+from services.encryption import EncryptionService
+from services.forms import *
 
 __all__ = ['EncryptionService']

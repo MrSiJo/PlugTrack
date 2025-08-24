@@ -1,4 +1,4 @@
-from .user import db
+from models.user import db
 
 class Settings(db.Model):
     __tablename__ = 'settings'

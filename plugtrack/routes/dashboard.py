@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template
 from flask_login import login_required, current_user
-from ..models.car import Car
-from ..models.charging_session import ChargingSession
+from models.car import Car
+from models.charging_session import ChargingSession
 
 dashboard_bp = Blueprint('dashboard', __name__)
 

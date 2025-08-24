@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Charging Session - PlugTrack{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1><i class="bi bi-pencil"></i> Edit Charging Session</h1>
+        <p class="text-muted">Update your charging session details.</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body">
+                <form method="POST">
+                    {{ form.hidden_tag() }}
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.date.label(class="form-label") }}
+                                {{ form.date(class="form-control", type="date") }}
+                                {% if form.date.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.date.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.car_id.label(class="form-label") }}
+                                {{ form.car_id(class="form-select") }}
+                                {% if form.car_id.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.car_id.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.odometer.label(class="form-label") }}
+                                {{ form.odometer(class="form-control", placeholder="e.g., 15000") }}
+                                {% if form.odometer.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.odometer.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.charge_type.label(class="form-label") }}
+                                {{ form.charge_type(class="form-select") }}
+                                {% if form.charge_type.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.charge_type.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.charge_speed_kw.label(class="form-label") }}
+                                {{ form.charge_speed_kw(class="form-control", placeholder="e.g., 7.4") }}
+                                <small class="text-muted">Optional - charging speed in kW</small>
+                                {% if form.charge_speed_kw.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.charge_speed_kw.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.location_label.label(class="form-label") }}
+                                {{ form.location_label(class="form-control", placeholder="e.g., Home, Work, Tesco") }}
+                                {% if form.location_label.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.location_label.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.charge_network.label(class="form-label") }}
+                                {{ form.charge_network(class="form-control", placeholder="e.g., Tesla Supercharger, BP Pulse") }}
+                                <small class="text-muted">Optional - charging network name</small>
+                                {% if form.charge_network.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.charge_network.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.charge_delivered_kwh.label(class="form-label") }}
+                                {{ form.charge_delivered_kwh(class="form-control", placeholder="e.g., 45.2") }}
+                                {% if form.charge_delivered_kwh.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.charge_delivered_kwh.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.duration_mins.label(class="form-label") }}
+                                {{ form.duration_mins(class="form-control", placeholder="e.g., 180") }}
+                                <small class="text-muted">Duration in minutes</small>
+                                {% if form.duration_mins.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.duration_mins.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.cost_per_kwh.label(class="form-label") }}
+                                {{ form.cost_per_kwh(class="form-control", placeholder="e.g., 0.15") }}
+                                <small class="text-muted">Cost per kWh in your currency</small>
+                                {% if form.cost_per_kwh.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.cost_per_kwh.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.soc_from.label(class="form-label") }}
+                                {{ form.soc_from(class="form-control", placeholder="e.g., 20") }}
+                                <small class="text-muted">State of charge before charging (%)</small>
+                                {% if form.soc_from.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.soc_from.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.soc_to.label(class="form-label") }}
+                                {{ form.soc_to(class="form-control", placeholder="e.g., 80") }}
+                                <small class="text-muted">State of charge after charging (%)</small>
+                                {% if form.soc_to.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.soc_to.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        {{ form.notes.label(class="form-label") }}
+                        {{ form.notes(class="form-control", rows="3", placeholder="Optional notes about this charging session...") }}
+                        {% if form.notes.errors %}
+                            <div class="text-danger">
+                                {% for error in form.notes.errors %}
+                                    <small>{{ error }}</small>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <a href="{{ url_for('charging_sessions.index') }}" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check"></i> Update Session
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle"></i> Current Session Info</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <strong>Date:</strong> {{ session.date.strftime('%Y-%m-%d') }}
+                </div>
+                <div class="mb-2">
+                    <strong>Car:</strong> {{ session.car.display_name }}
+                </div>
+                <div class="mb-2">
+                    <strong>Type:</strong> 
+                    <span class="badge bg-{{ 'success' if session.charge_type == 'AC' else 'warning' }}">
+                        {{ session.charge_type }}
+                    </span>
+                </div>
+                <div class="mb-2">
+                    <strong>Location:</strong> {{ session.location_label or 'Not specified' }}
+                </div>
+                <div class="mb-2">
+                    <strong>kWh Delivered:</strong> {{ "%.1f"|format(session.charge_delivered_kwh) }} kWh
+                </div>
+                                                <div class="mb-2">
+                                    <strong>Total Cost:</strong> {{ format_currency(session.total_cost, current_user.id) }}
+                                </div>
+            </div>
+        </div>
+        
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-calculator"></i> Quick Calculations</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <strong>Total Cost:</strong>
+                    <span id="total-cost">£0.00</span>
+                </div>
+                <div class="mb-2">
+                    <strong>SoC Range:</strong>
+                    <span id="soc-range">0%</span>
+                </div>
+                <div class="mb-2">
+                    <strong>Duration:</strong>
+                    <span id="duration-hours">0 hours</span>
+                </div>
+                <div class="mb-2">
+                    <strong>Average Power:</strong>
+                    <span id="avg-power">0 kW</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('form');
+    const costPerKwh = document.querySelector('input[name="cost_per_kwh"]');
+    const chargeDelivered = document.querySelector('input[name="charge_delivered_kwh"]');
+    const durationMins = document.querySelector('input[name="duration_mins"]');
+    const socFrom = document.querySelector('input[name="soc_from"]');
+    const socTo = document.querySelector('input[name="soc_to"]');
+    
+    function updateCalculations() {
+        // Total Cost
+        const cost = parseFloat(costPerKwh.value || 0) * parseFloat(chargeDelivered.value || 0);
+        document.getElementById('total-cost').textContent = `{{ get_currency_symbol(current_user.id) }}${cost.toFixed(2)}`;
+        
+        // SoC Range
+        const from = parseFloat(socFrom.value || 0);
+        const to = parseFloat(socTo.value || 0);
+        const range = to - from;
+        document.getElementById('soc-range').textContent = `${range}%`;
+        
+        // Duration
+        const duration = parseFloat(durationMins.value || 0);
+        const hours = (duration / 60).toFixed(1);
+        document.getElementById('duration-hours').textContent = `${hours} hours`;
+        
+        // Average Power
+        if (duration > 0 && chargeDelivered.value) {
+            const power = (parseFloat(chargeDelivered.value) / (duration / 60)).toFixed(1);
+            document.getElementById('avg-power').textContent = `${power} kW`;
+        } else {
+            document.getElementById('avg-power').textContent = '0 kW';
+        }
+    }
+    
+    // Add event listeners to form fields
+    [costPerKwh, chargeDelivered, durationMins, socFrom, socTo].forEach(field => {
+        if (field) {
+            field.addEventListener('input', updateCalculations);
+        }
+    });
+    
+    // Initial calculation
+    updateCalculations();
+});
+</script>
+{% endblock %}

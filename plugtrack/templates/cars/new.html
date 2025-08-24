@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{% block title %}Add New Car - PlugTrack{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1><i class="bi bi-car-front"></i> Add New Car</h1>
+        <p class="text-muted">Add a new electric vehicle to your profile.</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body">
+                <form method="POST">
+                    {{ form.hidden_tag() }}
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.make.label(class="form-label") }}
+                                {{ form.make(class="form-control", placeholder="e.g., Tesla") }}
+                                {% if form.make.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.make.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.model.label(class="form-label") }}
+                                {{ form.model(class="form-control", placeholder="e.g., Model 3") }}
+                                {% if form.model.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.model.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.battery_kwh.label(class="form-label") }}
+                                {{ form.battery_kwh(class="form-control", placeholder="e.g., 75.0") }}
+                                {% if form.battery_kwh.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.battery_kwh.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.efficiency_mpkwh.label(class="form-label") }}
+                                {{ form.efficiency_mpkwh(class="form-control", placeholder="e.g., 4.2") }}
+                                <small class="text-muted">Optional - miles per kWh</small>
+                                {% if form.efficiency_mpkwh.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.efficiency_mpkwh.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            {{ form.active(class="form-check-input") }}
+                            {{ form.active.label(class="form-check-label") }}
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            {{ form.recommended_full_charge_enabled(class="form-check-input") }}
+                            {{ form.recommended_full_charge_enabled.label(class="form-check-label") }}
+                        </div>
+                    </div>
+                    
+                    <div class="row" id="frequency-fields" style="display: none;">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.recommended_full_charge_frequency_value.label(class="form-label") }}
+                                {{ form.recommended_full_charge_frequency_value(class="form-control", placeholder="e.g., 7") }}
+                                {% if form.recommended_full_charge_frequency_value.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.recommended_full_charge_frequency_value.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.recommended_full_charge_frequency_unit.label(class="form-label") }}
+                                {{ form.recommended_full_charge_frequency_unit(class="form-select") }}
+                                {% if form.recommended_full_charge_frequency_unit.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.recommended_full_charge_frequency_unit.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <a href="{{ url_for('cars.index') }}" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check"></i> Add Car
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle"></i> Tips</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2"><i class="bi bi-check-circle text-success"></i> Battery capacity is usually found in your car's manual</li>
+                    <li class="mb-2"><i class="bi bi-check-circle text-success"></i> Efficiency can be calculated from your driving data</li>
+                    <li class="mb-2"><i class="bi bi-check-circle text-success"></i> Only one car should be active at a time</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const enabledCheckbox = document.querySelector('input[name="recommended_full_charge_enabled"]');
+    const frequencyFields = document.getElementById('frequency-fields');
+    
+    function toggleFrequencyFields() {
+        if (enabledCheckbox.checked) {
+            frequencyFields.style.display = 'block';
+        } else {
+            frequencyFields.style.display = 'none';
+        }
+    }
+    
+    enabledCheckbox.addEventListener('change', toggleFrequencyFields);
+    toggleFrequencyFields(); // Initial state
+});
+</script>
+{% endblock %}

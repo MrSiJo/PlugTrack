@@ -1,43 +1,87 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request
+from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
 from flask_login import login_required, current_user
-from ..models.settings import Settings, db
-from ..services.forms import HomeChargingRateForm
-from ..services.encryption import EncryptionService
-from datetime import datetime, date
+from models.user import db
+from models.settings import Settings
+from services.forms import HomeChargingRateForm
+from services.encryption import EncryptionService
+from datetime import datetime
 
 settings_bp = Blueprint('settings', __name__)
+
+def get_currency_info():
+    """Get current currency settings for the user"""
+    # Default to GBP if no setting found
+    currency_setting = Settings.get_setting(current_user.id, 'currency', 'GBP')
+    
+    currency_symbols = {
+        'GBP': '£',
+        'EUR': '€',
+        'USD': '$'
+    }
+    
+    return {
+        'current_currency': currency_setting,
+        'current_currency_symbol': currency_symbols.get(currency_setting, '£')
+    }
 
 @settings_bp.route('/settings')
 @login_required
 def index():
+    """Settings index page"""
     # Get home charging rates
     home_rates = Settings.query.filter_by(
         user_id=current_user.id, 
         key='home_charging_rate'
     ).order_by(Settings.id.desc()).all()
     
-    # Get notification settings
-    gotify_url = Settings.get_setting(current_user.id, 'gotify_url', '')
-    gotify_token = Settings.get_setting(current_user.id, 'gotify_token', '')
+    # Parse the JSON data for display
+    parsed_rates = []
+    for rate in home_rates:
+        try:
+            import json
+            rate_data = json.loads(rate.value)
+            rate_data['id'] = rate.id
+            parsed_rates.append(rate_data)
+        except (json.JSONDecodeError, KeyError):
+            # Skip invalid entries
+            continue
     
-    # Get AI integration settings
-    openai_api_key = Settings.get_setting(current_user.id, 'openai_api_key', '')
-    anthropic_api_key = Settings.get_setting(current_user.id, 'anthropic_api_key', '')
+    # Get currency info
+    currency_info = get_currency_info()
     
-    return render_template('settings/index.html',
-                         home_rates=home_rates,
-                         gotify_url=gotify_url,
-                         gotify_token=gotify_token,
-                         openai_api_key=openai_api_key,
-                         anthropic_api_key=anthropic_api_key)
+    return render_template('settings/index.html', 
+                         home_rates=parsed_rates,
+                         **currency_info)
+
+@settings_bp.route('/settings/update-currency', methods=['POST'])
+@login_required
+def update_currency():
+    """Update user's currency preference"""
+    currency = request.form.get('currency')
+    
+    if currency in ['GBP', 'EUR', 'USD']:
+        Settings.set_setting(current_user.id, 'currency', currency)
+        db.session.commit()
+        flash(f'Currency updated to {currency}', 'success')
+    else:
+        flash('Invalid currency selected', 'error')
+    
+    return redirect(url_for('settings.index'))
 
 @settings_bp.route('/settings/home-charging/new', methods=['GET', 'POST'])
 @login_required
 def new_home_rate():
+    """Add new home charging rate"""
     form = HomeChargingRateForm()
     
+    if request.method == 'POST':
+        print(f"DEBUG: Form submitted. Valid: {form.validate()}")
+        print(f"DEBUG: Form errors: {form.errors}")
+        print(f"DEBUG: Form data: {form.data}")
+    
     if form.validate_on_submit():
-        # Store as JSON-like string for simplicity
+        print("DEBUG: Form validation passed, creating rate...")
+        # Create rate data as JSON
         rate_data = {
             'rate_per_kwh': form.rate_per_kwh.data,
             'valid_from': form.valid_from.data.isoformat(),
@@ -46,7 +90,9 @@ def new_home_rate():
         
         import json
         rate_json = json.dumps(rate_data)
+        print(f"DEBUG: Rate JSON: {rate_json}")
         
+        # Store in settings
         setting = Settings(
             user_id=current_user.id,
             key='home_charging_rate',
@@ -58,40 +104,29 @@ def new_home_rate():
         
         flash('Home charging rate added successfully!', 'success')
         return redirect(url_for('settings.index'))
+    else:
+        print("DEBUG: Form validation failed")
     
-    return render_template('settings/home_rate_form.html', form=form, title='Add Home Charging Rate')
+    return render_template('settings/home_rate_form.html', form=form)
 
 @settings_bp.route('/settings/home-charging/<int:id>/delete', methods=['POST'])
 @login_required
 def delete_home_rate(id):
+    """Delete home charging rate"""
     setting = Settings.query.filter_by(id=id, user_id=current_user.id, key='home_charging_rate').first_or_404()
     db.session.delete(setting)
     db.session.commit()
     flash('Home charging rate deleted successfully!', 'success')
     return redirect(url_for('settings.index'))
 
-@settings_bp.route('/settings/notifications', methods=['POST'])
+@settings_bp.route('/settings/notifications')
 @login_required
-def update_notifications():
-    gotify_url = request.form.get('gotify_url', '').strip()
-    gotify_token = request.form.get('gotify_token', '').strip()
-    
-    # Update settings
-    Settings.set_setting(current_user.id, 'gotify_url', gotify_url)
-    Settings.set_setting(current_user.id, 'gotify_token', gotify_token, encrypted=True)
-    
-    flash('Notification settings updated successfully!', 'success')
-    return redirect(url_for('settings.index'))
+def notifications():
+    """Notification settings page"""
+    return render_template('settings/notifications.html')
 
-@settings_bp.route('/settings/ai-integration', methods=['POST'])
+@settings_bp.route('/settings/ai-integration')
 @login_required
-def update_ai_integration():
-    openai_api_key = request.form.get('openai_api_key', '').strip()
-    anthropic_api_key = request.form.get('anthropic_api_key', '').strip()
-    
-    # Update settings
-    Settings.set_setting(current_user.id, 'openai_api_key', openai_api_key, encrypted=True)
-    Settings.set_setting(current_user.id, 'anthropic_api_key', anthropic_api_key, encrypted=True)
-    
-    flash('AI integration settings updated successfully!', 'success')
-    return redirect(url_for('settings.index'))
+def ai_integration():
+    """AI integration settings page"""
+    return render_template('settings/ai_integration.html')

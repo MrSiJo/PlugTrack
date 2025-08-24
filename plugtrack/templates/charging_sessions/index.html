@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Charging Sessions - PlugTrack{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12 d-flex justify-content-between align-items-center">
+        <h1><i class="bi bi-battery-charging"></i> Charging Sessions</h1>
+        <div>
+            <a href="{{ url_for('charging_sessions.export') }}" class="btn btn-outline-secondary btn-sm me-2">
+                <i class="bi bi-download"></i> Export CSV
+            </a>
+            <a href="{{ url_for('charging_sessions.new') }}" class="btn btn-primary">
+                <i class="bi bi-plus"></i> Add Session
+            </a>
+        </div>
+    </div>
+</div>
+
+{% if sessions %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Car</th>
+                                <th>Type</th>
+                                <th>SoC Range</th>
+                                <th>kWh Delivered</th>
+                                <th>Cost/kWh</th>
+                                <th>Total Cost</th>
+                                <th>Location</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for session in sessions %}
+                            <tr>
+                                <td>{{ session.date.strftime('%Y-%m-%d') }}</td>
+                                <td>{{ session.car.display_name }}</td>
+                                <td>
+                                    <span class="badge bg-{{ 'success' if session.charge_type == 'AC' else 'warning' }}">
+                                        {{ session.charge_type }}
+                                    </span>
+                                </td>
+                                <td>{{ session.soc_range }}</td>
+                                <td>{{ "%.1f"|format(session.charge_delivered_kwh) }} kWh</td>
+                                <td>{{ format_currency(session.cost_per_kwh, current_user.id) }}</td>
+                                <td>{{ format_currency(session.total_cost, current_user.id) }}</td>
+                                <td>{{ session.location_label }}</td>
+                                <td>
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <a href="{{ url_for('charging_sessions.edit', id=session.id) }}" 
+                                           class="btn btn-outline-primary btn-sm">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                        <form method="POST" action="{{ url_for('charging_sessions.delete', id=session.id) }}" 
+                                              class="d-inline" 
+                                              onsubmit="return confirm('Are you sure you want to delete this charging session?')">
+                                            <button type="submit" class="btn btn-outline-danger btn-sm">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="row">
+    <div class="col-12">
+        <div class="text-center py-5">
+            <i class="bi bi-battery-charging text-muted" style="font-size: 4rem;"></i>
+            <h3 class="text-muted mt-3">No charging sessions yet</h3>
+            <p class="text-muted">Get started by adding your first charging session.</p>
+            <a href="{{ url_for('charging_sessions.new') }}" class="btn btn-primary btn-lg">
+                <i class="bi bi-plus"></i> Add Your First Session
+            </a>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,84 @@
+# ========================================
+# Python
+# ========================================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+.venv.bak/
+
+# Byte-compiled / optimized / DLL files
+*.so
+*.pyd
+*.dll
+
+# Test / Coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+coverage.xml
+*.cover
+*.py,cover
+.cache
+.pytest_cache/
+nosetests.xml
+junit.xml
+
+# ========================================
+# Flask / App
+# ========================================
+instance/
+*.db
+*.sqlite3
+*.sqlite
+app.db
+
+# ========================================
+# Logs
+# ========================================
+*.log
+*.out
+*.err
+
+# ========================================
+# Editor / IDE
+# ========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ========================================
+# Environment / Secrets
+# ========================================
+.env
+*.env.local
+.env.*
+!example.env   # keep a template if you want
+
+# ========================================
+# Node / Frontend (if added later)
+# ========================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ========================================
+# Docker (Phase 4+)
+# ========================================
+/docker-compose.override.yml
+*.pid
+
+# ========================================
+# Misc
+# ========================================
+.DS_Store
+Thumbs.db

@@ -1,4 +1,4 @@
-from .user import db
+from models.user import db
 from datetime import datetime
 
 class ChargingSession(db.Model):
