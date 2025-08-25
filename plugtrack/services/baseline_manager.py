@@ -32,6 +32,19 @@ class BaselineManager:
         return None
     
     @staticmethod
+    def recalculate_baseline_for_car(car_id):
+        """
+        Recalculate baseline for a specific car.
+        This is used after import operations to ensure baselines are correct.
+        """
+        # Get the user_id for this car
+        car = Car.query.get(car_id)
+        if not car:
+            return None
+        
+        return BaselineManager.ensure_baseline_for_car(car.user_id, car_id)
+    
+    @staticmethod
     def get_baseline_session(user_id, car_id):
         """Get the baseline session for a specific car"""
         return ChargingSession.query.filter_by(

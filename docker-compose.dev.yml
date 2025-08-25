@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  plugtrack-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount code for development
+      - ./plugtrack:/app
+      # Persist data
+      - ./data:/app/data
+      # Exclude __pycache__ and other Python artifacts
+      - /app/__pycache__
+      - /app/*.pyc
+    environment:
+      - FLASK_APP=plugtrack
+      - FLASK_ENV=development
+      - PYTHONPATH=/app
+    command: flask --app plugtrack run -h 0.0.0.0 -p 8000
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
