@@ -29,6 +29,21 @@ class DerivedMetricsService:
         return any(a in label for a in ("home", "garage", "driveway"))
 
     @staticmethod
+    def classify_session_size(delta_soc: float) -> str:
+        """Classify session size based on SoC delta"""
+        if delta_soc <= 20:
+            return "topup"
+        elif delta_soc <= 50:
+            return "partial"
+        else:
+            return "major"
+
+    @staticmethod
+    def is_low_confidence(delta_miles: float, kwh: float) -> bool:
+        """Determine if session has low confidence due to small window"""
+        return (delta_miles is not None and delta_miles < 15) or (kwh is not None and kwh < 3.0)
+
+    @staticmethod
     def _compute_session_observed_efficiency(session):
         """
         Observed mi/kWh for THIS session:
@@ -201,6 +216,34 @@ class DerivedMetricsService:
         # Home vs public charging
         is_home_charging = session.is_home_charging
         
+        # Calculate delta miles for low confidence detection
+        delta_miles = None
+        if observed is not None:
+            # Get the miles from the observed efficiency calculation
+            start = session.date - timedelta(days=DerivedMetricsService._ANCHOR_HORIZON_DAYS)
+            prev = (ChargingSession.query
+                    .filter(
+                        ChargingSession.user_id == session.user_id,
+                        ChargingSession.car_id == session.car_id,
+                        ChargingSession.odometer.isnot(None),
+                        ChargingSession.is_baseline == False,
+                        ChargingSession.date >= start,
+                        (ChargingSession.date < session.date) |
+                        and_(ChargingSession.date == session.date,
+                             ChargingSession.id < session.id)
+                    )
+                    .order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
+                    .first())
+            if prev and prev.odometer is not None:
+                delta_miles = float(session.odometer - prev.odometer)
+        
+        # Session size classification
+        delta_soc = max(0.0, float(session.soc_to - session.soc_from))
+        size_bucket = DerivedMetricsService.classify_session_size(delta_soc)
+        
+        # Low confidence detection
+        low_confidence = DerivedMetricsService.is_low_confidence(delta_miles, session.charge_delivered_kwh)
+        
         # confidence flag
         if efficiency_source == 'observed_session':
             efficiency_confidence = 'high'
@@ -224,6 +267,9 @@ class DerivedMetricsService:
             'efficiency_used': efficiency if efficiency else None,
             'efficiency_source': efficiency_source,
             'efficiency_confidence': efficiency_confidence,
+            'delta_miles': delta_miles,
+            'size_bucket': size_bucket,
+            'low_confidence': low_confidence,
             'warnings': warnings
         }
 
@@ -301,31 +347,48 @@ class DerivedMetricsService:
         ac_percentage = (ac_sessions / total_sessions * 100) if total_sessions > 0 else 0
         dc_percentage = (dc_sessions / total_sessions * 100) if total_sessions > 0 else 0
         
-        # Calculate total miles and cost per mile (requires car efficiency data)
+        # Calculate kWh-weighted efficiency and total miles
         total_miles = 0
         avg_cost_per_mile = 0
+        weighted_efficiency = 0
         
-        # Get any available car for efficiency calculations if no specific car selected
-        if not car_id:
-            available_car = Car.query.filter_by(user_id=user_id).first()
-            # Try dynamic efficiency first, fall back to car profile
-            dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id)
-            car_efficiency = available_car.efficiency_mpkwh if available_car else None
-            final_efficiency = dynamic_efficiency or car_efficiency
+        # Get sessions with observed efficiency for weighted calculations
+        sessions_with_eff = query.filter(
+            ChargingSession.odometer.isnot(None),
+            ChargingSession.is_baseline == False
+        ).all()
+        
+        if sessions_with_eff:
+            # Calculate kWh-weighted efficiency
+            total_weighted_numerator = 0
+            total_weighted_denominator = 0
             
-            if final_efficiency:
-                total_miles = total_kwh * final_efficiency
-                avg_cost_per_mile = total_cost / total_miles if total_miles > 0 else 0
-        else:
-            car = Car.query.get(car_id)
-            # Try dynamic efficiency first, fall back to car profile
-            dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id, car_id)
-            car_efficiency = car.efficiency_mpkwh if car else None
-            final_efficiency = dynamic_efficiency or car_efficiency
+            for sess in sessions_with_eff:
+                metrics = DerivedMetricsService.calculate_session_metrics(sess, None)
+                if metrics['efficiency_used'] and not metrics['low_confidence']:
+                    total_weighted_numerator += metrics['efficiency_used'] * sess.charge_delivered_kwh
+                    total_weighted_denominator += sess.charge_delivered_kwh
             
-            if final_efficiency:
-                total_miles = total_kwh * final_efficiency
+            if total_weighted_denominator > 0:
+                weighted_efficiency = total_weighted_numerator / total_weighted_denominator
+                total_miles = total_kwh * weighted_efficiency
                 avg_cost_per_mile = total_cost / total_miles if total_miles > 0 else 0
+            else:
+                # Fallback to car efficiency if no observed data
+                if not car_id:
+                    available_car = Car.query.filter_by(user_id=user_id).first()
+                    dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id)
+                    car_efficiency = available_car.efficiency_mpkwh if available_car else None
+                    final_efficiency = dynamic_efficiency or car_efficiency
+                else:
+                    car = Car.query.get(car_id)
+                    dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id, car_id)
+                    car_efficiency = car.efficiency_mpkwh if car else None
+                    final_efficiency = dynamic_efficiency or car_efficiency
+                
+                if final_efficiency:
+                    total_miles = total_kwh * final_efficiency
+                    avg_cost_per_mile = total_cost / total_miles if total_miles > 0 else 0
         
         return {
             'total_sessions': total_sessions,
@@ -334,6 +397,7 @@ class DerivedMetricsService:
             'total_miles': total_miles,
             'avg_cost_per_kwh': avg_cost_per_kwh,
             'avg_cost_per_mile': avg_cost_per_mile,
+            'weighted_efficiency': weighted_efficiency,
             'free_sessions': free_sessions,
             'paid_sessions': paid_sessions,
             'home_public_split': {
@@ -407,12 +471,36 @@ class DerivedMetricsService:
             else:
                 cost_per_kwh.append(0.0)
         
-        # Calculate actual efficiency (mi/kWh) for each day based on session data
+        # Calculate kWh-weighted efficiency (mi/kWh) for each day based on session data
         efficiency = []
         for d in daily_data:
             if d.total_kwh > 0:
-                # Calculate actual efficiency for this day based on sessions
-                daily_efficiency = DerivedMetricsService._calculate_daily_efficiency(user_id, d.date, car_id)
+                # Get sessions for this day to calculate weighted efficiency
+                daily_sessions = query.filter(
+                    ChargingSession.date == d.date,
+                    ChargingSession.odometer.isnot(None),
+                    ChargingSession.is_baseline == False
+                ).all()
+                
+                if daily_sessions:
+                    # Calculate kWh-weighted efficiency for this day
+                    daily_weighted_numerator = 0
+                    daily_weighted_denominator = 0
+                    
+                    for sess in daily_sessions:
+                        metrics = DerivedMetricsService.calculate_session_metrics(sess, None)
+                        if metrics['efficiency_used'] and not metrics['low_confidence']:
+                            daily_weighted_numerator += metrics['efficiency_used'] * sess.charge_delivered_kwh
+                            daily_weighted_denominator += sess.charge_delivered_kwh
+                    
+                    if daily_weighted_denominator > 0:
+                        daily_efficiency = daily_weighted_numerator / daily_weighted_denominator
+                    else:
+                        # Fallback to simple average if no observed data
+                        daily_efficiency = DerivedMetricsService._calculate_daily_efficiency(user_id, d.date, car_id)
+                else:
+                    daily_efficiency = 0
+                
                 efficiency.append(daily_efficiency)
             else:
                 efficiency.append(0)
@@ -421,53 +509,20 @@ class DerivedMetricsService:
         ac_energy = [float(d.ac_kwh or 0) for d in ac_dc_data]
         dc_energy = [float(d.dc_kwh or 0) for d in ac_dc_data]
         
-        # Calculate cost per mile for each day (requires car efficiency data)
+        # Calculate cost per mile for each day using weighted efficiency
         cost_per_mile = []
-        # Use the same car logic for cost per mile
-        if not car_id:
-            available_car = Car.query.filter_by(user_id=user_id).first()
-            # Use the same efficiency calculation as above
-            dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id)
-            car_efficiency = available_car.efficiency_mpkwh if available_car else None
-            final_efficiency = dynamic_efficiency or car_efficiency
-            
-            if final_efficiency:
-                for d in daily_data:
-                    date_str = str(d.date)
-                    if d.total_kwh > 0:
-                        miles = d.total_kwh * final_efficiency
-                        if date_str in cost_lookup:
-                            daily_cost = cost_lookup[date_str]['daily_cost']
-                            cost_per_mile.append(daily_cost / miles if miles > 0 else 0)
-                        else:
-                            # Free charging day
-                            cost_per_mile.append(0)
-                    else:
-                        cost_per_mile.append(0)
+        for i, d in enumerate(daily_data):
+            date_str = str(d.date)
+            if d.total_kwh > 0 and efficiency[i] > 0:
+                miles = d.total_kwh * efficiency[i]
+                if date_str in cost_lookup:
+                    daily_cost = cost_lookup[date_str]['daily_cost']
+                    cost_per_mile.append(daily_cost / miles if miles > 0 else 0)
+                else:
+                    # Free charging day
+                    cost_per_mile.append(0)
             else:
-                cost_per_mile = [0] * len(dates)
-        else:
-            car = Car.query.get(car_id)
-            # Use the same efficiency calculation as above
-            dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id, car_id)
-            car_efficiency = car.efficiency_mpkwh if car else None
-            final_efficiency = dynamic_efficiency or car_efficiency
-            
-            if final_efficiency:
-                for d in daily_data:
-                    date_str = str(d.date)
-                    if d.total_kwh > 0:
-                        miles = d.total_kwh * final_efficiency
-                        if date_str in cost_lookup:
-                            daily_cost = cost_lookup[date_str]['daily_cost']
-                            cost_per_mile.append(daily_cost / miles if miles > 0 else 0)
-                        else:
-                            # Free charging day
-                            cost_per_mile.append(0)
-                    else:
-                        cost_per_mile.append(0)
-            else:
-                cost_per_mile = [0] * len(dates)
+                cost_per_mile.append(0)
         
         return {
             'dates': dates,

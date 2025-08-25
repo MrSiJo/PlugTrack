@@ -5,7 +5,27 @@
 
 {% block title %}Charging Sessions - PlugTrack{% endblock %}
 
+{% block extra_head %}
+<style>
+    .card-header[data-bs-toggle="collapse"] {
+        transition: background-color 0.2s ease;
+    }
+    
+    .card-header[data-bs-toggle="collapse"]:hover {
+        background-color: #e9ecef !important;
+    }
+    
+    .card-header[data-bs-toggle="collapse"] .bi-chevron-down,
+    .card-header[data-bs-toggle="collapse"] .bi-chevron-up {
+        transition: transform 0.2s ease;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
+<!-- Include the chip selector script -->
+<script src="{{ url_for('static', filename='js/chip_selector.js') }}"></script>
+
 <div class="row mb-4">
     <div class="col-12 d-flex justify-content-between align-items-center">
         <h1><i class="bi bi-battery-charging"></i> Charging Sessions</h1>
@@ -24,66 +44,74 @@
 <div class="row mb-4">
     <div class="col-12">
         <div class="card">
-            <div class="card-header">
+            <div class="card-header bg-light d-flex justify-content-between align-items-center" 
+                 style="cursor: pointer;" 
+                 data-bs-toggle="collapse" 
+                 data-bs-target="#sessionFilters" 
+                 aria-expanded="false" 
+                 aria-controls="sessionFilters">
                 <h5 class="mb-0"><i class="bi bi-funnel"></i> Filters</h5>
+                <i class="bi bi-chevron-{% if date_from or date_to or selected_car_id or selected_charge_type or selected_network %}up{% else %}down{% endif %}" id="sessionFiltersChevron"></i>
             </div>
-            <div class="card-body">
-                <form method="GET" action="{{ url_for('charging_sessions.index') }}" class="row g-3">
-                    <div class="col-md-2">
-                        <label for="date_from" class="form-label">Date From</label>
-                        <input type="date" class="form-control" id="date_from" name="date_from" 
-                               value="{{ date_from.strftime('%Y-%m-%d') if date_from }}">
-                    </div>
-                    <div class="col-md-2">
-                        <label for="date_to" class="form-label">Date To</label>
-                        <input type="date" class="form-control" id="date_to" name="date_to" 
-                               value="{{ date_to.strftime('%Y-%m-%d') if date_to }}">
-                    </div>
-                    <div class="col-md-2">
-                        <label for="car_id" class="form-label">Car</label>
-                        <select class="form-select" id="car_id" name="car_id">
-                            <option value="">All Cars</option>
-                            {% for car in cars %}
-                            <option value="{{ car.id }}" {% if selected_car_id == car.id %}selected{% endif %}>
-                                {{ car.display_name }}
-                            </option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-md-2">
-                        <label for="charge_type" class="form-label">Type</label>
-                        <select class="form-select" id="charge_type" name="charge_type">
-                            <option value="">All Types</option>
-                            {% for type in charge_types %}
-                            <option value="{{ type }}" {% if selected_charge_type == type %}selected{% endif %}>
-                                {{ type }}
-                            </option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-md-2">
-                        <label for="charge_network" class="form-label">Network</label>
-                        <select class="form-select" id="charge_network" name="charge_network">
-                            <option value="">All Networks</option>
-                            {% for network in networks %}
-                            <option value="{{ network }}" {% if selected_network == network %}selected{% endif %}>
-                                {{ network }}
-                            </option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label">&nbsp;</label>
-                        <div>
-                            <button type="submit" class="btn btn-primary">
-                                <i class="bi bi-search"></i> Apply
-                            </button>
-                            <a href="{{ url_for('charging_sessions.index') }}" class="btn btn-outline-secondary">
-                                <i class="bi bi-x-circle"></i> Clear
-                            </a>
+            <div class="collapse {% if date_from or date_to or selected_car_id or selected_charge_type or selected_network %}show{% endif %}" id="sessionFilters">
+                <div class="card-body">
+                    <form method="GET" action="{{ url_for('charging_sessions.index') }}" class="row g-3">
+                        <div class="col-md-2">
+                            <label for="date_from" class="form-label">Date From</label>
+                            <input type="date" class="form-control" id="date_from" name="date_from" 
+                                   value="{{ date_from.strftime('%Y-%m-%d') if date_from }}">
                         </div>
-                    </div>
-                </form>
+                        <div class="col-md-2">
+                            <label for="date_to" class="form-label">Date To</label>
+                            <input type="date" class="form-control" id="date_to" name="date_to" 
+                                   value="{{ date_to.strftime('%Y-%m-%d') if date_to }}">
+                        </div>
+                        <div class="col-md-2">
+                            <label for="car_id" class="form-label">Car</label>
+                            <select class="form-select" id="car_id" name="car_id">
+                                <option value="">All Cars</option>
+                                {% for car in cars %}
+                                <option value="{{ car.id }}" {% if selected_car_id == car.id %}selected{% endif %}>
+                                    {{ car.display_name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label for="charge_type" class="form-label">Type</label>
+                            <select class="form-select" id="charge_type" name="charge_type">
+                                <option value="">All Types</option>
+                                {% for type in charge_types %}
+                                <option value="{{ type }}" {% if selected_charge_type == type %}selected{% endif %}>
+                                    {{ type }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label for="charge_network" class="form-label">Network</label>
+                            <select class="form-select" id="charge_network" name="charge_network">
+                                <option value="">All Networks</option>
+                                {% for network in networks %}
+                                <option value="{{ network }}" {% if selected_network == network %}selected{% endif %}>
+                                    {{ network }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">&nbsp;</label>
+                            <div>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-search"></i> Apply
+                                </button>
+                                <a href="{{ url_for('charging_sessions.index') }}" class="btn btn-outline-secondary">
+                                    <i class="bi bi-x-circle"></i> Clear
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
@@ -233,6 +261,22 @@ let currentBlendPlan = null;
 document.addEventListener('DOMContentLoaded', function() {
     loadInsightChips();
     initializeModals();
+    
+    // Handle session filters collapse/expand
+    const sessionFilters = document.getElementById('sessionFilters');
+    const sessionFiltersChevron = document.getElementById('sessionFiltersChevron');
+    
+    if (sessionFilters && sessionFiltersChevron) {
+        sessionFilters.addEventListener('show.bs.collapse', function() {
+            sessionFiltersChevron.classList.remove('bi-chevron-down');
+            sessionFiltersChevron.classList.add('bi-chevron-up');
+        });
+        
+        sessionFilters.addEventListener('hide.bs.collapse', function() {
+            sessionFiltersChevron.classList.remove('bi-chevron-up');
+            sessionFiltersChevron.classList.add('bi-chevron-down');
+        });
+    }
 });
 
 // Initialize all modals
@@ -290,7 +334,7 @@ function loadSessionInsights(sessionId, placeholder) {
         });
 }
 
-// Render insight chips
+// Render insight chips using the new chip selector
 function renderInsightChips(placeholder, metrics) {
     // Check if we have valid efficiency data
     if (!metrics.efficiency_used || metrics.efficiency_used === null) {
@@ -298,48 +342,14 @@ function renderInsightChips(placeholder, metrics) {
         return;
     }
 
-    const chipsHtml = `
-        <div class="d-flex flex-wrap gap-1 mb-2">
-            <!-- mi/kWh chip -->
-            <span class="badge bg-info" title="Miles gained per kWh: ${metrics.miles_gained ? metrics.miles_gained.toFixed(1) : '0.0'} mi / ${metrics.efficiency_used.toFixed(1)} mi/kWh">
-                ${metrics.efficiency_used.toFixed(1)} mi/kWh
-            </span>
-            
-            <!-- £/mi chip -->
-            <span class="badge ${getCostBadgeClass(metrics.cost_per_mile * 100, metrics.threshold_ppm)}" 
-                  title="Cost per mile: £${metrics.cost_per_mile ? metrics.cost_per_mile.toFixed(3) : '0.000'} = ${(metrics.cost_per_mile * 100).toFixed(1)}p/mi">
-                ${(metrics.cost_per_mile * 100).toFixed(1)}p/mi
-            </span>
-            
-            <!-- %/kWh chip -->
-            <span class="badge bg-secondary" title="Battery percentage added per kWh: ${metrics.battery_added_percent || 0}% / ${metrics.percent_per_kwh ? metrics.percent_per_kwh.toFixed(1) : '0.0'}%/kWh">
-                ${metrics.percent_per_kwh ? metrics.percent_per_kwh.toFixed(1) : '0.0'}%/kWh
-            </span>
-            
-            <!-- avg kW chip -->
-            ${metrics.avg_power_kw > 0 ? `
-            <span class="badge bg-primary" title="Average power: ${metrics.avg_power_kw.toFixed(1)} kW">
-                ${metrics.avg_power_kw.toFixed(1)} kW
-            </span>
-            ` : ''}
-            
-            <!-- Petrol comparison badge -->
-            <span class="badge ${metrics.is_cheaper_than_petrol ? 'bg-success' : 'bg-danger'}" 
-                  title="This charging session is ${metrics.is_cheaper_than_petrol ? 'cheaper' : 'more expensive'} than petrol (threshold: ${metrics.threshold_ppm ? metrics.threshold_ppm.toFixed(1) : '0.0'}p/mi)">
-                ${metrics.is_cheaper_than_petrol ? '✓ cheaper' : '× dearer'}
-            </span>
-        </div>
-    `;
+    // Use the new chip selector to get up to 3 chips
+    const chips = selectInlineChips(metrics);
     
-    placeholder.innerHTML = chipsHtml;
+    // Render the chips
+    renderInlineChips(placeholder, chips);
 }
 
-// Get badge class based on cost comparison
-function getCostBadgeClass(costPerMileP, thresholdPpm) {
-    if (costPerMileP <= thresholdPpm * 0.75) return 'bg-success';
-    if (costPerMileP <= thresholdPpm * 1.25) return 'bg-warning';
-    return 'bg-danger';
-}
+
 
 // Show session details modal
 function showSessionDetails(sessionId) {
@@ -423,6 +433,30 @@ function renderSessionDetails(data) {
     content.querySelector('.session-soc-range').textContent = `${data.metrics.battery_added_percent}%`;
     content.querySelector('.session-percent-per-kwh').textContent = `${data.metrics.percent_per_kwh.toFixed(1)}%`;
     content.querySelector('.session-avg-power').textContent = `${data.metrics.avg_power_kw.toFixed(1)} kW`;
+    
+    // Populate session classification
+    const sizeBadge = content.querySelector('.session-size-badge');
+    const confidenceBadge = content.querySelector('.session-confidence-badge');
+    
+    // Session size badge
+    if (data.metrics.size_bucket) {
+        const sizeText = data.metrics.size_bucket.charAt(0).toUpperCase() + data.metrics.size_bucket.slice(1);
+        sizeBadge.textContent = sizeText;
+        sizeBadge.className = 'badge bg-secondary session-size-badge';
+    }
+    
+    // Confidence badge
+    if (data.metrics.low_confidence) {
+        confidenceBadge.textContent = 'Low';
+        confidenceBadge.className = 'badge bg-warning session-confidence-badge';
+        // Add tooltip with reason
+        const deltaMiles = data.metrics.delta_miles || 'N/A';
+        const kwh = data.session.charge_delivered_kwh || 'N/A';
+        confidenceBadge.title = `Δ${deltaMiles} mi, ${kwh} kWh — noisy window`;
+    } else {
+        confidenceBadge.textContent = 'High';
+        confidenceBadge.className = 'badge bg-success session-confidence-badge';
+    }
     
     // Populate comparative context
     renderComparativeContext(content, data.deltas, data.rolling_averages);

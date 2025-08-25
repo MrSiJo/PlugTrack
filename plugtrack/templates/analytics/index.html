@@ -16,7 +16,19 @@
         height: 300px;
         margin-bottom: 2rem;
     }
-
+    
+    .card-header[data-bs-toggle="collapse"] {
+        transition: background-color 0.2s ease;
+    }
+    
+    .card-header[data-bs-toggle="collapse"]:hover {
+        background-color: #e9ecef !important;
+    }
+    
+    .card-header[data-bs-toggle="collapse"] .bi-chevron-down,
+    .card-header[data-bs-toggle="collapse"] .bi-chevron-up {
+        transition: transform 0.2s ease;
+    }
 </style>
 {% endblock %}
 
@@ -32,47 +44,55 @@
 <div class="row mb-4">
     <div class="col-12">
         <div class="card">
-            <div class="card-header">
+            <div class="card-header bg-light d-flex justify-content-between align-items-center" 
+                 style="cursor: pointer;" 
+                 data-bs-toggle="collapse" 
+                 data-bs-target="#analyticsFilters" 
+                 aria-expanded="false" 
+                 aria-controls="analyticsFilters">
                 <h5 class="mb-0"><i class="bi bi-funnel"></i> Filters</h5>
+                <i class="bi bi-chevron-down" id="analyticsFiltersChevron"></i>
             </div>
-            <div class="card-body">
-                <form method="GET" action="{{ url_for('analytics.index') }}" id="filters-form">
-                    <div class="row">
-                        <div class="col-md-3">
-                            <label for="date_from" class="form-label">Date From</label>
-                            <input type="date" class="form-control" id="date_from" name="date_from" 
-                                   value="{{ date_from.strftime('%Y-%m-%d') if date_from }}">
-                        </div>
-                        <div class="col-md-3">
-                            <label for="date_to" class="form-label">Date To</label>
-                            <input type="date" class="form-control" id="date_to" name="date_to" 
-                                   value="{{ date_to.strftime('%Y-%m-%d') if date_to }}">
-                        </div>
-                        <div class="col-md-3">
-                            <label for="car_id" class="form-label">Car</label>
-                            <select class="form-select" id="car_id" name="car_id">
-                                <option value="">All Cars</option>
-                                {% for car in cars %}
-                                <option value="{{ car.id }}" {% if selected_car and selected_car.id == car.id %}selected{% endif %}>
-                                    {{ car.display_name }}
-                                </option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">&nbsp;</label>
-                            <div>
-                                <button type="submit" class="btn btn-primary">
-                                    <i class="bi bi-search"></i> Apply Filters
-                                </button>
-                                <a href="{{ url_for('analytics.export') }}?{{ request.query_string.decode() }}" 
-                                   class="btn btn-outline-secondary">
-                                    <i class="bi bi-download"></i> Export CSV
-                                </a>
+            <div class="collapse" id="analyticsFilters">
+                <div class="card-body">
+                    <form method="GET" action="{{ url_for('analytics.index') }}" id="filters-form">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <label for="date_from" class="form-label">Date From</label>
+                                <input type="date" class="form-control" id="date_from" name="date_from" 
+                                       value="{{ date_from.strftime('%Y-%m-%d') if date_from }}">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="date_to" class="form-label">Date To</label>
+                                <input type="date" class="form-control" id="date_to" name="date_to" 
+                                       value="{{ date_to.strftime('%Y-%m-%d') if date_to }}">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="car_id" class="form-label">Car</label>
+                                <select class="form-select" id="car_id" name="car_id">
+                                    <option value="">All Cars</option>
+                                    {% for car in cars %}
+                                    <option value="{{ car.id }}" {% if selected_car and selected_car.id == car.id %}selected{% endif %}>
+                                        {{ car.display_name }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">&nbsp;</label>
+                                <div>
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="bi bi-search"></i> Apply Filters
+                                    </button>
+                                    <a href="{{ url_for('analytics.export') }}?{{ request.query_string.decode() }}" 
+                                       class="btn btn-outline-secondary">
+                                        <i class="bi bi-download"></i> Export CSV
+                                    </a>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </form>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
@@ -169,7 +189,8 @@
     <div class="col-md-6">
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-speedometer2"></i> Efficiency Trend (mi/kWh)</h5>
+                <h5 class="mb-0"><i class="bi bi-speedometer2"></i> Weighted Efficiency Trend (mi/kWh)</h5>
+                <small class="text-muted">kWh-weighted to reduce noise from small sessions</small>
             </div>
             <div class="card-body">
                 <div class="chart-container">
@@ -314,7 +335,7 @@ new Chart(efficiencyCtx, {
     data: {
         labels: {{ chart_data.dates | tojson }},
         datasets: [{
-            label: 'Efficiency (mi/kWh)',
+            label: 'Weighted Efficiency (mi/kWh)',
             data: {{ chart_data.efficiency | tojson }},
             borderColor: chartColors.info,
             backgroundColor: chartColors.info + '20',
@@ -335,7 +356,7 @@ new Chart(efficiencyCtx, {
                 beginAtZero: true,
                 title: {
                     display: true,
-                    text: 'Efficiency (mi/kWh)'
+                    text: 'Weighted Efficiency (mi/kWh)'
                 }
             }
         }
@@ -379,6 +400,22 @@ document.getElementById('filters-form').addEventListener('change', function() {
 window.recommendations = {{ recommendations|tojson|safe }};
 
 document.addEventListener('DOMContentLoaded', function() {
+    // Handle analytics filters collapse/expand
+    const analyticsFilters = document.getElementById('analyticsFilters');
+    const analyticsFiltersChevron = document.getElementById('analyticsFiltersChevron');
+    
+    if (analyticsFilters && analyticsFiltersChevron) {
+        analyticsFilters.addEventListener('show.bs.collapse', function() {
+            analyticsFiltersChevron.classList.remove('bi-chevron-down');
+            analyticsFiltersChevron.classList.add('bi-chevron-up');
+        });
+        
+        analyticsFilters.addEventListener('hide.bs.collapse', function() {
+            analyticsFiltersChevron.classList.remove('bi-chevron-up');
+            analyticsFiltersChevron.classList.add('bi-chevron-down');
+        });
+    }
+    
     // Update recommendations dropdown
     if (typeof updateRecommendationsDropdown === 'function') {
         updateRecommendationsDropdown(window.recommendations);

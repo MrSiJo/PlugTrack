@@ -2,6 +2,23 @@
 
 {% block title %}Dashboard - PlugTrack{% endblock %}
 
+{% block extra_head %}
+<style>
+    .card-header[data-bs-toggle="collapse"] {
+        transition: background-color 0.2s ease;
+    }
+    
+    .card-header[data-bs-toggle="collapse"]:hover {
+        background-color: #e9ecef !important;
+    }
+    
+    .card-header[data-bs-toggle="collapse"] .bi-chevron-down,
+    .card-header[data-bs-toggle="collapse"] .bi-chevron-up {
+        transition: transform 0.2s ease;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row mb-4">
     <div class="col-12">
@@ -87,45 +104,53 @@
 <div class="row mb-4">
     <div class="col-12">
         <div class="card">
-            <div class="card-header">
+            <div class="card-header bg-light d-flex justify-content-between align-items-center" 
+                 style="cursor: pointer;" 
+                 data-bs-toggle="collapse" 
+                 data-bs-target="#dashboardFilters" 
+                 aria-expanded="false" 
+                 aria-controls="dashboardFilters">
                 <h5 class="mb-0"><i class="bi bi-funnel"></i> Quick Filters</h5>
+                <i class="bi bi-chevron-down" id="dashboardFiltersChevron"></i>
             </div>
-            <div class="card-body">
-                <form method="GET" action="{{ url_for('dashboard.index') }}" class="row g-3">
-                    <div class="col-md-3">
-                        <label for="date_from" class="form-label">Date From</label>
-                        <input type="date" class="form-control" id="date_from" name="date_from" 
-                               value="{{ date_from.strftime('%Y-%m-%d') if date_from }}">
-                    </div>
-                    <div class="col-md-3">
-                        <label for="date_to" class="form-label">Date To</label>
-                        <input type="date" class="form-control" id="date_to" name="date_to" 
-                               value="{{ date_to.strftime('%Y-%m-%d') if date_to }}">
-                    </div>
-                    <div class="col-md-3">
-                        <label for="car_id" class="form-label">Car</label>
-                        <select class="form-select" id="car_id" name="car_id">
-                            <option value="">All Cars</option>
-                            {% for car in cars %}
-                            <option value="{{ car.id }}" {% if selected_car and selected_car.id == car.id %}selected{% endif %}>
-                                {{ car.display_name }}
-                            </option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <label class="form-label">&nbsp;</label>
-                        <div>
-                            <button type="submit" class="btn btn-primary">
-                                <i class="bi bi-search"></i> Apply
-                            </button>
-                            <a href="{{ url_for('analytics.index') }}?{{ request.query_string.decode() }}" 
-                               class="btn btn-outline-info">
-                                <i class="bi bi-graph-up"></i> Full Analytics
-                            </a>
+            <div class="collapse" id="dashboardFilters">
+                <div class="card-body">
+                    <form method="GET" action="{{ url_for('dashboard.index') }}" class="row g-3">
+                        <div class="col-md-3">
+                            <label for="date_from" class="form-label">Date From</label>
+                            <input type="date" class="form-control" id="date_from" name="date_from" 
+                                   value="{{ date_from.strftime('%Y-%m-%d') if date_from }}">
                         </div>
-                    </div>
-                </form>
+                        <div class="col-md-3">
+                            <label for="date_to" class="form-label">Date To</label>
+                            <input type="date" class="form-control" id="date_to" name="date_to" 
+                                   value="{{ date_to.strftime('%Y-%m-%d') if date_to }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="car_id" class="form-label">Car</label>
+                            <select class="form-select" id="car_id" name="car_id">
+                                <option value="">All Cars</option>
+                                {% for car in cars %}
+                                <option value="{{ car.id }}" {% if selected_car and selected_car.id == car.id %}selected{% endif %}>
+                                    {{ car.display_name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">&nbsp;</label>
+                            <div>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-search"></i> Apply
+                                </button>
+                                <a href="{{ url_for('analytics.index') }}?{{ request.query_string.decode() }}" 
+                                   class="btn btn-outline-info">
+                                    <i class="bi bi-graph-up"></i> Full Analytics
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
@@ -173,7 +198,7 @@
 
 <!-- Second Row of Metrics -->
 <div class="row mb-4">
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
                 <i class="bi bi-arrow-right-circle text-danger" style="font-size: 2rem;"></i>
@@ -182,7 +207,17 @@
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-speedometer text-primary" style="font-size: 2rem;"></i>
+                <h4 class="mt-2">{{ "%.2f"|format(metrics.weighted_efficiency) if metrics.weighted_efficiency else "N/A" }}</h4>
+                <p class="text-muted mb-0">Weighted Efficiency</p>
+                <small class="text-muted">kWh-weighted mi/kWh</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
                 <i class="bi bi-pie-chart text-secondary" style="font-size: 2rem;"></i>
@@ -191,7 +226,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
                 <i class="bi bi-gift text-success" style="font-size: 2rem;"></i>
@@ -348,6 +383,22 @@ document.addEventListener('DOMContentLoaded', function() {
             if (carNameCollapsed) {
                 carNameCollapsed.style.display = 'inline';
             }
+        });
+    }
+    
+    // Handle dashboard filters collapse/expand
+    const dashboardFilters = document.getElementById('dashboardFilters');
+    const dashboardFiltersChevron = document.getElementById('dashboardFiltersChevron');
+    
+    if (dashboardFilters && dashboardFiltersChevron) {
+        dashboardFilters.addEventListener('show.bs.collapse', function() {
+            dashboardFiltersChevron.classList.remove('bi-chevron-down');
+            dashboardFiltersChevron.classList.add('bi-chevron-up');
+        });
+        
+        dashboardFilters.addEventListener('hide.bs.collapse', function() {
+            dashboardFiltersChevron.classList.remove('bi-chevron-up');
+            dashboardFiltersChevron.classList.add('bi-chevron-down');
         });
     }
     
