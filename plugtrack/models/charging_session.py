@@ -20,6 +20,7 @@ class ChargingSession(db.Model):
     soc_to = db.Column(db.Integer, nullable=False)
     notes = db.Column(db.Text, nullable=True)
     venue_type = db.Column(db.String(20), nullable=True)  # 'home' or 'public' - optional for Phase 3
+    is_baseline = db.Column(db.Boolean, default=False, nullable=False)  # Marks earliest session per car
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     def __repr__(self):

@@ -38,6 +38,12 @@ def plan():
         if not car:
             return jsonify({'error': 'Car not found'}), 404
         
+        # Get user's home charging speed setting
+        user_home_power_kw = float(Settings.get_setting(current_user.id, 'home_charging_speed_kw', '7.4'))
+        
+        # Use provided home_power_kw or fall back to user setting
+        effective_home_power_kw = home_power_kw if home_power_kw and home_power_kw > 0 else user_home_power_kw
+        
         # Calculate blended charge
         blend_result = BlendedChargeService.calculate_blended_charge(
             start_soc=start_soc,
@@ -47,11 +53,11 @@ def plan():
             home_cost_per_kwh=home_cost_per_kwh,
             dc_cost_per_kwh=dc_cost_per_kwh,
             car_battery_kwh=car.battery_kwh,
-            home_power_kw=home_power_kw
+            home_power_kw=effective_home_power_kw
         )
         
-        # Format for display
-        efficiency = car.efficiency_mpkwh or float(Settings.get_setting(current_user.id, 'default_efficiency_mpkwh', '3.7'))
+        # Format for display - use car efficiency or fall back to user's default
+        efficiency = car.efficiency_mpkwh if car and car.efficiency_mpkwh else float(Settings.get_setting(current_user.id, 'default_efficiency_mpkwh', '3.7'))
         formatted_result = BlendedChargeService.format_blend_summary(blend_result, efficiency)
         
         # Add additional context
@@ -66,7 +72,7 @@ def plan():
             'rates': {
                 'dc_cost_per_kwh': dc_cost_per_kwh,
                 'home_cost_per_kwh': home_cost_per_kwh,
-                'home_power_kw': home_power_kw
+                'home_power_kw': effective_home_power_kw
             }
         }
         
@@ -90,9 +96,21 @@ def suggest():
         if not car:
             return jsonify({'error': 'Car not found'}), 404
         
-        # Get home rate from settings
-        home_rate_p_per_kwh = float(Settings.get_setting(current_user.id, 'home_rate_p_per_kwh', '20.0'))
-        home_cost_per_kwh = home_rate_p_per_kwh / 100
+        # Get home rate from settings (using first available home charging rate)
+        home_rate_setting = Settings.query.filter_by(
+            user_id=current_user.id, 
+            key='home_charging_rate'
+        ).order_by(Settings.id.desc()).first()
+        
+        if home_rate_setting:
+            try:
+                import json
+                rate_data = json.loads(home_rate_setting.value)
+                home_cost_per_kwh = float(rate_data.get('rate_per_kwh', 0.20))
+            except (json.JSONDecodeError, KeyError, ValueError):
+                home_cost_per_kwh = 0.20
+        else:
+            home_cost_per_kwh = 0.20
         
         # Calculate optimal DC stop
         optimal_stop = BlendedChargeService.get_optimal_dc_stop(

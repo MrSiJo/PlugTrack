@@ -6,7 +6,10 @@ Run this script after setting up your database to add the recommended indexes.
 
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add the parent directory (plugtrack) to the Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
 
 from __init__ import create_app
 from models.user import db

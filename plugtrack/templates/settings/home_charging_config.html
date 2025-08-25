@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - PlugTrack{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{{ url_for('settings.index') }}">Settings</a></li>
+                <li class="breadcrumb-item active">Home Charging Configuration</li>
+            </ol>
+        </nav>
+        <h1><i class="bi bi-house"></i> {{ title }}</h1>
+        <p class="text-muted">Configure your home charging settings and location identification.</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Home Charging Configuration</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    {{ form.hidden_tag() }}
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.home_charging_speed_kw.label(class="form-label") }}
+                                {{ form.home_charging_speed_kw(class="form-control", placeholder="e.g., 7.4") }}
+                                {% if form.home_charging_speed_kw.errors %}
+                                    <div class="invalid-feedback d-block">
+                                        {% for error in form.home_charging_speed_kw.errors %}
+                                            {{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                                <small class="text-muted">{{ form.home_charging_speed_kw.description }}</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.home_aliases_csv.label(class="form-label") }}
+                                {{ form.home_aliases_csv(class="form-control", placeholder="e.g., home,house,garage") }}
+                                {% if form.home_aliases_csv.errors %}
+                                    <div class="invalid-feedback d-block">
+                                        {% for error in form.home_aliases_csv.errors %}
+                                            {{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                                <small class="text-muted">{{ form.home_aliases_csv.description }}</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> 
+                        <strong>About these settings:</strong> The home charger speed is used for calculating charging times and costs. 
+                        The location keywords help the system automatically identify when you're charging at home vs. public locations.
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check"></i> Save Configuration
+                        </button>
+                        <a href="{{ url_for('settings.index') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-x"></i> Cancel
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

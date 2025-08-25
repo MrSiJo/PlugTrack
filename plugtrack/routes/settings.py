@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from models.user import db
 from models.settings import Settings
-from services.forms import HomeChargingRateForm
+from services.forms import HomeChargingRateForm, HomeChargingSettingsForm, EfficiencySettingsForm, PetrolComparisonForm
 from services.encryption import EncryptionService
 from datetime import datetime
 
@@ -23,6 +23,18 @@ def get_currency_info():
         'current_currency': currency_setting,
         'current_currency_symbol': currency_symbols.get(currency_setting, '£')
     }
+
+def get_phase3_settings():
+    """Get current Phase 3 settings for the user"""
+    return {
+        'home_charging_speed_kw': Settings.get_setting(current_user.id, 'home_charging_speed_kw', '7.4'),
+        'home_aliases_csv': Settings.get_setting(current_user.id, 'home_aliases_csv', 'home,house,garage'),
+        'default_efficiency_mpkwh': Settings.get_setting(current_user.id, 'default_efficiency_mpkwh', '3.7'),
+        'petrol_price_p_per_litre': Settings.get_setting(current_user.id, 'petrol_price_p_per_litre', '128.9'),
+        'petrol_mpg': Settings.get_setting(current_user.id, 'petrol_mpg', '60.0')
+    }
+
+from utils.petrol_calculations import calculate_petrol_threshold_p_per_kwh
 
 @settings_bp.route('/settings')
 @login_required
@@ -49,8 +61,20 @@ def index():
     # Get currency info
     currency_info = get_currency_info()
     
+    # Get Phase 3 settings
+    phase3_settings = get_phase3_settings()
+    
+    # Calculate petrol threshold
+    petrol_threshold = calculate_petrol_threshold_p_per_kwh(
+        float(phase3_settings['petrol_price_p_per_litre']),
+        float(phase3_settings['petrol_mpg']),
+        float(phase3_settings['default_efficiency_mpkwh'])
+    )
+    
     return render_template('settings/index.html', 
                          home_rates=parsed_rates,
+                         phase3_settings=phase3_settings,
+                         petrol_threshold=petrol_threshold,
                          **currency_info)
 
 @settings_bp.route('/settings/update-currency', methods=['POST'])
@@ -152,6 +176,70 @@ def delete_home_rate(id):
     db.session.commit()
     flash('Home charging rate deleted successfully!', 'success')
     return redirect(url_for('settings.index'))
+
+@settings_bp.route('/settings/home-charging/config', methods=['GET', 'POST'])
+@login_required
+def home_charging_config():
+    """Configure home charging settings (speed and aliases)"""
+    form = HomeChargingSettingsForm()
+    
+    if request.method == 'GET':
+        # Pre-populate with current values
+        current_settings = get_phase3_settings()
+        form.home_charging_speed_kw.data = float(current_settings['home_charging_speed_kw'])
+        form.home_aliases_csv.data = current_settings['home_aliases_csv']
+    
+    if form.validate_on_submit():
+        # Update settings
+        Settings.set_setting(current_user.id, 'home_charging_speed_kw', str(form.home_charging_speed_kw.data))
+        Settings.set_setting(current_user.id, 'home_aliases_csv', form.home_aliases_csv.data)
+        
+        flash('Home charging configuration updated successfully!', 'success')
+        return redirect(url_for('settings.index'))
+    
+    return render_template('settings/home_charging_config.html', form=form, title='Home Charging Configuration')
+
+@settings_bp.route('/settings/efficiency', methods=['GET', 'POST'])
+@login_required
+def efficiency_settings():
+    """Configure efficiency and comparison settings"""
+    form = EfficiencySettingsForm()
+    
+    if request.method == 'GET':
+        # Pre-populate with current values
+        current_settings = get_phase3_settings()
+        form.default_efficiency_mpkwh.data = float(current_settings['default_efficiency_mpkwh'])
+    
+    if form.validate_on_submit():
+        # Update settings
+        Settings.set_setting(current_user.id, 'default_efficiency_mpkwh', str(form.default_efficiency_mpkwh.data))
+        
+        flash('Efficiency settings updated successfully!', 'success')
+        return redirect(url_for('settings.index'))
+    
+    return render_template('settings/efficiency_settings.html', form=form, title='Efficiency Settings')
+
+@settings_bp.route('/settings/petrol-comparison', methods=['GET', 'POST'])
+@login_required
+def petrol_comparison():
+    """Configure petrol comparison settings"""
+    form = PetrolComparisonForm()
+    
+    if request.method == 'GET':
+        # Pre-populate with current values
+        current_settings = get_phase3_settings()
+        form.petrol_price_p_per_litre.data = float(current_settings['petrol_price_p_per_litre'])
+        form.petrol_mpg.data = float(current_settings['petrol_mpg'])
+    
+    if form.validate_on_submit():
+        # Update settings
+        Settings.set_setting(current_user.id, 'petrol_price_p_per_litre', str(form.petrol_price_p_per_litre.data))
+        Settings.set_setting(current_user.id, 'petrol_mpg', str(form.petrol_mpg.data))
+        
+        flash('Petrol comparison settings updated successfully!', 'success')
+        return redirect(url_for('settings.index'))
+    
+    return render_template('settings/petrol_comparison.html', form=form, title='Petrol Comparison Settings')
 
 @settings_bp.route('/settings/notifications')
 @login_required

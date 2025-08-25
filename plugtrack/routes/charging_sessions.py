@@ -6,6 +6,7 @@ from services.forms import ChargingSessionForm
 from services.reports import ReportsService
 from services.derived_metrics import DerivedMetricsService
 from services.hints import HintsService
+from services.baseline_manager import BaselineManager
 from datetime import datetime, timedelta
 
 charging_sessions_bp = Blueprint('charging_sessions', __name__)
@@ -100,6 +101,10 @@ def new():
         
         db.session.add(session)
         db.session.commit()
+        
+        # Ensure baseline is properly set for this car
+        BaselineManager.ensure_baseline_for_car(current_user.id, form.car_id.data)
+        
         flash('Charging session added successfully!', 'success')
         return redirect(url_for('charging_sessions.index'))
     
@@ -131,6 +136,10 @@ def edit(id):
         session.notes = form.notes.data
         
         db.session.commit()
+        
+        # Ensure baseline is properly set for this car (in case date/order changed)
+        BaselineManager.ensure_baseline_for_car(current_user.id, session.car_id)
+        
         flash('Charging session updated successfully!', 'success')
         return redirect(url_for('charging_sessions.index'))
     
@@ -141,8 +150,13 @@ def edit(id):
 def delete(id):
     """Delete charging session"""
     session = ChargingSession.query.filter_by(id=id, user_id=current_user.id).first_or_404()
+    car_id = session.car_id  # Store car_id before deletion
     db.session.delete(session)
     db.session.commit()
+    
+    # Ensure baseline is properly set for this car (in case we deleted the baseline)
+    BaselineManager.ensure_baseline_for_car(current_user.id, car_id)
+    
     flash('Charging session deleted successfully!', 'success')
     return redirect(url_for('charging_sessions.index'))
 
@@ -229,7 +243,10 @@ def details(id):
             'charge_type': session.charge_type,
             'location': session.location_label,
             'network': session.charge_network,
-            'notes': session.notes
+            'notes': session.notes,
+            'charge_delivered_kwh': session.charge_delivered_kwh,
+            'odometer': session.odometer,
+            'is_baseline': session.is_baseline if hasattr(session, 'is_baseline') else False
         },
         'metrics': metrics,
         'deltas': deltas,

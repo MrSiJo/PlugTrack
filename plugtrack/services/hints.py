@@ -48,15 +48,29 @@ class HintsService:
         hints = []
         
         if 'finish_at_home' not in dismissed_codes and not session.is_home_charging:
-            # Get home reference rate
-            home_rate = float(Settings.get_setting(session.user_id, 'home_rate_p_per_kwh', '20.0')) / 100  # Convert p/kWh to £/kWh
+            # Get home reference rate (prefer latest JSON-based setting)
+            home_cost_per_kwh = 0.20
+            try:
+                setting = Settings.query.filter_by(user_id=session.user_id, key='home_charging_rate').order_by(Settings.id.desc()).first()
+                if setting and setting.value:
+                    import json
+                    rate_data = json.loads(setting.value)
+                    # Stored as currency per kWh (e.g., 0.20 for £0.20)
+                    home_cost_per_kwh = float(rate_data.get('rate_per_kwh', home_cost_per_kwh))
+            except Exception:
+                # Fallback to legacy setting if present (p/kWh)
+                try:
+                    legacy_p_per_kwh = float(Settings.get_setting(session.user_id, 'home_rate_p_per_kwh', '20.0'))
+                    home_cost_per_kwh = legacy_p_per_kwh / 100.0
+                except Exception:
+                    home_cost_per_kwh = 0.20
             
-            if session.cost_per_kwh >= (2 * home_rate) and session.soc_to >= 60:
+            if session.cost_per_kwh >= (2 * home_cost_per_kwh) and session.soc_to >= 60:
                 hints.append({
                     'code': 'finish_at_home',
                     'type': 'info',
                     'title': 'Finish at Home',
-                    'message': f'Finishing at home likely cheaper (home: {home_rate:.2f}£/kWh vs {session.cost_per_kwh:.2f}£/kWh).',
+                    'message': f'Finishing at home likely cheaper (home: {home_cost_per_kwh:.2f}£/kWh vs {session.cost_per_kwh:.2f}£/kWh).',
                     'icon': 'bi-house',
                     'dismissible': True
                 })

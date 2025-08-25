@@ -19,7 +19,7 @@ class BlendedChargeService:
         dc_cost_per_kwh, 
         home_cost_per_kwh, 
         car_battery_kwh,
-        home_power_kw=2.3,  # Default home charger power
+        home_power_kw=7.4,  # Default home charger power (will be overridden by user setting)
         taper_bands=None
     ):
         """Calculate a blended charging strategy (DC + Home)"""

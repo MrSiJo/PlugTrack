@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - PlugTrack{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{{ url_for('settings.index') }}">Settings</a></li>
+                <li class="breadcrumb-item active">Petrol Comparison Settings</li>
+            </ol>
+        </nav>
+        <h1><i class="bi bi-fuel-pump"></i> {{ title }}</h1>
+        <p class="text-muted">Configure petrol price and MPG for cost comparison calculations.</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Petrol Comparison Configuration</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    {{ form.hidden_tag() }}
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.petrol_price_p_per_litre.label(class="form-label") }}
+                                {{ form.petrol_price_p_per_litre(class="form-control", placeholder="e.g., 128.9") }}
+                                {% if form.petrol_price_p_per_litre.errors %}
+                                    <div class="invalid-feedback d-block">
+                                        {% for error in form.petrol_price_p_per_litre.errors %}
+                                            {{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                                <small class="text-muted">{{ form.petrol_price_p_per_litre.description }}</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.petrol_mpg.label(class="form-label") }}
+                                {{ form.petrol_mpg(class="form-control", placeholder="e.g., 60.0") }}
+                                {% if form.petrol_mpg.errors %}
+                                    <div class="invalid-feedback d-block">
+                                        {% for error in form.petrol_mpg.errors %}
+                                            {{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                                <small class="text-muted">{{ form.petrol_mpg.description }}</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> 
+                        <strong>How this works:</strong> We use these values to automatically calculate a petrol cost threshold in p/kWh equivalent. 
+                        This helps you compare electric charging costs against petrol costs throughout the application.
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check"></i> Save Settings
+                        </button>
+                        <a href="{{ url_for('settings.index') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-x"></i> Cancel
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

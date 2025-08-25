@@ -124,7 +124,12 @@
                         <tbody>
                             {% for session in sessions %}
                             <tr data-session-id="{{ session.id }}" data-car-id="{{ session.car.id }}">
-                                <td>{{ session.date.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    {{ session.date.strftime('%Y-%m-%d') }}
+                                    {% if session.is_baseline %}
+                                    <br><small><span class="badge bg-secondary">baseline</span></small>
+                                    {% endif %}
+                                </td>
                                 <td>{{ session.car.display_name }}</td>
                                 <td>
                                     <span class="badge bg-{{ 'success' if session.charge_type == 'AC' else 'warning' }}">
@@ -287,22 +292,28 @@ function loadSessionInsights(sessionId, placeholder) {
 
 // Render insight chips
 function renderInsightChips(placeholder, metrics) {
+    // Check if we have valid efficiency data
+    if (!metrics.efficiency_used || metrics.efficiency_used === null) {
+        placeholder.innerHTML = '<div class="text-center text-muted"><small>No efficiency data available</small></div>';
+        return;
+    }
+
     const chipsHtml = `
         <div class="d-flex flex-wrap gap-1 mb-2">
             <!-- mi/kWh chip -->
-            <span class="badge bg-info" title="Miles gained per kWh: ${metrics.miles_gained.toFixed(1)} mi / ${metrics.efficiency_used.toFixed(1)} mi/kWh">
+            <span class="badge bg-info" title="Miles gained per kWh: ${metrics.miles_gained ? metrics.miles_gained.toFixed(1) : '0.0'} mi / ${metrics.efficiency_used.toFixed(1)} mi/kWh">
                 ${metrics.efficiency_used.toFixed(1)} mi/kWh
             </span>
             
             <!-- £/mi chip -->
             <span class="badge ${getCostBadgeClass(metrics.cost_per_mile * 100, metrics.threshold_ppm)}" 
-                  title="Cost per mile: £${metrics.cost_per_mile.toFixed(3)} = ${(metrics.cost_per_mile * 100).toFixed(1)}p/mi">
+                  title="Cost per mile: £${metrics.cost_per_mile ? metrics.cost_per_mile.toFixed(3) : '0.000'} = ${(metrics.cost_per_mile * 100).toFixed(1)}p/mi">
                 ${(metrics.cost_per_mile * 100).toFixed(1)}p/mi
             </span>
             
             <!-- %/kWh chip -->
-            <span class="badge bg-secondary" title="Battery percentage added per kWh: ${metrics.battery_added_percent}% / ${metrics.percent_per_kwh.toFixed(1)}%/kWh">
-                ${metrics.percent_per_kwh.toFixed(1)}%/kWh
+            <span class="badge bg-secondary" title="Battery percentage added per kWh: ${metrics.battery_added_percent || 0}% / ${metrics.percent_per_kwh ? metrics.percent_per_kwh.toFixed(1) : '0.0'}%/kWh">
+                ${metrics.percent_per_kwh ? metrics.percent_per_kwh.toFixed(1) : '0.0'}%/kWh
             </span>
             
             <!-- avg kW chip -->
@@ -314,7 +325,7 @@ function renderInsightChips(placeholder, metrics) {
             
             <!-- Petrol comparison badge -->
             <span class="badge ${metrics.is_cheaper_than_petrol ? 'bg-success' : 'bg-danger'}" 
-                  title="This charging session is ${metrics.is_cheaper_than_petrol ? 'cheaper' : 'bg-danger'} than petrol (threshold: ${metrics.threshold_ppm.toFixed(1)}p/mi)">
+                  title="This charging session is ${metrics.is_cheaper_than_petrol ? 'cheaper' : 'more expensive'} than petrol (threshold: ${metrics.threshold_ppm ? metrics.threshold_ppm.toFixed(1) : '0.0'}p/mi)">
                 ${metrics.is_cheaper_than_petrol ? '✓ cheaper' : '× dearer'}
             </span>
         </div>
@@ -394,8 +405,16 @@ function renderSessionDetails(data) {
     content.querySelector('.session-network').textContent = data.session.network || 'N/A';
     content.querySelector('.session-notes').textContent = data.session.notes || 'No notes';
     
+    // Show/hide baseline badge
+    const baselineBadge = content.querySelector('#baselineBadge');
+    if (data.session.is_baseline) {
+        baselineBadge.style.display = 'block';
+    } else {
+        baselineBadge.style.display = 'none';
+    }
+    
     // Populate key numbers
-    content.querySelector('.session-kwh').textContent = `${(data.metrics.total_cost / data.metrics.efficiency_used / 100).toFixed(1)}`;
+    content.querySelector('.session-kwh').textContent = `${data.session.charge_delivered_kwh.toFixed(1)} kWh`;
     content.querySelector('.session-total-cost').textContent = `£${data.metrics.total_cost.toFixed(2)}`;
     content.querySelector('.session-cost-per-mile').textContent = `${(data.metrics.cost_per_mile * 100).toFixed(1)}p`;
     content.querySelector('.session-miles-gained').textContent = `${data.metrics.miles_gained.toFixed(1)} mi`;

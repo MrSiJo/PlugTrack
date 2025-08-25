@@ -55,3 +55,27 @@ class HomeChargingRateForm(FlaskForm):
     def validate_valid_to(self, field):
         if self.valid_from.data and field.data and field.data <= self.valid_from.data:
             raise ValidationError('Valid To must be after Valid From')
+
+class HomeChargingSettingsForm(FlaskForm):
+    """Form for home charging configuration settings"""
+    home_charging_speed_kw = FloatField('Home Charger Speed (kW)', 
+                                       validators=[DataRequired(), NumberRange(min=0.1, max=100)],
+                                       description='Maximum charging speed of your home charger')
+    home_aliases_csv = StringField('Home Location Keywords', 
+                                  validators=[DataRequired(), Length(max=500)],
+                                  description='Comma-separated keywords that identify home charging (e.g., home,house,garage)')
+
+class EfficiencySettingsForm(FlaskForm):
+    """Form for efficiency and comparison settings"""
+    default_efficiency_mpkwh = FloatField('Default Efficiency (mi/kWh)', 
+                                         validators=[DataRequired(), NumberRange(min=0.1, max=10.0)],
+                                         description='Fallback efficiency when car profile is missing')
+
+class PetrolComparisonForm(FlaskForm):
+    """Form for petrol comparison settings"""
+    petrol_price_p_per_litre = FloatField('Petrol Price (p/L)', 
+                                         validators=[DataRequired(), NumberRange(min=0, max=1000)],
+                                         description='Current petrol price in pence per litre')
+    petrol_mpg = FloatField('Petrol MPG (UK)', 
+                           validators=[DataRequired(), NumberRange(min=10, max=200)],
+                           description='Average miles per gallon for petrol comparison')

@@ -1,3 +1,4 @@
+from models.user import db
 from models.charging_session import ChargingSession
 from models.car import Car
 from models.settings import Settings
@@ -9,49 +10,206 @@ import pandas as pd
 class DerivedMetricsService:
     """Service for calculating derived metrics from charging session data"""
 
+    # tuning knobs
+    _ANCHOR_HORIZON_DAYS = 30
+    _EFF_MIN = 1.0
+    _EFF_MAX = 7.0
+    _DEBUG_EFF = True  # flip to True temporarily if you want console logs
+
+    # -------- helpers --------
+    @staticmethod
+    def _is_home_like(session):
+        """True if session is home charging. Prefers explicit flag, falls back to label match."""
+        try:
+            if hasattr(session, "is_home_charging") and session.is_home_charging is not None:
+                return bool(session.is_home_charging)
+        except Exception:
+            pass
+        label = (session.location_label or "").lower()
+        return any(a in label for a in ("home", "garage", "driveway"))
+
+    @staticmethod
+    def _compute_session_observed_efficiency(session):
+        """
+        Observed mi/kWh for THIS session:
+        - miles = odometer_now - odometer_at_previous_anchor (same user/car) within horizon
+        - kWh   = sum of charge_delivered_kwh where prev < (date,id) <= current (same user/car)
+        Returns float or None if not enough data.
+        """
+        if session.odometer is None:
+            return None
+
+        # Skip baseline sessions - they don't contribute to efficiency calculations
+        if hasattr(session, 'is_baseline') and session.is_baseline:
+            if DerivedMetricsService._DEBUG_EFF:
+                print(f"Session {session.id} ({session.date}): Skipping baseline session")
+            return None
+
+        # previous anchor (strictly before this session: date then id) within horizon
+        start = session.date - timedelta(days=DerivedMetricsService._ANCHOR_HORIZON_DAYS)
+        prev = (ChargingSession.query
+                .filter(
+                    ChargingSession.user_id == session.user_id,
+                    ChargingSession.car_id == session.car_id,
+                    ChargingSession.odometer.isnot(None),
+                    ChargingSession.is_baseline == False,  # Exclude baseline sessions
+                    ChargingSession.date >= start,
+                    (ChargingSession.date < session.date) |
+                    and_(ChargingSession.date == session.date,
+                         ChargingSession.id < session.id)
+                )
+                .order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
+                .first())
+
+        if not prev or prev.odometer is None:
+            if DerivedMetricsService._DEBUG_EFF:
+                print(f"Session {session.id} ({session.date}): No previous anchor found")
+            return None
+
+        miles = float(session.odometer - prev.odometer)
+        if miles <= 0:
+            if DerivedMetricsService._DEBUG_EFF:
+                print(f"Session {session.id} ({session.date}): Invalid miles delta: {miles}")
+            return None
+
+        # Simplified kWh calculation: just use the current session's kWh
+        # This is more accurate for per-session efficiency anyway
+        window_kwh = float(session.charge_delivered_kwh or 0)
+        
+        if window_kwh <= 0:
+            if DerivedMetricsService._DEBUG_EFF:
+                print(f"Session {session.id} ({session.date}): No kWh delivered: {window_kwh}")
+            return None
+
+        eff = miles / window_kwh
+        # clamp outliers (missed logs / data entry mistakes)
+        if eff < DerivedMetricsService._EFF_MIN or eff > DerivedMetricsService._EFF_MAX:
+            if DerivedMetricsService._DEBUG_EFF:
+                print(f"Session {session.id} ({session.date}): Efficiency {eff} outside valid range [{DerivedMetricsService._EFF_MIN}, {DerivedMetricsService._EFF_MAX}]")
+            return None
+            
+        if DerivedMetricsService._DEBUG_EFF:
+            print({
+                'session_id': session.id,
+                'session_date': str(session.date),
+                'anchor_id': prev.id,
+                'anchor_date': str(prev.date),
+                'miles': miles,
+                'kwh_window': float(window_kwh),
+                'eff_observed': round(eff, 2)
+            })
+        return round(eff, 2)
+
+    @staticmethod
+    def _resolve_efficiency(user_id, car):
+        """Return (efficiency_mpkwh_or_none, source, warning_or_none).
+        Priority:
+        1) Dynamic recent efficiency from session data (scoped: AC + home-only)
+        1b) Dynamic recent efficiency from session data (AC only)
+        2) Car.efficiency_mpkwh
+        3) User default from Settings (if configured)
+        4) Missing
+        """
+        # 1) Dynamic (observed odometer-based) – AC + Home-only first
+        if car:
+            dynamic_eff = DerivedMetricsService.calculate_dynamic_efficiency(
+                user_id, car_id=car.id, charge_type_filter='AC', home_only=True
+            )
+            if dynamic_eff and dynamic_eff > 0:
+                return float(dynamic_eff), 'dynamic_recent_home_ac', None
+            # 1b) AC only
+            dynamic_eff = DerivedMetricsService.calculate_dynamic_efficiency(
+                user_id, car_id=car.id, charge_type_filter='AC', home_only=False
+            )
+            if dynamic_eff and dynamic_eff > 0:
+                return float(dynamic_eff), 'dynamic_recent_ac', None
+        # 2) Car value
+        if car and car.efficiency_mpkwh:
+            return float(car.efficiency_mpkwh), 'car', None
+        # 3) User setting (configured in Settings UI)
+        setting_val = Settings.get_setting(user_id, 'default_efficiency_mpkwh', None)
+        if setting_val is not None and str(setting_val).strip() != '':
+            try:
+                return float(setting_val), 'user_setting', None
+            except Exception:
+                pass
+        # 4) Missing
+        return None, 'missing', (
+            'EV efficiency (mi/kWh) is not available. Set it per-car or provide a default in Settings ➜ Efficiency.'
+        )
+
     @staticmethod
     def calculate_session_metrics(session, car):
         """Calculate metrics for a single charging session"""
-        # Get user settings for calculations
-        petrol_threshold = float(Settings.get_setting(session.user_id, 'petrol_threshold_p_per_kwh', '52.5'))
-        default_efficiency = float(Settings.get_setting(session.user_id, 'default_efficiency_mpkwh', '3.7'))
+        warnings = []
+        # ------------------------------------------------------------------
+        # Efficiency resolution – prefer observed per-session (no fallback)
+        # ------------------------------------------------------------------
+        efficiency = None
+        efficiency_source = 'missing'
+
+        observed = DerivedMetricsService._compute_session_observed_efficiency(session)
+        if observed is not None:
+            efficiency = observed
+            efficiency_source = 'observed_session'
+        else:
+            # Optional fallback, controlled by setting
+            allow_fb = Settings.get_setting(session.user_id, 'allow_efficiency_fallback', '0')
+            if str(allow_fb).strip() == '1':
+                eff_fb, eff_src, warn = DerivedMetricsService._resolve_efficiency(session.user_id, car)
+                if eff_fb:
+                    efficiency = eff_fb
+                    efficiency_source = eff_src
+                if warn:
+                    warnings.append(warn)
         
         # Total cost
         total_cost = session.charge_delivered_kwh * session.cost_per_kwh
         
-        # Miles gained (estimated based on car efficiency)
-        efficiency = car.efficiency_mpkwh if car and car.efficiency_mpkwh else default_efficiency
-        miles_gained = session.charge_delivered_kwh * efficiency
+        # Miles gained (based on efficiency if available)
+        miles_gained = (session.charge_delivered_kwh * efficiency) if efficiency else 0
         
         # Cost per mile
-        cost_per_mile = 0
-        if miles_gained > 0:
-            cost_per_mile = total_cost / miles_gained
+        cost_per_mile = (total_cost / miles_gained) if miles_gained > 0 else 0
         
         # Battery added percentage
         battery_added_percent = session.soc_to - session.soc_from
         
         # Percentage per kWh (indicates effective usable capacity vs losses)
-        percent_per_kwh = 0
-        if session.charge_delivered_kwh > 0:
-            percent_per_kwh = battery_added_percent / session.charge_delivered_kwh
+        percent_per_kwh = (battery_added_percent / session.charge_delivered_kwh) if session.charge_delivered_kwh > 0 else 0
         
         # Average power (when duration present)
-        avg_power_kw = 0
-        if session.duration_mins and session.duration_mins > 0:
-            avg_power_kw = session.charge_delivered_kwh / (session.duration_mins / 60)
+        avg_power_kw = (session.charge_delivered_kwh / (session.duration_mins / 60)) if session.duration_mins and session.duration_mins > 0 else 0
         
         # DC taper flag (heuristic)
-        dc_taper_flag = False
-        if session.charge_type == 'DC' and session.soc_to > 65:
-            dc_taper_flag = True
+        dc_taper_flag = (session.charge_type == 'DC' and session.soc_to > 65)
         
         # Petrol threshold comparison
-        threshold_ppm = petrol_threshold / efficiency if efficiency > 0 else 0
-        is_cheaper_than_petrol = (cost_per_mile * 100) <= threshold_ppm if cost_per_mile > 0 else False
+        try:
+            if efficiency:
+                from utils.petrol_calculations import get_petrol_threshold_for_user
+                petrol_threshold = get_petrol_threshold_for_user(session.user_id, efficiency)
+                threshold_ppm = petrol_threshold / efficiency if efficiency > 0 else 0
+            else:
+                petrol_threshold = 0
+                threshold_ppm = 0
+        except Exception:
+            petrol_threshold = 0
+            threshold_ppm = 0
+        is_cheaper_than_petrol = (cost_per_mile * 100) <= threshold_ppm if (cost_per_mile > 0 and threshold_ppm > 0) else False
         
         # Home vs public charging
         is_home_charging = session.is_home_charging
+        
+        # confidence flag
+        if efficiency_source == 'observed_session':
+            efficiency_confidence = 'high'
+        elif efficiency_source.startswith('dynamic'):
+            efficiency_confidence = 'high'
+        elif efficiency_source in ('car', 'user_setting'):
+            efficiency_confidence = 'medium'
+        else:
+            efficiency_confidence = 'low'
         
         return {
             'total_cost': total_cost,
@@ -63,8 +221,10 @@ class DerivedMetricsService:
             'dc_taper_flag': dc_taper_flag,
             'threshold_ppm': threshold_ppm,
             'is_cheaper_than_petrol': is_cheaper_than_petrol,
-            'is_home_charging': is_home_charging,
-            'efficiency_used': efficiency
+            'efficiency_used': efficiency if efficiency else None,
+            'efficiency_source': efficiency_source,
+            'efficiency_confidence': efficiency_confidence,
+            'warnings': warnings
         }
 
     @staticmethod
@@ -454,45 +614,6 @@ class DerivedMetricsService:
         return recommendations
 
     @staticmethod
-    def calculate_dynamic_efficiency(user_id, car_id=None):
-        """Calculate mi/kWh efficiency from historical charging session data"""
-        # Build base query
-        query = ChargingSession.query.filter_by(user_id=user_id)
-        if car_id:
-            query = query.filter_by(car_id=car_id)
-        
-        # Get sessions with meaningful data (exclude very short sessions)
-        sessions = query.filter(
-            and_(
-                ChargingSession.charge_delivered_kwh > 0.5,  # Exclude tiny sessions
-                ChargingSession.duration_mins > 5  # Exclude very short sessions
-            )
-        ).order_by(ChargingSession.date.desc()).limit(20).all()  # Use last 20 sessions
-        
-        if not sessions:
-            return None
-        
-        total_miles = 0
-        total_kwh = 0
-        
-        for session in sessions:
-            # Calculate miles based on SoC change and battery capacity
-            if session.car and session.car.battery_kwh:
-                soc_change = session.soc_to - session.soc_from
-                if soc_change > 0:
-                    # Estimate miles based on SoC change and battery capacity
-                    # This assumes linear relationship between SoC and range
-                    estimated_miles = (soc_change / 100) * session.car.battery_kwh * 4.0  # Rough estimate
-                    total_miles += estimated_miles
-                    total_kwh += session.charge_delivered_kwh
-        
-        if total_kwh > 0:
-            efficiency = total_miles / total_kwh
-            return round(efficiency, 2)
-        
-        return None
-
-    @staticmethod
     def get_current_efficiency_info(user_id, car_id=None):
         """Get current efficiency information for display"""
         dynamic_efficiency = DerivedMetricsService.calculate_dynamic_efficiency(user_id, car_id)
@@ -561,6 +682,66 @@ class DerivedMetricsService:
         return similar_sessions[:limit]
 
     @staticmethod
+    def calculate_dynamic_efficiency(
+        user_id,
+        car_id=None,
+        days_lookback=90,
+        min_miles=50,
+        min_kwh=20,
+        charge_type_filter=None,  # e.g., 'AC'
+        home_only=False
+    ):
+        """Observed mi/kWh from odometer deltas ÷ kWh delivered, with optional scoping."""
+        cutoff = datetime.now().date() - timedelta(days=days_lookback)
+        q = ChargingSession.query.filter(ChargingSession.user_id == user_id)
+        if car_id:
+            q = q.filter(ChargingSession.car_id == car_id)
+        q = q.filter(ChargingSession.date >= cutoff)\
+             .order_by(ChargingSession.date.asc(), ChargingSession.id.asc())
+        if charge_type_filter:
+            q = q.filter(ChargingSession.charge_type == charge_type_filter)
+
+        sessions = q.all()
+        if len(sessions) < 2:
+            return None
+
+        total_miles = 0.0
+        total_kwh = 0.0
+        prev_odo = None
+
+        for s in sessions:
+            # filter home-only if requested (use helper)
+            if home_only and not DerivedMetricsService._is_home_like(s):
+                # still advance odo if present for continuity
+                if s.odometer is not None:
+                    prev_odo = s.odometer if prev_odo is None else prev_odo
+                continue
+
+            # accumulate kWh (scoped)
+            total_kwh += float(s.charge_delivered_kwh or 0)
+
+            # build odometer windows (use all sessions for odo continuity)
+            if s.odometer is not None:
+                if prev_odo is None:
+                    prev_odo = s.odometer
+                else:
+                    delta = s.odometer - prev_odo
+                    # ignore negative/backwards jumps
+                    if delta >= 0:
+                        total_miles += delta
+                        prev_odo = s.odometer
+                    else:
+                        prev_odo = s.odometer
+
+        if total_miles >= min_miles and total_kwh >= min_kwh and total_kwh > 0:
+            eff = total_miles / total_kwh
+            # clamp to plausible band
+            if eff < 1.0 or eff > 7.0:
+                return None
+            return round(eff, 2)
+        return None
+
+    @staticmethod
     def get_rolling_averages(user_id, car_id, days=30):
         """Get rolling averages for comparison with current session"""
         from datetime import datetime, timedelta
@@ -582,19 +763,20 @@ class DerivedMetricsService:
             func.avg(ChargingSession.duration_mins).label('avg_duration_mins')
         ).first()
         
-        # Get car for efficiency calculations
+        # Resolve efficiency (prefer dynamic)
         car = Car.query.get(car_id)
-        efficiency = car.efficiency_mpkwh if car else float(Settings.get_setting(user_id, 'default_efficiency_mpkwh', '3.7'))
+        efficiency, _, warning = DerivedMetricsService._resolve_efficiency(user_id, car)
+        warnings = [warning] if warning else []
         
         avg_kwh = result.avg_kwh or 0
         avg_cost_per_kwh = result.avg_cost_per_kwh or 0
         avg_duration_mins = result.avg_duration_mins or 0
         
-        # Calculate derived averages
+        # Derived values guarded against missing efficiency
         avg_total_cost = avg_kwh * avg_cost_per_kwh
-        avg_miles_gained = avg_kwh * efficiency
-        avg_cost_per_mile = avg_total_cost / avg_miles_gained if avg_miles_gained > 0 else 0
-        avg_power_kw = avg_kwh / (avg_duration_mins / 60) if avg_duration_mins > 0 else 0
+        avg_miles_gained = (avg_kwh * efficiency) if efficiency else 0
+        avg_cost_per_mile = (avg_total_cost / avg_miles_gained) if avg_miles_gained > 0 else 0
+        avg_power_kw = (avg_kwh / (avg_duration_mins / 60)) if avg_duration_mins > 0 else 0
         
         return {
             'avg_kwh': avg_kwh,
@@ -603,79 +785,54 @@ class DerivedMetricsService:
             'avg_miles_gained': avg_miles_gained,
             'avg_cost_per_mile': avg_cost_per_mile,
             'avg_power_kw': avg_power_kw,
-            'avg_duration_mins': avg_duration_mins
+            'avg_duration_mins': avg_duration_mins,
+            'warnings': warnings
         }
 
     @staticmethod
-    def _calculate_daily_efficiency(user_id, date, car_id=None):
-        """Calculate actual efficiency for a specific day based on session data with realistic variations"""
-        # Build query for sessions on this date
-        query = ChargingSession.query.filter_by(
-            user_id=user_id,
-            date=date
-        )
-        
+    def _calculate_daily_efficiency(user_id, date, car_id=None, anchor_horizon_days=10):
+        """
+        Observed mi/kWh for a specific date:
+        - kWh = sum of charge_delivered_kwh on that date.
+        - miles = odometer delta between nearest sessions before/after within ±anchor_horizon_days.
+        Returns 0.0 if not enough anchors or kWh on day.
+        """
+        # kWh delivered on the day
+        q_day = ChargingSession.query.filter_by(user_id=user_id, date=date)
         if car_id:
-            query = query.filter_by(car_id=car_id)
-        
-        sessions = query.all()
-        
-        if not sessions:
-            return 0
-        
-        # Calculate weighted average efficiency with realistic variations
-        total_kwh = 0
-        weighted_efficiency_sum = 0
-        
-        for session in sessions:
-            # Get car for this session
-            car = Car.query.get(session.car_id)
-            if not car:
-                continue
-                
-            # Use car efficiency if available, otherwise skip this session
-            if not car.efficiency_mpkwh:
-                continue
-            
-            # Calculate realistic efficiency variations based on charging conditions
-            base_efficiency = car.efficiency_mpkwh
-            
-            # Efficiency can vary based on:
-            # 1. Charging speed (very fast DC charging might be slightly less efficient)
-            # 2. Temperature (cold weather can reduce efficiency)
-            # 3. Battery state (very low or very high SoC can affect efficiency)
-            
-            efficiency_multiplier = 1.0
-            
-            # DC charging at high speeds might be slightly less efficient
-            if session.charge_type == 'DC' and session.charge_speed_kw > 50:
-                efficiency_multiplier *= 0.98  # 2% reduction for very fast DC
-            
-            # Very low SoC charging might be less efficient
-            if session.soc_from < 20:
-                efficiency_multiplier *= 0.97  # 3% reduction for very low SoC
-            
-            # Very high SoC charging might be less efficient
-            if session.soc_to > 90:
-                efficiency_multiplier *= 0.96  # 4% reduction for very high SoC
-            
-            # Apply seasonal variation (simplified - could be enhanced with actual weather data)
-            month = session.date.month
-            if month in [12, 1, 2]:  # Winter months
-                efficiency_multiplier *= 0.95  # 5% reduction in winter
-            elif month in [6, 7, 8]:  # Summer months
-                efficiency_multiplier *= 1.02  # 2% improvement in summer
-            
-            # Calculate adjusted efficiency for this session
-            adjusted_efficiency = base_efficiency * efficiency_multiplier
-            
-            # Weight by kWh delivered (more kWh = more influence on daily average)
-            session_weight = session.charge_delivered_kwh
-            total_kwh += session_weight
-            weighted_efficiency_sum += session_weight * adjusted_efficiency
-        
-        # Return weighted average efficiency
-        if total_kwh > 0:
-            return round(weighted_efficiency_sum / total_kwh, 2)
-        else:
-            return 0
+            q_day = q_day.filter_by(car_id=car_id)
+        day_sessions = q_day.all()
+        day_kwh = sum(float(s.charge_delivered_kwh or 0) for s in day_sessions)
+        if day_kwh <= 0:
+            return 0.0
+
+        # nearest anchors within horizon
+        start = date - timedelta(days=anchor_horizon_days)
+        end = date + timedelta(days=anchor_horizon_days)
+        base_q = ChargingSession.query.filter(
+            and_(ChargingSession.user_id == user_id,
+                 ChargingSession.date >= start,
+                 ChargingSession.date <= end,
+                 ChargingSession.odometer.isnot(None))
+        )
+        if car_id:
+            base_q = base_q.filter(ChargingSession.car_id == car_id)
+
+        before = (base_q.filter(ChargingSession.date <= date)
+                          .order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
+                          .first())
+        after = (base_q.filter(ChargingSession.date >= date)
+                         .order_by(ChargingSession.date.asc(), ChargingSession.id.asc())
+                         .first())
+
+        if not before or not after:
+            return 0.0
+
+        delta = float(after.odometer - before.odometer)
+        if delta <= 0:
+            return 0.0
+
+        eff = delta / day_kwh
+        if eff < 1.0 or eff > 7.0:
+            return 0.0
+        return round(eff, 2)

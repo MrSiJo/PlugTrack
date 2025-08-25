@@ -7,11 +7,13 @@ Creates session_meta table and adds venue_type column to charging_session.
 import sys
 import os
 
-# Add the project root to the Python path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add the parent directory (plugtrack) to the Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
 
-from plugtrack import create_app
-from plugtrack.models import db
+from __init__ import create_app
+from models.user import db
 
 def migrate_phase3():
     """Perform Phase 3 database migrations."""
