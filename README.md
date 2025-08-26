@@ -1,50 +1,52 @@
+![logo](docs/assets/plugtrack_banner.png)
 # PlugTrack - EV Charging Session Manager
 
-PlugTrack is a personal web application for logging and managing EV charging sessions and car profiles. Built with Python Flask, it provides a comprehensive solution for tracking your electric vehicle charging habits, costs, and efficiency. **PlugTrack has evolved from a simple logger into a smart charging coach that provides insights, analytics, and recommendations.**
+PlugTrack is a smart personal web application for logging and managing EV charging sessions and car profiles. Built with Python Flask, it provides comprehensive tracking of your electric vehicle charging habits, costs, and efficiency with intelligent insights and recommendations.
 
 ## Features
 
-### Phase 1: Foundation ✅ Complete
-- **User Management**: Secure authentication with password hashing
+### Smart Charging Management
 - **Car Profiles**: Manage multiple vehicles with battery capacity, efficiency tracking, and recommended 100% charge frequency
 - **Charging Sessions**: Log detailed charging sessions with cost tracking, SoC monitoring, and location management
-- **Dashboard**: Overview of active car and recent charging sessions
-- **Settings**: Configurable home charging rates and placeholders for future features
-- **Data Export**: CSV export functionality for charging sessions
+- **Smart Recommendations**: Automated charging advice based on your patterns and preferences
+- **Session Insights**: Each charging session displays efficiency chips, cost analysis, and petrol comparison
 
-### Phase 2: Analytics & Insights ✅ Complete
-- **Analytics Dashboard**: Comprehensive metrics and trends with interactive charts
-- **Key Metrics**: Average cost per kWh, cost per mile, efficiency, home vs public charging mix
-- **Charts & Trends**: 
-  - Cost per mile trend over time
-  - Energy delivered (AC/DC split)
-  - Efficiency (mi/kWh) trend with realistic variations
-  - Home vs public charging distribution
+### Analytics & Insights
+- **Comprehensive Dashboard**: Overview of active car and recent charging sessions
+- **Analytics Dashboard**: Interactive charts showing cost trends, efficiency, and charging mix
+- **Key Metrics**: Average cost per kWh, cost per mile, efficiency, home vs public charging distribution
 - **Data Filtering**: Filter by date range, car profile, charge type, and network
-- **Performance Optimization**: Database indexes for fast filtering and queries
-- **Smart Recommendations**: Rule-based charging advice accessible via top navigation
 
-### Phase 3: Smart Coaching ✅ Complete
-- **Session-Level Insights**: Each charging session displays efficiency chips, cost analysis, and petrol comparison
-- **Smart Hints Engine**: Automated recommendations including:
-  - DC taper warnings (suggest stopping earlier to avoid slow charging)
-  - "Finish at home" suggestions when public rates are expensive
-  - Storage SoC advice for long-term parking
-  - 100% balance charge reminders
-- **Blended Charge Planner**: Simulate optimal DC + Home charging strategies with:
-  - DC taper modeling using configurable power bands
-  - Cost optimization between public and home charging
-  - Time and cost estimates for blended approaches
-- **Session Detail Drawer**: Comprehensive analysis with comparisons, hints, and actions
-- **Comparative Analysis**: Compare sessions with similar conditions and 30-day rolling averages
+### Smart Coaching Features
+- **Blended Charge Planner**: Simulate optimal DC + Home charging strategies with cost optimization
+- **Real-time Hints**: DC taper warnings, "finish at home" suggestions, storage SoC advice
+- **Comparative Analysis**: Compare sessions with similar conditions and rolling averages
+- **Session Detail Analysis**: Comprehensive breakdowns with actionable recommendations
 
-### Phase 4: Data Ops & Settings ✅ Complete
-- **CLI Import/Export**: CSV import/export with validation and duplicate detection
-- **Backup/Restore**: ZIP backup/restore with merge/replace modes and auto-backup safety
-- **Settings Management**: Seeded defaults for all Phase 4 settings with framework-agnostic services
-- **Database Performance**: New indexes for pagination, odometer scans, and duplicate detection
-- **Development Infrastructure**: Docker dev setup and comprehensive testing suite
-- **Future-Ready Architecture**: Services designed for UI integration with zero refactor
+### Data Management
+- **User Management**: Secure authentication with password hashing
+- **Settings Management**: Configurable charging rates, preferences, and defaults
+- **Data Export**: CSV export functionality for charging sessions
+- **CLI Operations**: Import/export sessions and backup/restore functionality
+- **Backup System**: ZIP-based backup and restore with merge/replace modes
+
+## Screenshots
+
+
+**Dashboard Overview** - Main dashboard showing current car and recent sessions
+![dashboard](docs/assets/Dashboard_PlugTrack.png)
+**Analytics Dashboard** - Interactive charts and metrics for charging analysis
+![analytics](docs/assets/Analytics_PlugTrack.png)
+**Charging Sessions** - Charging Session page
+![chargingsessions](docs/assets/ChargingSessions_PlugTrack.png)
+**Session Detail** - Detailed view of a charging session with insights and recommendations
+![chargingsessionsdetail](docs/assets/ChargingSessionDetail_PlugTrack.png)
+**Blended Charge Planner** - DC + Home charging simulation interface
+![blendedcharge](docs/assets/BlendedChargePlanner_PlugTrack.png)
+**Car Management** - Add and manage multiple vehicle profiles
+![cars](docs/assets/Cars_PlugTrack.png)
+**Settings Panel** - Configure charging rates and preferences
+![settings](docs/assets/Settings_PlugTrack.png)
 
 ## Technology Stack
 
@@ -57,49 +59,13 @@ PlugTrack is a personal web application for logging and managing EV charging ses
 - **Charts**: Chart.js for interactive data visualization
 - **CLI**: Click framework for command-line operations
 
-## Security
-
-### Demo Credentials
-This repository includes demo credentials for first-time setup:
-- **Username**: `demo`
-- **Password**: `demo123`
-
-⚠️ **IMPORTANT**: These are demo credentials only and should NEVER be used in production!
-
-### Production Security
-For production deployment, you MUST:
-
-1. **Set SECRET_KEY**: Generate a secure random key
-   ```bash
-   python -c "import secrets; print(secrets.token_urlsafe(32))"
-   ```
-
-2. **Set ENCRYPTION_KEY**: Generate a Fernet encryption key
-   ```bash
-   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-   ```
-
-3. **Change Demo Password**: Use the admin creation command to set a secure password
-   ```bash
-   flask create-admin
-   ```
-
-4. **Environment Variables**: Ensure all sensitive values are set in your `.env` file
-
-### Security Features
-- **Password Hashing**: Secure password storage using Werkzeug's security functions
-- **Session Management**: Flask-Login with secure session handling
-- **Data Encryption**: Sensitive data encrypted using Fernet encryption
-- **CSRF Protection**: Built-in CSRF protection for forms
-- **SQL Injection Protection**: SQLAlchemy ORM prevents SQL injection attacks
-
-## Installation
+## Quick Start
 
 ### Prerequisites
 - Python 3.11 or higher
 - pip (Python package installer)
 
-### Setup
+### Installation
 
 1. **Clone the repository**
    ```bash
@@ -129,11 +95,15 @@ For production deployment, you MUST:
    cp env_example.txt .env
    
    # Edit .env with your configuration
-   # Generate a secret key and encryption key
+   # Generate required keys (see Security section below)
    ```
 
-5. **Generate encryption key**
+5. **Generate required keys**
    ```bash
+   # Generate secret key
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   
+   # Generate encryption key
    python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
    ```
 
@@ -142,7 +112,7 @@ For production deployment, you MUST:
    flask --app . init-db
    ```
 
-7. **Run database migrations (if needed)**
+7. **Run database migrations**
    ```bash
    python migrations/add_phase4_fields_and_indexes.py
    python migrations/seed_phase4_settings.py
@@ -153,35 +123,84 @@ For production deployment, you MUST:
    python run.py
    ```
 
-## Usage
+9. **Access the application**
+   - Open your browser to `http://localhost:5000`
+   - Login with demo credentials: `demo` / `demo123`
 
-### Default Login
-After running `flask --app . init-db`, you can log in with:
+## Security
+
+### Demo Credentials
+This repository includes demo credentials for first-time setup:
 - **Username**: `demo`
 - **Password**: `demo123`
+
+⚠️ **IMPORTANT**: These are demo credentials only and should NEVER be used in production!
+
+### Production Security
+For production deployment, you MUST update these security settings:
+
+1. **Set SECRET_KEY**: Generate a secure random key
+   ```bash
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+
+2. **Set ENCRYPTION_KEY**: Generate a Fernet encryption key
+   ```bash
+   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+   ```
+
+3. **Change Demo Password**: Use the admin creation command
+   ```bash
+   flask create-admin
+   ```
+
+### Security Features
+- **Password Hashing**: Secure password storage using Werkzeug's security functions
+- **Session Management**: Flask-Login with secure session handling
+- **Data Encryption**: Sensitive data encrypted using Fernet encryption
+- **CSRF Protection**: Built-in CSRF protection for forms
+- **SQL Injection Protection**: SQLAlchemy ORM prevents SQL injection attacks
+
+## Usage Guide
+
+### Getting Started
+1. **Login**: Use the demo credentials or create a new admin user
+2. **Add a Car**: Create your first car profile with battery capacity and efficiency
+3. **Configure Settings**: Set your home charging rate and other preferences
+4. **Log Sessions**: Start recording your charging sessions
+5. **View Analytics**: Explore the analytics dashboard for insights
 
 ### Key Features
 
 #### Smart Recommendations
-- **Top Navigation**: Click the lightbulb icon to view charging recommendations
-- **Real-time Updates**: Recommendations update based on your charging patterns
-- **Dismissible Hints**: Dismiss hints you don't want to see again
+- Click the lightbulb icon in the top navigation to view charging recommendations
+- Recommendations update based on your charging patterns
+- Dismiss hints you don't want to see again
 
 #### Analytics Dashboard
-- **Interactive Charts**: Hover over charts for detailed information
-- **Filtering**: Use date ranges and car filters to analyze specific periods
-- **Export**: Download filtered data as CSV for external analysis
+- Hover over charts for detailed information
+- Use date ranges and car filters to analyze specific periods
+- Download filtered data as CSV for external analysis
 
 #### Blended Charge Planning
-- **Session Integration**: Click "Simulate Blend" on any charging session
-- **Cost Optimization**: Compare DC vs home charging costs
-- **Realistic Modeling**: DC taper effects and time calculations
+- Click "Simulate Blend" on any charging session
+- Compare DC vs home charging costs
+- Get realistic time and cost estimates for optimal charging strategies
 
-#### CLI Operations (Phase 4)
-- **Export Sessions**: `flask --app . sessions-export --to sessions.csv`
-- **Import Sessions**: `flask --app . sessions-import --from sessions.csv --dry-run`
-- **Create Backup**: `flask --app . backup-create --to backup.zip`
-- **Restore Backup**: `flask --app . backup-restore --from backup.zip --mode merge`
+#### CLI Operations
+```bash
+# Export sessions
+flask --app . sessions-export --to sessions.csv
+
+# Import sessions (dry run first)
+flask --app . sessions-import --from sessions.csv --dry-run
+
+# Create backup
+flask --app . backup-create --to backup.zip
+
+# Restore backup
+flask --app . backup-restore --from backup.zip --mode merge
+```
 
 ### Creating a New User
 ```bash
@@ -199,6 +218,27 @@ flask db upgrade
 # Rollback migrations
 flask db downgrade
 ```
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SECRET_KEY` | Flask secret key | `dev-secret-key-change-in-production` |
+| `FLASK_DEBUG` | Enable debug mode | `False` |
+| `DATABASE_URL` | Database connection string | `sqlite:///plugtrack.db` |
+| `ENCRYPTION_KEY` | Encryption key for sensitive data | Required |
+
+### Default Settings
+The following settings are automatically seeded with sensible defaults:
+- **petrol_threshold_p_per_kwh**: 52.5 (p/kWh threshold for petrol comparison)
+- **default_efficiency_mpkwh**: 4.1 (fallback efficiency if car profile missing)
+- **home_aliases_csv**: "home,house,garage" (location keywords for home detection)
+- **home_charging_speed_kw**: 2.3 (default home charging speed)
+- **petrol_price_p_per_litre**: 128.9 (current petrol price)
+- **petrol_mpg**: 60.0 (petrol efficiency for comparisons)
+- **allow_efficiency_fallback**: 1 (enable efficiency fallback logic)
 
 ## Project Structure
 
@@ -228,9 +268,9 @@ plugtrack/
 │   ├── hints.py           # Smart hints engine
 │   ├── blend.py           # Blended charging logic
 │   ├── reports.py         # CSV export functionality
-│   ├── validators.py      # Validation and report types (Phase 4)
-│   ├── io_sessions.py     # CSV import/export service (Phase 4)
-│   ├── io_backup.py       # Backup/restore service (Phase 4)
+│   ├── validators.py      # Validation and report types
+│   ├── io_sessions.py     # CSV import/export service
+│   ├── io_backup.py       # Backup/restore service
 │   └── baseline_manager.py # Baseline session management
 ├── templates/              # HTML templates
 │   ├── base.html          # Base template with navigation
@@ -249,44 +289,25 @@ plugtrack/
 ├── config.py               # Configuration
 ├── run.py                  # Application entry point
 ├── requirements.txt        # Python dependencies
-├── test_phase4.py         # Phase 4 test suite
+├── test_phase4.py         # Test suite
 ├── Dockerfile.dev          # Development Docker setup
 └── docker-compose.dev.yml  # Development Docker Compose
 ```
 
-## Configuration
+## Development
 
-### Environment Variables
+### Docker Development Setup
+```bash
+# Build and run with Docker
+docker-compose -f docker-compose.dev.yml up --build
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `SECRET_KEY` | Flask secret key | `dev-secret-key-change-in-production` |
-| `FLASK_DEBUG` | Enable debug mode | `False` |
-| `DATABASE_URL` | Database connection string | `sqlite:///plugtrack.db` |
-| `ENCRYPTION_KEY` | Encryption key for sensitive data | Required |
+# Access the application at http://localhost:5000
+```
 
-### Default Settings (Automatically Seeded)
-- **petrol_threshold_p_per_kwh**: 52.5 (p/kWh threshold for petrol comparison)
-- **default_efficiency_mpkwh**: 4.1 (fallback efficiency if car profile missing)
-- **home_aliases_csv**: "home,house,garage" (location keywords for home detection)
-- **home_charging_speed_kw**: 2.3 (default home charging speed)
-- **petrol_price_p_per_litre**: 128.9 (current petrol price)
-- **petrol_mpg**: 60.0 (petrol efficiency for comparisons)
-- **allow_efficiency_fallback**: 1 (enable efficiency fallback logic)
-
-### DC Taper Model
-Default power bands for realistic charging simulation:
-- 10-50%: 100% power
-- 50-70%: 70% power  
-- 70-80%: 45% power
-
-## Security Features
-
-- **Password Hashing**: Secure password storage using Werkzeug's security functions
-- **Session Management**: Flask-Login for secure user sessions
-- **Data Encryption**: Sensitive settings encrypted at rest using Fernet
-- **CSRF Protection**: Built-in CSRF protection with Flask-WTF
-- **Input Validation**: Comprehensive form validation and sanitization
+### Running Tests
+```bash
+python test_phase4.py
+```
 
 ## Contributing
 
@@ -299,28 +320,6 @@ Default power bands for realistic charging simulation:
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Roadmap
-
-### Phase 4 ✅ Complete
-- **CLI Import/Export**: CSV import/export with validation and duplicate detection
-- **Backup/Restore**: ZIP backup/restore with merge/replace modes
-- **Settings Management**: Seeded defaults and framework-agnostic services
-- **Database Performance**: New indexes and optimizations
-- **Development Infrastructure**: Docker setup and testing suite
-
-### Phase 5 (Future)
-- **AI Integration**: OpenAI/Anthropic API for narrative insights
-- **Notifications**: Gotify/Apprise integration for smart alerts
-- **Live Charger Data**: Integration with Zap-Map/OCM APIs
-- **PWA Support**: Progressive Web App capabilities
-- **Advanced Analytics**: Predictive charging cost modeling
-
-### Phase 6 (Future)
-- **Multi-user Support**: Team and family charging management
-- **Mobile App**: Native mobile applications
-- **Charging Network Integration**: Real-time availability and pricing
-- **Weather Integration**: Temperature-based efficiency adjustments
 
 ## Support
 
