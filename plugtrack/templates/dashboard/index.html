@@ -251,6 +251,171 @@
 </div>
 {% endif %}
 
+<!-- Phase 5.1: Battery Hygiene and Location Leaderboard -->
+<div class="row mb-4">
+    <!-- Battery Hygiene Widget -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-heart-pulse"></i> Battery Hygiene</h5>
+                <small class="text-muted">Last 30 days</small>
+            </div>
+            <div class="card-body">
+                {% if battery_hygiene.total_sessions > 0 %}
+                <!-- SoC Distribution Chart -->
+                <div class="mb-3">
+                    <h6>SoC Distribution</h6>
+                    <div class="row text-center">
+                        <div class="col-4">
+                            <div class="text-danger">
+                                <strong>{{ battery_hygiene.soc_bands.low }}</strong>
+                                <br><small>&lt;30%</small>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="text-success">
+                                <strong>{{ battery_hygiene.soc_bands.normal }}</strong>
+                                <br><small>30-80%</small>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="text-warning">
+                                <strong>{{ battery_hygiene.soc_bands.high }}</strong>
+                                <br><small>&gt;80%</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 100% Charge Info -->
+                {% if battery_hygiene.last_100_date %}
+                <div class="alert {% if battery_hygiene.is_overdue %}alert-warning{% else %}alert-info{% endif %} py-2">
+                    <strong>Last 100%:</strong> {{ battery_hygiene.last_100_date.strftime('%Y-%m-%d') }}
+                    ({{ battery_hygiene.days_since_100 }} days ago)
+                    {% if battery_hygiene.recommended_frequency %}
+                    <br><small>{% if battery_hygiene.is_overdue %}⚠️ Due{% else %}✅ Due by{{ ":" if battery_hygiene.due_by_date else "" }}{% endif %} 
+                    {% if battery_hygiene.due_by_date %}{{ battery_hygiene.due_by_date.strftime('%Y-%m-%d') }}{% endif %}</small>
+                    {% endif %}
+                </div>
+                {% else %}
+                <div class="alert alert-secondary py-2">
+                    <strong>No 100% charges recorded</strong>
+                </div>
+                {% endif %}
+                {% else %}
+                <div class="text-center text-muted py-3">
+                    <i class="bi bi-battery-charging" style="font-size: 2rem;"></i>
+                    <p class="mt-2">No sessions in the last 30 days</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Location Leaderboard -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-geo-alt"></i> Location Leaderboard</h5>
+                <small class="text-muted">Top charging locations</small>
+            </div>
+            <div class="card-body">
+                {% if location_leaderboard %}
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Location</th>
+                                <th class="text-center">Sessions</th>
+                                <th class="text-end">£/kWh</th>
+                                <th class="text-end">p/mi</th>
+                                <th class="text-center">SoC</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for location in location_leaderboard %}
+                            <tr>
+                                <td>
+                                    <strong>{{ location.location }}</strong>
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge bg-primary">{{ location.session_count }}</span>
+                                </td>
+                                <td class="text-end">
+                                    {% if location.median_cost_per_kwh > 0 %}
+                                        {{ format_currency(location.median_cost_per_kwh, current_user.id) }}
+                                    {% else %}
+                                        <span class="text-muted">Free</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    {% if location.median_cost_per_mile > 0 %}
+                                        {{ "%.1f"|format(location.median_cost_per_mile * 100) }}p
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <small>{{ location.typical_soc_range }}</small>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-3">
+                    <i class="bi bi-geo-alt" style="font-size: 2rem;"></i>
+                    <p class="mt-2">No location data available</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Phase 5.4: 100% Charge Reminders Card -->
+{% if has_reminder_guidance and reminders and reminders|length > 0 %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-warning">
+            <div class="card-header bg-warning text-dark">
+                <h5 class="mb-0"><i class="bi bi-bell-fill"></i> 100% Charge Reminders</h5>
+                <small>Based on your car's recommended maintenance schedule</small>
+            </div>
+            <div class="card-body">
+                {% for reminder in reminders %}
+                <div class="alert {% if reminder.urgency == 'critical' %}alert-danger{% elif reminder.urgency == 'overdue' %}alert-warning{% else %}alert-info{% endif %} mb-2">
+                    <div class="d-flex align-items-start">
+                        <i class="bi bi-{% if reminder.urgency == 'critical' %}exclamation-triangle-fill{% elif reminder.urgency == 'overdue' %}exclamation-circle-fill{% else %}info-circle-fill{% endif %} me-2 mt-1"></i>
+                        <div class="flex-grow-1">
+                            <h6 class="alert-heading mb-1">{{ reminder.car_make_model }}</h6>
+                            <p class="mb-1">{{ reminder.message }}</p>
+                            <small class="text-muted">
+                                <strong>{{ reminder.days_overdue }} day{{ 's' if reminder.days_overdue != 1 else '' }} overdue</strong>
+                                {% if reminder.last_high_charge_date %}
+                                · Last high charge: {{ reminder.last_high_charge_date }}
+                                {% endif %}
+                            </small>
+                        </div>
+                        <a href="{{ url_for('charging_sessions.new') }}" class="btn btn-sm {% if reminder.urgency == 'critical' %}btn-danger{% elif reminder.urgency == 'overdue' %}btn-warning{% else %}btn-info{% endif %}">
+                            <i class="bi bi-plus"></i> Add Session
+                        </a>
+                    </div>
+                </div>
+                {% endfor %}
+                <div class="text-center mt-3">
+                    <small class="text-muted">
+                        <i class="bi bi-info-circle"></i> 
+                        Reminders will clear automatically when you log a charging session to ≥95% SoC.
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div class="row mb-4">
     <div class="col-12">
         <div class="card">
@@ -359,6 +524,9 @@
 <script>
 // Make recommendations available to the global recommendations dropdown
 window.recommendations = {{ recommendations|tojson|safe }};
+
+// Make reminders available to the global reminders dropdown
+window.reminders = {% if has_reminder_guidance %}{{ reminders|tojson|safe }}{% else %}[]{% endif %};
 
 document.addEventListener('DOMContentLoaded', function() {
     // Handle car details collapse/expand

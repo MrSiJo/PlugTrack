@@ -304,6 +304,18 @@ class DerivedMetricsService:
             hours = session.duration_mins / 60.0
             mphc = miles_gained / hours
         
+        # Phase 5.1 Insights - Calculate new metrics using insights service
+        from services.insights import InsightsService
+        
+        # £/10% SOC metric
+        cost_per_10_percent = InsightsService.calculate_cost_per_10_percent_soc(session, total_cost)
+        
+        # Home ROI delta (calculated when needed, stored as None for now)
+        home_roi_delta = None  # Will be calculated in UI when displaying
+        
+        # Loss estimate
+        loss_estimate = InsightsService.calculate_loss_estimate(session, car)
+        
         return {
             'total_cost': total_cost,
             'miles_gained': miles_gained,
@@ -322,7 +334,11 @@ class DerivedMetricsService:
             'size_bucket': size_bucket,
             'low_confidence': low_confidence,
             'mphc': mphc,
-            'warnings': warnings
+            'warnings': warnings,
+            # Phase 5.1 new metrics
+            'cost_per_10_percent': cost_per_10_percent,
+            'home_roi_delta': home_roi_delta,
+            'loss_estimate': loss_estimate
         }
 
     @staticmethod

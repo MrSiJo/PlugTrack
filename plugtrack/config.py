@@ -10,6 +10,10 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     
+    # Global debug flag for development features
+    DEBUG_REMINDERS = os.environ.get('DEBUG_REMINDERS', 'False').lower() == 'true'
+    DEBUG_INSIGHTS = os.environ.get('DEBUG_INSIGHTS', 'False').lower() == 'true'
+    
     @classmethod
     def init_app(cls, app):
         """Initialize configuration after app creation"""

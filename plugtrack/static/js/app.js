@@ -1,20 +1,25 @@
 // PlugTrack JavaScript functionality
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Auto-hide alerts after 5 seconds (but exclude recommendation alerts)
-    const alerts = document.querySelectorAll('.alert:not(.recommendation-alert)');
+    // Auto-hide flash message alerts after 5 seconds (but preserve informational content)
+    // Only auto-hide alerts that are not: recommendations, informational content, persistent settings info, or insights
+    const alerts = document.querySelectorAll('.alert:not(.recommendation-alert):not(.alert-info):not(.alert-secondary):not(.alert-light):not(.settings-info-persistent)');
     alerts.forEach(function(alert) {
-        setTimeout(function() {
-            if (alert.parentNode) {
-                alert.style.transition = 'opacity 0.5s ease-out';
-                alert.style.opacity = '0';
-                setTimeout(function() {
-                    if (alert.parentNode) {
-                        alert.parentNode.removeChild(alert);
-                    }
-                }, 500);
-            }
-        }, 5000);
+        // Additional check: only auto-hide if the alert is likely a flash message
+        if (alert.closest('.flash-messages') || alert.classList.contains('alert-success') || 
+            alert.classList.contains('alert-warning') || alert.classList.contains('alert-danger')) {
+            setTimeout(function() {
+                if (alert.parentNode) {
+                    alert.style.transition = 'opacity 0.5s ease-out';
+                    alert.style.opacity = '0';
+                    setTimeout(function() {
+                        if (alert.parentNode) {
+                            alert.parentNode.removeChild(alert);
+                        }
+                    }, 500);
+                }
+            }, 5000);
+        }
     });
 
     // Enable tooltips

@@ -15,6 +15,7 @@ def index():
     date_from = request.args.get('date_from')
     date_to = request.args.get('date_to')
     car_id = request.args.get('car_id')
+    exclude_preconditioning = request.args.get('exclude_preconditioning') == 'true'
     
     # Convert date strings to datetime objects
     if date_from:
@@ -62,7 +63,8 @@ def index():
                          cars=cars,
                          date_from=date_from,
                          date_to=date_to,
-                         selected_car=Car.query.get(car_id) if car_id else None)
+                         selected_car=Car.query.get(car_id) if car_id else None,
+                         exclude_preconditioning=exclude_preconditioning)
 
 @analytics_bp.route('/api/chart-data')
 @login_required
@@ -71,6 +73,7 @@ def chart_data():
     date_from = request.args.get('date_from')
     date_to = request.args.get('date_to')
     car_id = request.args.get('car_id')
+    exclude_preconditioning = request.args.get('exclude_preconditioning') == 'true'
     
     # Convert date strings to datetime objects
     if date_from:

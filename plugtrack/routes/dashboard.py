@@ -45,18 +45,40 @@ def index():
     # Get efficiency information
     efficiency_info = DerivedMetricsService.get_current_efficiency_info(current_user.id, car_id)
     
+    # Phase 5.1: Get battery hygiene and location leaderboard data
+    from services.insights import InsightsService
+    battery_hygiene = InsightsService.get_battery_hygiene_metrics(current_user.id, car_id, days=30)
+    location_leaderboard = InsightsService.get_location_leaderboard(current_user.id, car_id, limit=5)
+    
+    # Get cars for filter dropdown FIRST (before using in reminder logic)
+    cars = Car.query.filter_by(user_id=current_user.id).all()
+    
+    # Phase 5.4: Get reminder data
+    from services.reminders import ReminderService
+    reminder_data = ReminderService.check_full_charge_due(current_user.id, car_id)
+    reminders = reminder_data.get('reminders', [])
+    
+    # Check if any cars have reminder guidance enabled (for UI conditional display)
+    has_reminder_guidance = any(
+        car.recommended_full_charge_enabled and 
+        car.recommended_full_charge_frequency_value and 
+        car.recommended_full_charge_frequency_unit
+        for car in cars
+    )
+    
     # Get recent charging sessions for display
     recent_sessions = ChargingSession.query.filter_by(user_id=current_user.id)\
         .order_by(ChargingSession.date.desc(), ChargingSession.created_at.desc())\
         .limit(5).all()
     
-    # Get cars for filter dropdown
-    cars = Car.query.filter_by(user_id=current_user.id).all()
-    
     return render_template('dashboard/index.html',
                          metrics=metrics,
                          recommendations=recommendations,
                          efficiency_info=efficiency_info,
+                         battery_hygiene=battery_hygiene,
+                         location_leaderboard=location_leaderboard,
+                         reminders=reminders,
+                         has_reminder_guidance=has_reminder_guidance,
                          recent_sessions=recent_sessions,
                          cars=cars,
                          date_from=date_from,

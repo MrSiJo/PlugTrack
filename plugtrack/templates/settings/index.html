@@ -28,15 +28,9 @@
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="efficiency-tab" data-bs-toggle="tab" 
-                                data-bs-target="#efficiency" type="button" role="tab">
-                            <i class="bi bi-speedometer2"></i> Efficiency
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="petrol-comparison-tab" data-bs-toggle="tab" 
-                                data-bs-target="#petrol-comparison" type="button" role="tab">
-                            <i class="bi bi-fuel-pump"></i> Petrol Comparison
+                        <button class="nav-link" id="cost-analysis-tab" data-bs-toggle="tab" 
+                                data-bs-target="#cost-analysis" type="button" role="tab">
+                            <i class="bi bi-calculator"></i> Cost & Efficiency
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
@@ -49,6 +43,12 @@
                         <button class="nav-link" id="ai-integration-tab" data-bs-toggle="tab" 
                                 data-bs-target="#ai-integration" type="button" role="tab">
                             <i class="bi bi-robot"></i> AI Integration
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="advanced-tab" data-bs-toggle="tab" 
+                                data-bs-target="#advanced" type="button" role="tab">
+                            <i class="bi bi-wrench"></i> Advanced
                         </button>
                     </li>
                 </ul>
@@ -179,104 +179,90 @@
                         {% endif %}
                     </div>
                     
-                    <!-- Efficiency Tab -->
-                    <div class="tab-pane fade" id="efficiency" role="tabpanel">
+                    <!-- Cost & Efficiency Tab -->
+                    <div class="tab-pane fade" id="cost-analysis" role="tabpanel">
                         <div class="row mb-4">
                             <div class="col-12">
                                 <div class="card">
                                     <div class="card-header d-flex justify-content-between align-items-center">
-                                        <h6 class="mb-0">Efficiency Settings</h6>
-                                        <a href="{{ url_for('settings.efficiency_settings') }}" class="btn btn-outline-primary btn-sm">
+                                        <h6 class="mb-0">Cost & Efficiency Settings</h6>
+                                        <a href="{{ url_for('settings.cost_analysis') }}" class="btn btn-outline-primary btn-sm">
                                             <i class="bi bi-pencil"></i> Edit Settings
                                         </a>
                                     </div>
                                     <div class="card-body">
                                         <div class="row">
-                                            <div class="col-md-6">
+                                            <div class="col-md-4">
                                                 <div class="mb-3">
                                                     <label class="form-label fw-bold">Default Efficiency</label>
                                                     <div class="form-control-plaintext">
                                                         {{ phase3_settings.default_efficiency_mpkwh }} mi/kWh
                                                     </div>
-                                                    <small class="text-muted">Fallback efficiency when car profile is missing</small>
+                                                    <small class="text-muted">Fallback efficiency when car profile unavailable</small>
                                                 </div>
                                             </div>
-                                            <div class="col-md-6">
-                                                <div class="mb-3">
-                                                    <label class="form-label fw-bold">Calculated Petrol Threshold</label>
-                                                    <div class="form-control-plaintext">
-                                                        {{ current_currency_symbol }}{{ "%.2f"|format(petrol_threshold / 100) }}/kWh
-                                                    </div>
-                                                    <small class="text-muted">Auto-calculated from petrol price and MPG</small>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="alert alert-info">
-                            <i class="bi bi-info-circle"></i> 
-                            <strong>About these settings:</strong> The default efficiency is used when a car doesn't have its own efficiency profile. 
-                            The petrol threshold is automatically calculated from your petrol comparison settings and helps determine 
-                            when it's more cost-effective to charge at home vs. using public charging.
-                        </div>
-                    </div>
-                    
-                    <!-- Petrol Comparison Tab -->
-                    <div class="tab-pane fade" id="petrol-comparison" role="tabpanel">
-                        <div class="row mb-4">
-                            <div class="col-12">
-                                <div class="card">
-                                    <div class="card-header d-flex justify-content-between align-items-center">
-                                        <h6 class="mb-0">Petrol Comparison Settings</h6>
-                                        <a href="{{ url_for('settings.petrol_comparison') }}" class="btn btn-outline-primary btn-sm">
-                                            <i class="bi bi-pencil"></i> Edit Settings
-                                        </a>
-                                    </div>
-                                    <div class="card-body">
-                                        <div class="row">
-                                            <div class="col-md-6">
+                                            <div class="col-md-4">
                                                 <div class="mb-3">
                                                     <label class="form-label fw-bold">Petrol Price</label>
                                                     <div class="form-control-plaintext">
                                                         {{ phase3_settings.petrol_price_p_per_litre }} p/L
                                                     </div>
-                                                    <small class="text-muted">Current petrol price in pence per litre</small>
+                                                    <small class="text-muted">Current petrol price</small>
                                                 </div>
                                             </div>
-                                            <div class="col-md-6">
+                                            <div class="col-md-4">
                                                 <div class="mb-3">
                                                     <label class="form-label fw-bold">Petrol MPG</label>
                                                     <div class="form-control-plaintext">
                                                         {{ phase3_settings.petrol_mpg }} MPG (UK)
                                                     </div>
-                                                    <small class="text-muted">Average miles per gallon for comparison</small>
+                                                    <small class="text-muted">Reference efficiency</small>
                                                 </div>
                                             </div>
                                         </div>
                                         
-                                        <hr>
-                                        
-                                        <div class="row">
-                                            <div class="col-12">
-                                                <div class="alert alert-success">
-                                                    <h6 class="alert-heading">Calculated Petrol Threshold</h6>
-                                                    <p class="mb-2">Based on your settings, petrol costs <strong>{{ current_currency_symbol }}{{ "%.2f"|format(petrol_threshold / 100) }}/kWh</strong> equivalent.</p>
-                                                    <p class="mb-0"><small>This means charging below this rate is cheaper than petrol, while charging above it is more expensive.</small></p>
+                                        <!-- Calculated Results Card -->
+                                        <div class="card border-light mb-3">
+                                            <div class="card-header bg-light">
+                                                <h6 class="mb-0">Calculated Results</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="row">
+                                                    <div class="col-md-6">
+                                                        <label class="form-label fw-bold">Petrol Cost per Mile</label>
+                                                        <div class="form-control-plaintext fs-5">
+                                                            {% if cost_parity_data.petrol_ppm_raw %}
+                                                                <strong class="text-primary">{{ cost_parity_data.petrol_ppm_formatted }}</strong>
+                                                            {% else %}
+                                                                <span class="text-muted" title="Enter petrol price & MPG to calculate">—</span>
+                                                            {% endif %}
+                                                        </div>
+                                                        <small class="text-muted">How much petrol costs per mile driven</small>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <label class="form-label fw-bold">EV Parity Rate</label>
+                                                        <div class="form-control-plaintext fs-5">
+                                                            {% if cost_parity_data.ev_parity_raw %}
+                                                                <strong class="text-success">{{ cost_parity_data.ev_parity_formatted }}</strong>
+                                                            {% else %}
+                                                                <span class="text-muted" title="Enter petrol price & MPG to calculate">—</span>
+                                                            {% endif %}
+                                                        </div>
+                                                        <small class="text-muted">EV charging rate that equals petrol cost per mile</small>
+                                                    </div>
                                                 </div>
                                             </div>
+                                        </div>
+                                        
+                                        <div class="alert alert-info mb-0 settings-info-persistent">
+                                            <i class="bi bi-info-circle"></i>
+                                            <strong>How it works:</strong> Petrol inputs produce a single comparable number (<em>p/mi</em>).
+                                            Your EV parity rate converts that into a single electricity number (<em>p/kWh</em>).
+                                            Charging below the parity rate is cheaper than petrol; above it is more expensive.
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <div class="alert alert-info">
-                            <i class="bi bi-info-circle"></i> 
-                            <strong>How this works:</strong> We calculate the petrol cost per mile, then convert it to a p/kWh equivalent 
-                            using your default efficiency. This gives you a clear threshold to compare electric charging costs against petrol.
                         </div>
                     </div>
                     
@@ -298,6 +284,120 @@
                             <i class="bi bi-info-circle"></i> 
                             <strong>Coming Soon:</strong> OpenAI and Anthropic integration for AI-powered insights.
                         </div>
+                    </div>
+                    
+                    <!-- Phase 5.2: Advanced Tab -->
+                    <div class="tab-pane fade" id="advanced" role="tabpanel">
+                        <h5>
+                            Advanced Settings
+                            <button type="button" class="btn btn-link btn-sm p-0 ms-2" 
+                                    data-bs-toggle="modal" data-bs-target="#confidenceHelpModal"
+                                    title="What affects confidence?">
+                                <i class="bi bi-question-circle"></i>
+                            </button>
+                        </h5>
+                        <p class="text-muted">Configure advanced thresholds for confidence calculations and data quality.</p>
+                        
+                        <form method="POST" action="{{ url_for('settings.advanced') }}">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>Confidence Thresholds</h6>
+                                    <div class="mb-3">
+                                        <label for="min_delta_miles" class="form-label">
+                                            Minimum Delta Miles
+                                            <i class="bi bi-question-circle" 
+                                               title="Minimum miles driven between odometer readings for high confidence"></i>
+                                        </label>
+                                        <input type="number" class="form-control" id="min_delta_miles" 
+                                               name="min_delta_miles" value="{{ advanced_settings.min_delta_miles or 15 }}" 
+                                               min="1" max="100" step="1">
+                                        <small class="text-muted">Sessions with fewer miles are marked as low confidence</small>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="min_kwh" class="form-label">
+                                            Minimum kWh Delivered
+                                            <i class="bi bi-question-circle" 
+                                               title="Minimum energy delivered for high confidence calculations"></i>
+                                        </label>
+                                        <input type="number" class="form-control" id="min_kwh" 
+                                               name="min_kwh" value="{{ advanced_settings.min_kwh or 3.0 }}" 
+                                               min="0.1" max="50" step="0.1">
+                                        <small class="text-muted">Sessions with less energy are marked as low confidence</small>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="max_anchor_gap_days" class="form-label">
+                                            Maximum Anchor Gap (Days)
+                                            <i class="bi bi-question-circle" 
+                                               title="Maximum days between odometer readings before they're considered stale"></i>
+                                        </label>
+                                        <input type="number" class="form-control" id="max_anchor_gap_days" 
+                                               name="max_anchor_gap_days" value="{{ advanced_settings.max_anchor_gap_days or 10 }}" 
+                                               min="1" max="365" step="1">
+                                        <small class="text-muted">Older anchor points reduce confidence</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <h6>Efficiency Limits</h6>
+                                    <div class="mb-3">
+                                        <label for="efficiency_min" class="form-label">
+                                            Minimum Efficiency (mi/kWh)
+                                            <i class="bi bi-question-circle" 
+                                               title="Values below this are clamped as outliers"></i>
+                                        </label>
+                                        <input type="number" class="form-control" id="efficiency_min" 
+                                               name="efficiency_min" value="{{ advanced_settings.efficiency_min or 1.0 }}" 
+                                               min="0.1" max="10" step="0.1">
+                                        <small class="text-muted">Unrealistically low values are flagged</small>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="efficiency_max" class="form-label">
+                                            Maximum Efficiency (mi/kWh)
+                                            <i class="bi bi-question-circle" 
+                                               title="Values above this are clamped as outliers"></i>
+                                        </label>
+                                        <input type="number" class="form-control" id="efficiency_max" 
+                                               name="efficiency_max" value="{{ advanced_settings.efficiency_max or 7.0 }}" 
+                                               min="1" max="20" step="0.1">
+                                        <small class="text-muted">Unrealistically high values are flagged</small>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="anchor_horizon_days" class="form-label">
+                                            Anchor Horizon (Days)
+                                            <i class="bi bi-question-circle" 
+                                               title="How far back to look for odometer anchor points"></i>
+                                        </label>
+                                        <input type="number" class="form-control" id="anchor_horizon_days" 
+                                               name="anchor_horizon_days" value="{{ advanced_settings.anchor_horizon_days or 30 }}" 
+                                               min="1" max="365" step="1">
+                                        <small class="text-muted">Larger values include more historical data</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-12">
+                                    <div class="alert alert-warning">
+                                        <i class="bi bi-exclamation-triangle"></i>
+                                        <strong>Warning:</strong> Changing these values will affect confidence calculations for all sessions.
+                                        More restrictive settings may mark more sessions as low confidence.
+                                    </div>
+                                    
+                                    <div class="d-flex justify-content-between">
+                                        <button type="button" class="btn btn-outline-secondary" id="resetDefaults">
+                                            <i class="bi bi-arrow-counterclockwise"></i> Reset to Defaults
+                                        </button>
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="bi bi-floppy"></i> Save Advanced Settings
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
                     </div>
                 </div>
             </div>

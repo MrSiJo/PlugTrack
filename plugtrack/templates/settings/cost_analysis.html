@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - PlugTrack{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{{ url_for('settings.index') }}">Settings</a></li>
+                <li class="breadcrumb-item active">Cost & Efficiency</li>
+            </ol>
+        </nav>
+        <h1><i class="bi bi-calculator"></i> {{ title }}</h1>
+        <p class="text-muted">Configure efficiency defaults and petrol comparison parameters for cost analysis throughout the app.</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <form method="POST" id="costAnalysisForm">
+            {{ form.hidden_tag() }}
+            
+            <!-- EV Efficiency Section -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-speedometer2"></i> EV Efficiency</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.default_efficiency_mpkwh.label(class="form-label") }}
+                                {{ form.default_efficiency_mpkwh(class="form-control", id="efficiency", placeholder="e.g., 4.1") }}
+                                {% if form.default_efficiency_mpkwh.errors %}
+                                    <div class="invalid-feedback d-block">
+                                        {% for error in form.default_efficiency_mpkwh.errors %}
+                                            {{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                                <small class="text-muted">{{ form.default_efficiency_mpkwh.description }}</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="text-muted">
+                                <h6>Efficiency Fallback Order:</h6>
+                                <ol class="small">
+                                    <li><strong>Dynamic observed</strong> (from recent sessions)</li>
+                                    <li><strong>Car profile</strong> (individual car setting)</li>
+                                    <li><strong>Default</strong> (this page)</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Petrol Comparison Section -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-fuel-pump"></i> Petrol Comparison</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.petrol_price_p_per_litre.label(class="form-label") }}
+                                <div class="input-group">
+                                    {{ form.petrol_price_p_per_litre(class="form-control", id="petrolPrice", placeholder="e.g., 128.9") }}
+                                    <span class="input-group-text">p/L</span>
+                                    <button type="button" class="btn btn-outline-secondary" id="ukAvgPriceBtn" title="UK Average Price">
+                                        <i class="bi bi-arrow-clockwise"></i>
+                                    </button>
+                                </div>
+                                {% if form.petrol_price_p_per_litre.errors %}
+                                    <div class="invalid-feedback d-block">
+                                        {% for error in form.petrol_price_p_per_litre.errors %}
+                                            {{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                                <small class="text-muted">{{ form.petrol_price_p_per_litre.description }}</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.petrol_mpg.label(class="form-label") }}
+                                <div class="input-group">
+                                    {{ form.petrol_mpg(class="form-control", id="petrolMpg", placeholder="e.g., 60.0") }}
+                                    <span class="input-group-text">MPG</span>
+                                </div>
+                                {% if form.petrol_mpg.errors %}
+                                    <div class="invalid-feedback d-block">
+                                        {% for error in form.petrol_mpg.errors %}
+                                            {{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                                <small class="text-muted">{{ form.petrol_mpg.description }}</small>
+                            </div>
+                            
+                            <!-- Quick Presets -->
+                            <div class="mb-3">
+                                <small class="text-muted d-block mb-1">Quick presets:</small>
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <button type="button" class="btn btn-outline-secondary mpg-preset" data-mpg="55">55 MPG</button>
+                                    <button type="button" class="btn btn-outline-secondary mpg-preset" data-mpg="60">60 MPG</button>
+                                    <button type="button" class="btn btn-outline-secondary mpg-preset" data-mpg="65">65 MPG</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Calculated Results Section -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-calculator-fill"></i> Calculated Results</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Petrol Cost per Mile</label>
+                                <div class="form-control-plaintext fs-5" id="petrolPerMile">
+                                    <span class="text-muted">Enter values above</span>
+                                </div>
+                                <small class="text-muted">How much petrol costs per mile driven</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">EV Parity Rate</label>
+                                <div class="form-control-plaintext fs-5" id="parityRate">
+                                    <span class="text-muted">Enter values above</span>
+                                </div>
+                                <small class="text-muted">EV charging rate that equals petrol cost per mile</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info" id="summaryAlert" style="display: none;">
+                        <i class="bi bi-info-circle"></i>
+                        <span id="summaryText">At your current inputs, petrol costs approximately <strong><span id="summaryPerMile">X p/mi</span></strong>. EV breaks even at <strong><span id="summaryParity">£Y/kWh</span></strong>.</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Save Controls -->
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check"></i> Save Settings
+                </button>
+                <a href="{{ url_for('settings.index') }}" class="btn btn-outline-secondary">
+                    <i class="bi bi-x"></i> Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Get form elements
+    const efficiencyInput = document.getElementById('efficiency');
+    const petrolPriceInput = document.getElementById('petrolPrice');
+    const petrolMpgInput = document.getElementById('petrolMpg');
+    
+    // Get result elements
+    const petrolPerMileEl = document.getElementById('petrolPerMile');
+    const parityRateEl = document.getElementById('parityRate');
+    const summaryAlert = document.getElementById('summaryAlert');
+    const summaryPerMile = document.getElementById('summaryPerMile');
+    const summaryParity = document.getElementById('summaryParity');
+    
+    // MPG preset buttons
+    const mpgPresets = document.querySelectorAll('.mpg-preset');
+    
+    // Debounce function
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+    
+    // Calculate and update preview
+    function updatePreview() {
+        const efficiency = parseFloat(efficiencyInput.value);
+        const petrolPrice = parseFloat(petrolPriceInput.value);
+        const petrolMpg = parseFloat(petrolMpgInput.value);
+        
+        if (isNaN(efficiency) || isNaN(petrolPrice) || isNaN(petrolMpg) || 
+            efficiency <= 0 || petrolPrice <= 0 || petrolMpg <= 0) {
+            // Hide results if invalid inputs
+            petrolPerMileEl.innerHTML = '<span class="text-muted">Enter valid values above</span>';
+            parityRateEl.innerHTML = '<span class="text-muted">Enter valid values above</span>';
+            summaryAlert.style.display = 'none';
+            return;
+        }
+        
+        // Calculate petrol p/mi: petrol_price_p_per_litre / mpg * 4.54609
+        const petrolPencePerMile = (petrolPrice / petrolMpg) * 4.54609;
+        
+        // Calculate parity £/kWh: (pence_per_mile / default_efficiency_mpkwh) / 100.0
+        const parityGbpPerKwh = (petrolPencePerMile / efficiency) / 100.0;
+        
+        // Update display
+        petrolPerMileEl.innerHTML = `<strong class="text-primary">${petrolPencePerMile.toFixed(2)} p/mi</strong>`;
+        parityRateEl.innerHTML = `<strong class="text-success">£${parityGbpPerKwh.toFixed(3)}/kWh</strong>`;
+        
+        // Update summary
+        summaryPerMile.textContent = `${petrolPencePerMile.toFixed(2)} p/mi`;
+        summaryParity.textContent = `£${parityGbpPerKwh.toFixed(3)}/kWh`;
+        summaryAlert.style.display = 'block';
+    }
+    
+    // Debounced update function
+    const debouncedUpdate = debounce(updatePreview, 300);
+    
+    // Add event listeners
+    efficiencyInput.addEventListener('input', debouncedUpdate);
+    petrolPriceInput.addEventListener('input', debouncedUpdate);
+    petrolMpgInput.addEventListener('input', debouncedUpdate);
+    
+    // MPG preset handlers
+    mpgPresets.forEach(button => {
+        button.addEventListener('click', function() {
+            const mpgValue = this.getAttribute('data-mpg');
+            petrolMpgInput.value = mpgValue;
+            
+            // Update active preset button
+            mpgPresets.forEach(btn => btn.classList.remove('active'));
+            this.classList.add('active');
+            
+            updatePreview();
+        });
+    });
+    
+    // UK average price preset handler
+    const ukAvgPriceBtn = document.getElementById('ukAvgPriceBtn');
+    if (ukAvgPriceBtn) {
+        ukAvgPriceBtn.addEventListener('click', function() {
+            petrolPriceInput.value = '145.0'; // UK average placeholder
+            updatePreview();
+        });
+    }
+    
+    // Initial calculation if form is pre-populated
+    updatePreview();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,90 @@
+<!-- What Affects Confidence Modal -->
+<div class="modal fade" id="confidenceHelpModal" tabindex="-1" aria-labelledby="confidenceHelpModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confidenceHelpModalLabel">
+                    <i class="bi bi-info-circle"></i> What Affects Confidence?
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-12 mb-4">
+                        <p class="text-muted">
+                            Confidence levels indicate how reliable the efficiency and cost calculations are for a charging session.
+                            Lower confidence typically means the data is "noisy" or based on limited information.
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6 class="card-title text-warning">
+                                    <i class="bi bi-exclamation-triangle"></i> Small Window
+                                </h6>
+                                <p class="card-text small">
+                                    <strong>When:</strong> Session delivers &lt;3.0 kWh or drives &lt;15 miles
+                                </p>
+                                <p class="card-text small">
+                                    <strong>Why:</strong> Small sessions provide less representative data for efficiency calculations
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6 class="card-title text-info">
+                                    <i class="bi bi-clock"></i> Stale Anchors
+                                </h6>
+                                <p class="card-text small">
+                                    <strong>When:</strong> Reference data is &gt;10 days old
+                                </p>
+                                <p class="card-text small">
+                                    <strong>Why:</strong> Older baseline sessions may not reflect current driving patterns or battery condition
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6 class="card-title text-danger">
+                                    <i class="bi bi-scissors"></i> Outlier Clamped
+                                </h6>
+                                <p class="card-text small">
+                                    <strong>When:</strong> Calculated efficiency &lt;1 or &gt;7 mi/kWh
+                                </p>
+                                <p class="card-text small">
+                                    <strong>Why:</strong> Extreme values suggest measurement errors or unusual circumstances
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="alert alert-light">
+                            <h6><i class="bi bi-lightbulb"></i> Improving Confidence</h6>
+                            <ul class="mb-0 small">
+                                <li>Log longer charging sessions (more kWh and miles driven)</li>
+                                <li>Keep your data up-to-date with regular session entries</li>
+                                <li>Double-check odometer readings for accuracy</li>
+                                <li>Note unusual circumstances (preconditioning, extreme weather) in session notes</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Got it</button>
+            </div>
+        </div>
+    </div>
+</div>

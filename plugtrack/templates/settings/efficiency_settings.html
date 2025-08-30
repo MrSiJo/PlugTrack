@@ -27,7 +27,7 @@
                     {{ form.hidden_tag() }}
                     
                     <div class="row">
-                        <div class="col-md-6">
+                        <div class="col-md-8">
                             <div class="mb-3">
                                 {{ form.default_efficiency_mpkwh.label(class="form-label") }}
                                 {{ form.default_efficiency_mpkwh(class="form-control", placeholder="e.g., 3.7") }}
@@ -41,26 +41,12 @@
                                 <small class="text-muted">{{ form.default_efficiency_mpkwh.description }}</small>
                             </div>
                         </div>
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                {{ form.petrol_threshold_p_per_kwh.label(class="form-label") }}
-                                {{ form.petrol_threshold_p_per_kwh(class="form-control", placeholder="e.g., 52.5") }}
-                                {% if form.petrol_threshold_p_per_kwh.errors %}
-                                    <div class="invalid-feedback d-block">
-                                        {% for error in form.petrol_threshold_p_per_kwh.errors %}
-                                            {{ error }}
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-                                <small class="text-muted">{{ form.petrol_threshold_p_per_kwh.description }}</small>
-                            </div>
-                        </div>
                     </div>
                     
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle"></i> 
-                        <strong>About these settings:</strong> The default efficiency is used as a fallback when a car doesn't have its own efficiency profile. 
-                        The petrol cost threshold helps determine when it's more cost-effective to charge at home vs. using public charging networks.
+                        <strong>About this setting:</strong> The default efficiency is used as a fallback when a car doesn't have its own efficiency profile. 
+                        This value helps calculate costs and comparisons when car-specific efficiency data is unavailable.
                     </div>
                     
                     <div class="d-flex gap-2">

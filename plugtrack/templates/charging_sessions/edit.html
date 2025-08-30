@@ -201,12 +201,17 @@
                         </div>
                     </div>
                     
+                    <!-- Context Section -->
+                    <h6 class="mt-4 mb-3 text-secondary">
+                        <i class="bi bi-thermometer-half"></i> Context & Conditions
+                    </h6>
+                    
                     <div class="row">
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <div class="mb-3">
                                 {{ form.ambient_temp_c.label(class="form-label") }}
                                 {{ form.ambient_temp_c(class="form-control", placeholder="e.g., 18.5") }}
-                                <small class="text-muted">Optional: Ambient temperature during charging (°C)</small>
+                                <small class="text-muted">Ambient temperature during charging</small>
                                 {% if form.ambient_temp_c.errors %}
                                     <div class="text-danger">
                                         {% for error in form.ambient_temp_c.errors %}
@@ -216,11 +221,25 @@
                                 {% endif %}
                             </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                {{ form.preconditioning_used.label(class="form-label") }}
+                                {{ form.preconditioning_used(class="form-select") }}
+                                <small class="text-muted">Was battery preconditioning active?</small>
+                                {% if form.preconditioning_used.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.preconditioning_used.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-4">
                             <div class="mb-3">
                                 {{ form.preconditioning_events.label(class="form-label") }}
                                 {{ form.preconditioning_events(class="form-control", placeholder="e.g., 2") }}
-                                <small class="text-muted">Optional: Number of preconditioning events</small>
+                                <small class="text-muted">{{ form.preconditioning_events.description }}</small>
                                 {% if form.preconditioning_events.errors %}
                                     <div class="text-danger">
                                         {% for error in form.preconditioning_events.errors %}
@@ -230,21 +249,6 @@
                                 {% endif %}
                             </div>
                         </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <div class="form-check">
-                            {{ form.preconditioning_used(class="form-check-input") }}
-                            {{ form.preconditioning_used.label(class="form-check-label") }}
-                            <small class="text-muted d-block">Check if preconditioning was used during this session</small>
-                        </div>
-                        {% if form.preconditioning_used.errors %}
-                            <div class="text-danger">
-                                {% for error in form.preconditioning_used.errors %}
-                                    <small>{{ error }}</small>
-                                {% endfor %}
-                            </div>
-                        {% endif %}
                     </div>
                     
                     <div class="mb-3">

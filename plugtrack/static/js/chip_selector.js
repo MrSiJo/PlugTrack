@@ -8,13 +8,18 @@ function selectInlineChips(metrics, settings = {}) {
     
     // 1. Efficiency chip (priority 1)
     if (metrics.efficiency_used !== null && metrics.efficiency_used !== undefined) {
+        // Phase 5.2: Include confidence information
+        const confidenceLevel = metrics.efficiency_confidence || 'unknown';
+        const confidenceReasons = metrics.confidence_reasons || [];
+        
         const efficiencyChip = {
             type: 'efficiency',
             value: metrics.efficiency_used.toFixed(1),
             unit: 'mi/kWh',
             colorClass: getEfficiencyColorClass(metrics.efficiency_used),
             muted: metrics.low_confidence || false,
-            tooltip: getEfficiencyTooltip(metrics, metrics.low_confidence)
+            tooltip: getEfficiencyTooltip(metrics, metrics.low_confidence, confidenceLevel, confidenceReasons),
+            confidenceBadge: getConfidenceBadge(confidenceLevel, confidenceReasons)
         };
         chips.push(efficiencyChip);
     }
@@ -47,8 +52,19 @@ function selectInlineChips(metrics, settings = {}) {
     
     // 4. Fill remaining slots with secondary metrics (max 3 total)
     if (chips.length < 3) {
-        // Try average power
-        if (metrics.avg_power_kw > 0) {
+        // Phase 5.1: Try £/10% SOC first
+        if (metrics.cost_per_10_percent > 0) {
+            const costPer10PercentChip = {
+                type: 'cost_per_10_percent',
+                value: metrics.cost_per_10_percent.toFixed(2),
+                unit: '£/10%',
+                colorClass: 'chip--secondary',
+                muted: false,
+                tooltip: `Cost per 10% SOC: £${metrics.cost_per_10_percent.toFixed(2)}`
+            };
+            chips.push(costPer10PercentChip);
+        } else if (metrics.avg_power_kw > 0) {
+            // Fall back to average power
             const avgPowerChip = {
                 type: 'avg_power',
                 value: metrics.avg_power_kw.toFixed(1),
@@ -62,8 +78,19 @@ function selectInlineChips(metrics, settings = {}) {
     }
     
     if (chips.length < 3) {
-        // Try percent per kWh
-        if (metrics.percent_per_kwh > 0) {
+        // Phase 5.1: Try Home ROI delta first
+        if (metrics.home_roi_delta !== null && metrics.home_roi_delta !== undefined) {
+            const homeRoiChip = {
+                type: 'home_roi_delta',
+                value: (metrics.home_roi_delta >= 0 ? '+' : '') + metrics.home_roi_delta.toFixed(1),
+                unit: 'p/mi vs home',
+                colorClass: metrics.home_roi_delta <= 0 ? 'chip--green' : 'chip--red',
+                muted: false,
+                tooltip: `Cost delta vs 30-day home baseline: ${(metrics.home_roi_delta >= 0 ? '+' : '')}${metrics.home_roi_delta.toFixed(1)}p/mi`
+            };
+            chips.push(homeRoiChip);
+        } else if (metrics.percent_per_kwh > 0) {
+            // Fall back to percent per kWh
             const percentPerKwhChip = {
                 type: 'percent_per_kwh',
                 value: metrics.percent_per_kwh.toFixed(1),
@@ -86,6 +113,25 @@ function getEfficiencyColorClass(efficiency) {
     return 'chip--green';
 }
 
+function getConfidenceColorClass(confidenceLevel) {
+    switch (confidenceLevel) {
+        case 'high': return 'chip--green';
+        case 'medium': return 'chip--amber';
+        case 'low': return 'chip--red';
+        default: return 'chip--secondary';
+    }
+}
+
+function getConfidenceBadge(confidenceLevel, reasons) {
+    if (!reasons || reasons.length === 0) return '';
+    
+    const symbol = confidenceLevel === 'low' ? '⚠️' : 
+                   confidenceLevel === 'medium' ? '⚡' : '✅';
+    const tooltip = `Confidence: ${confidenceLevel}. Issues: ${reasons.join(', ')}`;
+    
+    return `<span class="confidence-badge" title="${tooltip}">${symbol}</span>`;
+}
+
 function getCostPerMileColorClass(costPerMile, thresholdPpm) {
     if (!thresholdPpm || thresholdPpm <= 0) return 'chip--secondary';
     
@@ -95,11 +141,18 @@ function getCostPerMileColorClass(costPerMile, thresholdPpm) {
     return 'chip--red';
 }
 
-function getEfficiencyTooltip(metrics, lowConfidence) {
-    if (lowConfidence) {
-        return `Short window (Δ${metrics.delta_miles || 'N/A'} mi, ${metrics.charge_delivered_kwh || 'N/A'} kWh) — noisy.`;
+function getEfficiencyTooltip(metrics, lowConfidence, confidenceLevel, confidenceReasons) {
+    let tooltip = `Miles gained per kWh: ${metrics.miles_gained ? metrics.miles_gained.toFixed(1) : '0.0'} mi / ${metrics.efficiency_used.toFixed(1)} mi/kWh`;
+    
+    // Phase 5.2: Add confidence information
+    if (confidenceLevel && confidenceLevel !== 'high') {
+        tooltip += `\nConfidence: ${confidenceLevel}`;
+        if (confidenceReasons && confidenceReasons.length > 0) {
+            tooltip += `\nIssues: ${confidenceReasons.join(', ')}`;
+        }
     }
-    return `Miles gained per kWh: ${metrics.miles_gained ? metrics.miles_gained.toFixed(1) : '0.0'} mi / ${metrics.efficiency_used.toFixed(1)} mi/kWh`;
+    
+    return tooltip;
 }
 
 function getCostPerMileTooltip(metrics) {
@@ -127,11 +180,12 @@ function renderInlineChips(container, chips) {
     const chipsHtml = chips.map(chip => {
         const mutedClass = chip.muted ? ' chip--muted' : '';
         const colorClass = chip.colorClass || 'chip--secondary';
+        const confidenceBadge = chip.confidenceBadge || '';
         
         return `
             <span class="chip ${colorClass}${mutedClass}" 
                   title="${chip.tooltip}">
-                ${chip.value} ${chip.unit}
+                ${chip.value} ${chip.unit}${confidenceBadge}
             </span>
         `;
     }).join('');

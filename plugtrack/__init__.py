@@ -60,7 +60,77 @@ def create_app(config_class=Config):
         'get_currency_info': get_currency_info
     })
     
+    # Add context processor for reminder data (Phase 5.4)
+    @app.context_processor
+    def inject_reminder_data():
+        try:
+            from flask_login import current_user
+            
+            if current_user.is_authenticated:
+                from services.reminders import ReminderService
+                from models.car import Car
+                
+                # Get user's cars
+                cars = Car.query.filter_by(user_id=current_user.id).all()
+                
+                # Check if any cars have reminder guidance enabled
+                has_reminder_guidance = any(
+                    car.recommended_full_charge_enabled and 
+                    car.recommended_full_charge_frequency_value and 
+                    car.recommended_full_charge_frequency_unit
+                    for car in cars
+                )
+                
+                # Get reminder data if guidance is enabled
+                if has_reminder_guidance:
+                    reminder_data = ReminderService.check_full_charge_due(current_user.id)
+                    reminders = reminder_data.get('reminders', [])
+                else:
+                    reminders = []
+                
+                return {
+                    'navbar_reminders': reminders,
+                    'navbar_has_reminder_guidance': has_reminder_guidance
+                }
+            else:
+                return {
+                    'navbar_reminders': [],
+                    'navbar_has_reminder_guidance': False
+                }
+        except Exception as e:
+            # Log error but don't break the app
+            return {
+                'navbar_reminders': [],
+                'navbar_has_reminder_guidance': False
+            }
+    
     # Register Phase 4 CLI commands
+    @app.cli.command('reminders-run')
+    def reminders_run():
+        """Run 100% charge reminder checks for all users."""
+        from services.reminders import ReminderService
+        
+        print("Running 100% charge reminder checks...")
+        results = ReminderService.check_all_users()
+        
+        # Log results
+        ReminderService.log_reminder_check(results)
+        
+        # Print summary
+        total_reminders = results['total_reminders']
+        users_with_reminders = results['users_with_reminders']
+        
+        if total_reminders == 0:
+            print("✅ No reminders due")
+        else:
+            print(f"⚠️  {total_reminders} reminders due for {users_with_reminders} users")
+            for user_reminder in results['user_reminders']:
+                username = user_reminder.get('username', f"User {user_reminder['user_id']}")
+                reminder_count = user_reminder['reminders_due']
+                print(f"  📱 {username}: {reminder_count} reminder(s)")
+        
+        return results
+    
     @app.cli.command('init-db')
     def init_db():
         """Initialize the database with sample data."""

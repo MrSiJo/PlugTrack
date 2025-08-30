@@ -7,31 +7,51 @@ PlugTrack is a smart personal web application for logging and managing EV chargi
 
 ### Smart Charging Management
 - **Car Profiles**: Manage multiple vehicles with battery capacity, efficiency tracking, and recommended 100% charge frequency
-- **Charging Sessions**: Log detailed charging sessions with cost tracking, SoC monitoring, and location management
+- **Charging Sessions**: Log detailed charging sessions with cost tracking, SoC monitoring, location management, ambient temperature, and pre-conditioning usage
 - **Smart Recommendations**: Automated charging advice based on your patterns and preferences
-- **Session Insights**: Each charging session displays efficiency chips, cost analysis, and petrol comparison
+- **Session Insights**: Enhanced efficiency chips including £/10% SoC analysis, cost per mile, and petrol comparison
+- **Context-Aware Analysis**: Track environmental conditions and pre-conditioning impact on charging efficiency
 
-### Analytics & Insights
-- **Comprehensive Dashboard**: Overview of active car and recent charging sessions
-- **Analytics Dashboard**: Interactive charts showing cost trends, efficiency, and charging mix
-- **Key Metrics**: Average cost per kWh, cost per mile, efficiency, home vs public charging distribution
-- **Aggregated Analytics**: Lifetime totals, best/worst sessions, seasonal averages by temperature
-- **Data Filtering**: Filter by date range, car profile, charge type, and network
+### Advanced Analytics & Insights
+- **Comprehensive Dashboard**: Overview of active car, recent sessions, and battery hygiene insights
+- **Interactive Analytics**: Charts showing cost trends, efficiency patterns, and charging mix with advanced filtering
+- **Enhanced Efficiency Insights**: £/10% SoC chips, Home ROI analysis vs 30-day baseline, and battery loss estimation
+- **Location Intelligence**: Per-location median costs (£/kWh, £/mi), typical SoC patterns, and session counts
+- **Seasonal Analysis**: Climate impact insights grouped by ambient temperature buckets
+- **Lifetime Statistics**: Complete overview of total kWh consumed, miles driven, costs, and savings vs petrol
+- **Best/Worst Detection**: Automatically identifies your cheapest/most expensive sessions and efficiency extremes
+- **Data Filtering**: Filter by date range, car profile, charge type, network, and exclude pre-conditioning sessions
 
-### Smart Coaching Features
+### Intelligent Reminder & Monitoring System
+- **Battery Hygiene Dashboard**: Visual time distribution across SoC bands (<30%, 30-80%, >80%) for health monitoring
+- **Smart 100% Charge Reminders**: Automated tracking with navbar notifications based on manufacturer recommendations
+- **Multi-Level Urgency**: Color-coded alerts for due (1-3 days), overdue (4-7 days), and critical (>7 days) reminders
+- **Auto-Clear Logic**: Reminders automatically clear when ≥95% SoC session is logged
+- **Dashboard Integration**: Reminder cards appear when balance charging is needed
+
+### Smart Coaching & Confidence Features
 - **Blended Charge Planner**: Simulate optimal DC + Home charging strategies with cost optimization
 - **Real-time Hints**: DC taper warnings, "finish at home" suggestions, storage SoC advice
+- **Confidence Transparency**: Clear explanations for efficiency calculation reliability with helpful guidance modals
+- **Smart Confidence Badges**: Visual indicators explaining data quality factors (small window, stale anchors, outlier clamping)
 - **Comparative Analysis**: Compare sessions with similar conditions and rolling averages
-- **Session Detail Analysis**: Comprehensive breakdowns with actionable recommendations
+- **Session Detail Analysis**: Comprehensive breakdowns with actionable recommendations and context information
+
+### Advanced Cost Analysis
+- **Unified Parity System**: All EV parity rates display in p/kWh for direct tariff comparison
+- **Persistent Cost Insights**: Calculated results panels that don't auto-dismiss for better decision making
+- **Centralized Calculations**: Single source of truth for cost comparisons eliminates inconsistencies
+- **Live Preview**: Real-time cost calculations when adjusting settings with UK average presets
+- **Streamlined Settings**: Consolidated "Cost & Efficiency" page combines all pricing and efficiency controls
 
 ### Data Management & Automation
+- **Enhanced Data Capture**: Ambient temperature logging and tri-state pre-conditioning tracking (Unknown/No/Yes)
 - **User Management**: Secure authentication with password hashing
-- **Settings Management**: Configurable charging rates, preferences, and defaults
-- **Data Export**: CSV export functionality for charging sessions
-- **CLI Operations**: Import/export sessions, backup/restore, and analytics export functionality
+- **Settings Management**: Configurable charging rates, preferences, thresholds, and advanced confidence parameters
+- **Data Export**: CSV export functionality for charging sessions and comprehensive analytics
+- **Advanced CLI Operations**: Import/export sessions, backup/restore, analytics export, and reminder management
 - **Backup System**: ZIP-based backup and restore with merge/replace modes
-- **Reminder Engine**: Automated 100% charge reminders based on manufacturer recommendations
-- **Metrics Precomputation**: Background processing for instant session detail loading
+- **Metrics Precomputation**: Background processing for instant session detail loading with consistency validation
 
 ## Screenshots
 
@@ -120,6 +140,7 @@ PlugTrack is a smart personal web application for logging and managing EV chargi
    python migrations/add_phase4_fields_and_indexes.py
    python migrations/seed_phase4_settings.py
    python migrations/add_phase5_fields.py
+   python migrations/005_make_preconditioning_nullable.py
    ```
 
 8. **Run the application**
@@ -216,6 +237,10 @@ flask --app . analytics-dump --format csv --output analytics.csv
 # Check 100% charge reminders
 flask --app . reminders-run --user 1
 flask --app . reminders-run --json
+
+# Manual reminder operations
+flask --app . reminders-run  # Check all users
+flask --app . reminders-run --user 1 --verbose  # Detailed output for specific user
 ```
 
 ### Creating a New User
@@ -307,9 +332,13 @@ plugtrack/
 │   ├── validators.py      # Validation and report types
 │   ├── io_sessions.py     # CSV import/export service
 │   ├── io_backup.py       # Backup/restore service
-│   └── baseline_manager.py # Baseline session management
+│   ├── baseline_manager.py # Baseline session management
+│   ├── reminders.py       # 100% charge reminder engine
+│   ├── cost_parity.py     # Centralized cost comparison calculations
+│   └── formatting.py     # Consistent data formatting utilities
 ├── templates/              # HTML templates
 │   ├── base.html          # Base template with navigation
+│   ├── common/            # Shared templates and modals
 │   ├── auth/              # Authentication templates
 │   ├── cars/              # Car management templates
 │   ├── charging_sessions/ # Session templates with insights
@@ -322,7 +351,8 @@ plugtrack/
 ├── migrations/             # Database migration scripts
 │   ├── add_phase4_fields_and_indexes.py
 │   ├── seed_phase4_settings.py
-│   └── add_phase5_fields.py
+│   ├── add_phase5_fields.py
+│   └── 005_make_preconditioning_nullable.py
 ├── config.py               # Configuration
 ├── run.py                  # Application entry point
 ├── requirements.txt        # Python dependencies
@@ -348,31 +378,9 @@ python test_phase4.py
 python unit-tests/test_phase5_metrics.py
 ```
 
-## Recent Updates - Phase 5 Complete ✨
+## Recent Updates
 
-Phase 5 adds powerful backend analytics and automation capabilities:
-
-### 🔍 Aggregated Analytics Service
-- **Lifetime totals**: Complete overview of kWh consumed, miles driven, costs, and savings vs petrol
-- **Best/worst sessions**: Automatically identifies cheapest/most expensive sessions, fastest/slowest charging, and efficiency extremes
-- **Seasonal analysis**: Groups sessions by ambient temperature buckets for climate impact insights
-
-### ⏰ Reminder Engine
-- **Smart 100% charge reminders**: Automatically tracks when balance charging is due based on manufacturer recommendations  
-- **Configurable urgency levels**: Due (1-3 days), overdue (4-7 days), critical (>7 days overdue)
-- **Multi-user support**: Checks all users and cars in a single operation
-
-### 🛠️ Enhanced CLI Tools
-- **`flask analytics-dump`**: Export comprehensive analytics data in JSON or CSV format
-- **`flask reminders-run`**: Manual execution of reminder checks with detailed reporting
-- **`flask recompute-sessions`**: Reprocess all derived metrics for consistency validation
-
-### 🧪 Extended Test Suite
-- **Metrics consistency validation**: Ensures aggregated totals match individual session calculations
-- **Reminder logic testing**: Validates urgency levels and frequency calculations
-- **Temperature bucketing tests**: Confirms seasonal analysis accuracy
-
-All Phase 5 features integrate seamlessly with existing functionality and require no additional database setup for fresh installations.
+Phase 5 delivers a comprehensive upgrade with advanced insights, smart reminders, enhanced data capture, and unified cost analysis. All new features integrate seamlessly with existing functionality and work together to provide the most comprehensive EV charging analysis and management experience available.
 
 ## Contributing
 

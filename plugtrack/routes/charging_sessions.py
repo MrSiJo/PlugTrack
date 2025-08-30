@@ -82,6 +82,13 @@ def new():
     form.car_id.choices = [(car.id, car.display_name) for car in Car.query.filter_by(user_id=current_user.id).all()]
     
     if form.validate_on_submit():
+        # Handle preconditioning tri-state: '' -> None, '0' -> False, '1' -> True
+        preconditioning_used = None
+        if form.preconditioning_used.data == '0':
+            preconditioning_used = False
+        elif form.preconditioning_used.data == '1':
+            preconditioning_used = True
+            
         session = ChargingSession(
             user_id=current_user.id,
             car_id=form.car_id.data,
@@ -96,6 +103,9 @@ def new():
             cost_per_kwh=form.cost_per_kwh.data,
             soc_from=form.soc_from.data,
             soc_to=form.soc_to.data,
+            ambient_temp_c=form.ambient_temp_c.data,
+            preconditioning_used=preconditioning_used,
+            preconditioning_events=form.preconditioning_events.data,
             notes=form.notes.data
         )
         
@@ -117,6 +127,14 @@ def edit(id):
     session = ChargingSession.query.filter_by(id=id, user_id=current_user.id).first_or_404()
     form = ChargingSessionForm(obj=session)
     
+    # Convert boolean preconditioning_used to string for form
+    if session.preconditioning_used is None:
+        form.preconditioning_used.data = ''
+    elif session.preconditioning_used:
+        form.preconditioning_used.data = '1'
+    else:
+        form.preconditioning_used.data = '0'
+    
     # Populate car choices
     form.car_id.choices = [(car.id, car.display_name) for car in Car.query.filter_by(user_id=current_user.id).all()]
     
@@ -134,7 +152,15 @@ def edit(id):
         session.soc_from = form.soc_from.data
         session.soc_to = form.soc_to.data
         session.ambient_temp_c = form.ambient_temp_c.data
-        session.preconditioning_used = form.preconditioning_used.data
+        
+        # Handle preconditioning tri-state: '' -> None, '0' -> False, '1' -> True
+        if form.preconditioning_used.data == '0':
+            session.preconditioning_used = False
+        elif form.preconditioning_used.data == '1':
+            session.preconditioning_used = True
+        else:
+            session.preconditioning_used = None
+            
         session.preconditioning_events = form.preconditioning_events.data
         session.notes = form.notes.data
         
@@ -210,6 +236,11 @@ def details(id):
     # Get derived metrics
     metrics = DerivedMetricsService.calculate_session_metrics(session, car)
     
+    # Phase 5.1: Calculate Home ROI delta dynamically
+    from services.insights import InsightsService
+    home_roi_delta = InsightsService.calculate_home_roi_delta(session, metrics, current_user.id)
+    metrics['home_roi_delta'] = home_roi_delta
+    
     # Get similar sessions for comparison
     similar_sessions = DerivedMetricsService.get_similar_sessions(session, limit=3)
     
@@ -251,6 +282,9 @@ def details(id):
             'odometer': session.odometer,
             'is_baseline': session.is_baseline if hasattr(session, 'is_baseline') else False
         },
+        'ambient_temp_c': session.ambient_temp_c,
+        'preconditioning_used': session.preconditioning_used,
+        'preconditioning_events': session.preconditioning_events,
         'metrics': metrics,
         'deltas': deltas,
         'hints': hints,

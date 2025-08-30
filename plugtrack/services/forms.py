@@ -22,7 +22,8 @@ class CarForm(FlaskForm):
     battery_kwh = FloatField('Battery Capacity (kWh)', validators=[DataRequired(), NumberRange(min=0.1)])
     efficiency_mpkwh = FloatField('Efficiency (mi/kWh)', validators=[Optional(), NumberRange(min=0.1)])
     active = BooleanField('Active')
-    recommended_full_charge_enabled = BooleanField('Enable Recommended Full Charge')
+    recommended_full_charge_enabled = BooleanField('Enable 100% Charge Reminders', 
+                                                 description='Manufacturer recommendation: "Charge to 100% every N [days/months]" – used for reminders and hygiene cards')
     recommended_full_charge_frequency_value = IntegerField('Frequency Value', validators=[Optional(), NumberRange(min=1)])
     recommended_full_charge_frequency_unit = SelectField('Frequency Unit', 
                                                        choices=[('days', 'Days'), ('months', 'Months')],
@@ -42,8 +43,12 @@ class ChargingSessionForm(FlaskForm):
     soc_from = IntegerField('SoC From (%)', validators=[DataRequired(), NumberRange(min=0, max=100)])
     soc_to = IntegerField('SoC To (%)', validators=[DataRequired(), NumberRange(min=0, max=100)])
     ambient_temp_c = FloatField('Ambient Temperature (°C)', validators=[Optional(), NumberRange(min=-50, max=60)])
-    preconditioning_used = BooleanField('Preconditioning Used')
-    preconditioning_events = IntegerField('Preconditioning Events', validators=[Optional(), NumberRange(min=0)])
+    preconditioning_used = SelectField('Preconditioning Used', 
+                                      choices=[('', 'Unknown'), ('0', 'No'), ('1', 'Yes')],
+                                      validators=[Optional()])
+    preconditioning_events = IntegerField('Preconditioning Events', 
+                                         validators=[Optional(), NumberRange(min=0)],
+                                         description='Number of preconditioning cycles (if known)')
     notes = TextAreaField('Notes', validators=[Optional()])
     
     def validate_soc_to(self, field):
@@ -82,3 +87,15 @@ class PetrolComparisonForm(FlaskForm):
     petrol_mpg = FloatField('Petrol MPG (UK)', 
                            validators=[DataRequired(), NumberRange(min=10, max=200)],
                            description='Average miles per gallon for petrol comparison')
+
+class CostAnalysisForm(FlaskForm):
+    """Form for combined cost analysis settings"""
+    default_efficiency_mpkwh = FloatField('Default Efficiency (mi/kWh)', 
+                                         validators=[DataRequired(), NumberRange(min=1.0, max=7.0)],
+                                         description='Fallback EV efficiency when per-car or dynamic values aren\'t available')
+    petrol_price_p_per_litre = FloatField('Petrol Price (p/L)', 
+                                         validators=[DataRequired(), NumberRange(min=80, max=250)],
+                                         description='Current petrol price used for comparisons')
+    petrol_mpg = FloatField('Petrol MPG (UK)', 
+                           validators=[DataRequired(), NumberRange(min=25, max=90)],
+                           description='Reference petrol efficiency for break-even analysis')

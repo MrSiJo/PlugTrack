@@ -114,7 +114,7 @@
             <div class="col-12">
                 <h6 class="text-muted text-uppercase mb-2">Battery & Power</h6>
                 <div class="row g-3">
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <div class="card">
                             <div class="card-body text-center">
                                 <h6 class="card-title">SoC Range</h6>
@@ -122,7 +122,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <div class="card">
                             <div class="card-body text-center">
                                 <h6 class="card-title">% per kWh</h6>
@@ -130,11 +130,49 @@
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <div class="card">
                             <div class="card-body text-center">
                                 <h6 class="card-title">Avg Power</h6>
                                 <p class="card-text session-avg-power">-</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">Loss Estimate</h6>
+                                <p class="card-text session-loss-estimate">-</p>
+                                <small class="text-muted">Expected vs Observed</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Context & Conditions Section -->
+        <div class="row mb-4" id="contextSection">
+            <div class="col-12">
+                <h6 class="text-muted text-uppercase mb-2">
+                    <i class="bi bi-thermometer-half"></i> Context & Conditions
+                </h6>
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">Ambient Temp</h6>
+                                <p class="card-text session-ambient-temp">-</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-8">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6 class="card-title">Preconditioning</h6>
+                                <div id="preconditioningBadges">
+                                    <!-- Badges will be populated by JavaScript -->
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -158,8 +196,18 @@
                     <div class="col-md-6">
                         <div class="card">
                             <div class="card-body text-center">
-                                <h6 class="card-title">Confidence Level</h6>
+                                <h6 class="card-title">
+                                    Confidence Level
+                                    <button type="button" class="btn btn-link btn-sm p-0 ms-1" 
+                                            data-bs-toggle="modal" data-bs-target="#confidenceHelpModal"
+                                            title="What affects confidence?">
+                                        <i class="bi bi-question-circle"></i>
+                                    </button>
+                                </h6>
                                 <span class="badge session-confidence-badge" style="font-size: 1rem;">-</span>
+                                <div class="session-confidence-reasons mt-2">
+                                    <!-- Confidence reasons will be populated here -->
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -233,5 +281,108 @@
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
     </div>
+</template>
+
+<!-- Phase 5.2: Confidence Guide Modal -->
+<div class="modal fade" id="confidenceGuideModal" tabindex="-1" aria-labelledby="confidenceGuideModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confidenceGuideModalLabel">
+                    <i class="bi bi-info-circle"></i> Confidence Level Guide
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-12 mb-4">
+                        <h6>What affects confidence?</h6>
+                        <p class="text-muted">
+                            Confidence levels indicate how reliable the efficiency and cost calculations are for a charging session.
+                            Lower confidence typically means the data is "noisy" or based on limited information.
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body text-center">
+                                <div class="text-success mb-2">
+                                    <i class="bi bi-check-circle" style="font-size: 2rem;"></i>
+                                </div>
+                                <h6 class="card-title text-success">High Confidence</h6>
+                                <p class="card-text small">
+                                    Good data quality with sufficient window size and recent anchor points.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body text-center">
+                                <div class="text-warning mb-2">
+                                    <i class="bi bi-exclamation-triangle" style="font-size: 2rem;"></i>
+                                </div>
+                                <h6 class="card-title text-warning">Medium Confidence</h6>
+                                <p class="card-text small">
+                                    Some data quality issues that may affect accuracy.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body text-center">
+                                <div class="text-danger mb-2">
+                                    <i class="bi bi-x-circle" style="font-size: 2rem;"></i>
+                                </div>
+                                <h6 class="card-title text-danger">Low Confidence</h6>
+                                <p class="card-text small">
+                                    Poor data quality - calculations may be unreliable.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <h6>Common confidence issues:</h6>
+                        <ul class="list-unstyled">
+                            <li class="mb-2">
+                                <span class="badge bg-warning me-2">Small Window</span>
+                                <strong>Too little data:</strong> Sessions with &lt;15 miles driven or &lt;3 kWh delivered provide limited efficiency data.
+                            </li>
+                            <li class="mb-2">
+                                <span class="badge bg-info me-2">Stale Anchors</span>
+                                <strong>Old odometer readings:</strong> Anchor points more than 10 days old may not reflect current driving patterns.
+                            </li>
+                            <li class="mb-2">
+                                <span class="badge bg-danger me-2">Outlier Clamped</span>
+                                <strong>Unrealistic efficiency:</strong> Values outside 1-7 mi/kWh are clamped as they're likely measurement errors.
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="alert alert-info">
+                            <i class="bi bi-lightbulb"></i>
+                            <strong>Pro Tip:</strong> You can adjust confidence thresholds in Settings → Advanced if you want more or less strict quality filtering.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <a href="{{ url_for('settings.index') }}#advanced" class="btn btn-primary">
+                    <i class="bi bi-gear"></i> Settings
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
 </template>
 {% endmacro %}

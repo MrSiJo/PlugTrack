@@ -2,7 +2,8 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from models.user import db
 from models.settings import Settings
-from services.forms import HomeChargingRateForm, HomeChargingSettingsForm, EfficiencySettingsForm, PetrolComparisonForm
+from services.forms import HomeChargingRateForm, HomeChargingSettingsForm, EfficiencySettingsForm, PetrolComparisonForm, CostAnalysisForm
+from services.cost_parity import petrol_ppm, ev_parity_rate_p_per_kwh, ev_parity_rate_gbp_per_kwh, format_petrol_ppm, format_ev_parity_rate
 from services.encryption import EncryptionService
 from datetime import datetime
 
@@ -64,17 +65,48 @@ def index():
     # Get Phase 3 settings
     phase3_settings = get_phase3_settings()
     
-    # Calculate petrol threshold
+    # Phase 5.2: Get advanced settings for confidence thresholds
+    from services.derived_metrics import DerivedMetricsService
+    advanced_settings = {
+        'min_delta_miles': Settings.get_setting(current_user.id, 'min_delta_miles', DerivedMetricsService._MIN_DELTA_MILES),
+        'min_kwh': Settings.get_setting(current_user.id, 'min_kwh', DerivedMetricsService._MIN_KWH),
+        'max_anchor_gap_days': Settings.get_setting(current_user.id, 'max_anchor_gap_days', DerivedMetricsService._MAX_ANCHOR_GAP_DAYS),
+        'efficiency_min': Settings.get_setting(current_user.id, 'efficiency_min', DerivedMetricsService._EFF_MIN),
+        'efficiency_max': Settings.get_setting(current_user.id, 'efficiency_max', DerivedMetricsService._EFF_MAX),
+        'anchor_horizon_days': Settings.get_setting(current_user.id, 'anchor_horizon_days', DerivedMetricsService._ANCHOR_HORIZON_DAYS)
+    }
+    
+    # Calculate petrol threshold using legacy function for backward compatibility
     petrol_threshold = calculate_petrol_threshold_p_per_kwh(
         float(phase3_settings['petrol_price_p_per_litre']),
         float(phase3_settings['petrol_mpg']),
         float(phase3_settings['default_efficiency_mpkwh'])
     )
     
+    # Calculate formatted cost parity data using new centralized service
+    petrol_ppm_value = petrol_ppm(
+        float(phase3_settings['petrol_price_p_per_litre']),
+        float(phase3_settings['petrol_mpg'])
+    )
+    ev_parity_rate_p = ev_parity_rate_p_per_kwh(
+        float(phase3_settings['petrol_price_p_per_litre']),
+        float(phase3_settings['petrol_mpg']),
+        float(phase3_settings['default_efficiency_mpkwh'])
+    )
+    
+    cost_parity_data = {
+        'petrol_ppm_formatted': format_petrol_ppm(petrol_ppm_value),
+        'ev_parity_formatted': format_ev_parity_rate(ev_parity_rate_p),
+        'petrol_ppm_raw': petrol_ppm_value,
+        'ev_parity_raw': ev_parity_rate_p
+    }
+    
     return render_template('settings/index.html', 
                          home_rates=parsed_rates,
                          phase3_settings=phase3_settings,
+                         advanced_settings=advanced_settings,
                          petrol_threshold=petrol_threshold,
+                         cost_parity_data=cost_parity_data,
                          **currency_info)
 
 @settings_bp.route('/settings/update-currency', methods=['POST'])
@@ -241,6 +273,60 @@ def petrol_comparison():
     
     return render_template('settings/petrol_comparison.html', form=form, title='Petrol Comparison Settings')
 
+@settings_bp.route('/settings/cost-analysis', methods=['GET', 'POST'])
+@login_required
+def cost_analysis():
+    """Configure cost analysis settings (combined efficiency and petrol comparison)"""
+    form = CostAnalysisForm()
+    
+    if request.method == 'GET':
+        # Pre-populate with current values
+        current_settings = get_phase3_settings()
+        form.default_efficiency_mpkwh.data = float(current_settings['default_efficiency_mpkwh'])
+        form.petrol_price_p_per_litre.data = float(current_settings['petrol_price_p_per_litre'])
+        form.petrol_mpg.data = float(current_settings['petrol_mpg'])
+    
+    if form.validate_on_submit():
+        # Update settings using existing keys
+        Settings.set_setting(current_user.id, 'default_efficiency_mpkwh', str(form.default_efficiency_mpkwh.data))
+        Settings.set_setting(current_user.id, 'petrol_price_p_per_litre', str(form.petrol_price_p_per_litre.data))
+        Settings.set_setting(current_user.id, 'petrol_mpg', str(form.petrol_mpg.data))
+        
+        flash('Cost & efficiency settings updated successfully!', 'success')
+        return redirect(url_for('settings.index'))
+    
+    # Calculate preview data using centralized service for display
+    current_settings = get_phase3_settings()
+    petrol_ppm_value = petrol_ppm(
+        float(current_settings['petrol_price_p_per_litre']),
+        float(current_settings['petrol_mpg'])
+    )
+    ev_parity_rate_p = ev_parity_rate_p_per_kwh(
+        float(current_settings['petrol_price_p_per_litre']),
+        float(current_settings['petrol_mpg']),
+        float(current_settings['default_efficiency_mpkwh'])
+    )
+    
+    preview_data = {
+        'petrol_ppm_formatted': format_petrol_ppm(petrol_ppm_value),
+        'ev_parity_formatted': format_ev_parity_rate(ev_parity_rate_p)
+    }
+    
+    return render_template('settings/cost_analysis.html', form=form, title='Cost & Efficiency', preview_data=preview_data)
+
+# Redirects for backward compatibility
+@settings_bp.route('/settings/efficiency')
+@login_required 
+def efficiency_settings_redirect():
+    """Redirect old efficiency settings to cost analysis"""
+    return redirect(url_for('settings.cost_analysis'), code=301)
+
+@settings_bp.route('/settings/petrol-comparison')
+@login_required
+def petrol_comparison_redirect():
+    """Redirect old petrol comparison to cost analysis"""
+    return redirect(url_for('settings.cost_analysis'), code=301)
+
 @settings_bp.route('/settings/notifications')
 @login_required
 def notifications():
@@ -256,3 +342,61 @@ def ai_integration():
     # TODO: Create ai_integration.html template
     flash('AI integration settings not yet implemented', 'info')
     return redirect(url_for('settings.index'))
+
+@settings_bp.route('/settings/advanced', methods=['POST'])
+@login_required
+def advanced():
+    """Save advanced settings"""
+    try:
+        # Get form data
+        min_delta_miles = float(request.form.get('min_delta_miles', 15))
+        min_kwh = float(request.form.get('min_kwh', 3.0))
+        max_anchor_gap_days = int(request.form.get('max_anchor_gap_days', 10))
+        efficiency_min = float(request.form.get('efficiency_min', 1.0))
+        efficiency_max = float(request.form.get('efficiency_max', 7.0))
+        anchor_horizon_days = int(request.form.get('anchor_horizon_days', 30))
+        
+        # Validate ranges
+        if not (1 <= min_delta_miles <= 100):
+            flash('Minimum delta miles must be between 1 and 100', 'error')
+            return redirect(url_for('settings.index') + '#advanced')
+            
+        if not (0.1 <= min_kwh <= 50):
+            flash('Minimum kWh must be between 0.1 and 50', 'error')
+            return redirect(url_for('settings.index') + '#advanced')
+            
+        if not (1 <= max_anchor_gap_days <= 365):
+            flash('Maximum anchor gap must be between 1 and 365 days', 'error')
+            return redirect(url_for('settings.index') + '#advanced')
+            
+        if not (0.1 <= efficiency_min <= 10):
+            flash('Minimum efficiency must be between 0.1 and 10 mi/kWh', 'error')
+            return redirect(url_for('settings.index') + '#advanced')
+            
+        if not (1 <= efficiency_max <= 20):
+            flash('Maximum efficiency must be between 1 and 20 mi/kWh', 'error')
+            return redirect(url_for('settings.index') + '#advanced')
+            
+        if efficiency_min >= efficiency_max:
+            flash('Minimum efficiency must be less than maximum efficiency', 'error')
+            return redirect(url_for('settings.index') + '#advanced')
+            
+        if not (1 <= anchor_horizon_days <= 365):
+            flash('Anchor horizon must be between 1 and 365 days', 'error')
+            return redirect(url_for('settings.index') + '#advanced')
+        
+        # Save settings
+        Settings.set_setting(current_user.id, 'min_delta_miles', str(min_delta_miles))
+        Settings.set_setting(current_user.id, 'min_kwh', str(min_kwh))
+        Settings.set_setting(current_user.id, 'max_anchor_gap_days', str(max_anchor_gap_days))
+        Settings.set_setting(current_user.id, 'efficiency_min', str(efficiency_min))
+        Settings.set_setting(current_user.id, 'efficiency_max', str(efficiency_max))
+        Settings.set_setting(current_user.id, 'anchor_horizon_days', str(anchor_horizon_days))
+        
+        db.session.commit()
+        flash('Advanced settings saved successfully!', 'success')
+        
+    except (ValueError, TypeError) as e:
+        flash('Invalid input values. Please check your entries.', 'error')
+        
+    return redirect(url_for('settings.index') + '#advanced')

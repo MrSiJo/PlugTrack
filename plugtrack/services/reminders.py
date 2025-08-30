@@ -76,25 +76,25 @@ class ReminderService:
         if car.recommended_full_charge_frequency_unit == 'months':
             frequency_days = frequency_days * 30  # Approximate months as 30 days
         
-        # Find the last 100% charge for this car
-        last_100_charge = ChargingSession.query.filter_by(
+        # Find the last 95%+ charge for this car (as per spec: ≥95% clears reminders)
+        last_high_charge = ChargingSession.query.filter_by(
             user_id=car.user_id,
             car_id=car.id
         ).filter(
-            ChargingSession.soc_to >= 100
+            ChargingSession.soc_to >= 95
         ).order_by(desc(ChargingSession.date)).first()
         
         # Calculate reminder status
         today = datetime.now().date()
         
-        if not last_100_charge:
-            # No 100% charge found - this is definitely overdue
+        if not last_high_charge:
+            # No high charge found - this is definitely overdue
             days_since_last = None
             due_date = today  # Consider it due immediately
             days_overdue = 1
         else:
-            days_since_last = (today - last_100_charge.date).days
-            due_date = last_100_charge.date + timedelta(days=frequency_days)
+            days_since_last = (today - last_high_charge.date).days
+            due_date = last_high_charge.date + timedelta(days=frequency_days)
             days_overdue = (today - due_date).days if today > due_date else 0
         
         # Only return reminder if it's due or overdue
@@ -113,9 +113,9 @@ class ReminderService:
             'car_id': car.id,
             'car_make_model': f"{car.make} {car.model}",
             'frequency_days': frequency_days,
-            'last_100_charge_date': last_100_charge.date.isoformat() if last_100_charge else None,
-            'last_100_charge_id': last_100_charge.id if last_100_charge else None,
-            'days_since_last_100': days_since_last,
+            'last_high_charge_date': last_high_charge.date.isoformat() if last_high_charge else None,
+            'last_high_charge_id': last_high_charge.id if last_high_charge else None,
+            'days_since_last_high': days_since_last,
             'due_date': due_date.isoformat(),
             'days_overdue': days_overdue,
             'urgency': urgency,

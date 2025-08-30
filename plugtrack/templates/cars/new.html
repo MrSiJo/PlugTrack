@@ -88,6 +88,9 @@
                             {{ form.recommended_full_charge_enabled(class="form-check-input") }}
                             {{ form.recommended_full_charge_enabled.label(class="form-check-label") }}
                         </div>
+                        {% if form.recommended_full_charge_enabled.description %}
+                            <small class="text-muted">{{ form.recommended_full_charge_enabled.description }}</small>
+                        {% endif %}
                     </div>
                     
                     <div class="row" id="frequency-fields" style="display: none;">

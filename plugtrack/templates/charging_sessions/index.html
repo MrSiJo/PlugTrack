@@ -434,9 +434,46 @@ function renderSessionDetails(data) {
     content.querySelector('.session-percent-per-kwh').textContent = `${data.metrics.percent_per_kwh.toFixed(1)}%`;
     content.querySelector('.session-avg-power').textContent = `${data.metrics.avg_power_kw.toFixed(1)} kW`;
     
+    // Phase 5.1: Populate loss estimate
+    const lossEstimateElement = content.querySelector('.session-loss-estimate');
+    if (data.metrics.loss_estimate !== null && data.metrics.loss_estimate !== undefined) {
+        const lossValue = data.metrics.loss_estimate;
+        const lossText = lossValue >= 0 ? `+${lossValue.toFixed(1)}%` : `${lossValue.toFixed(1)}%`;
+        const lossClass = lossValue >= 0 ? 'text-warning' : 'text-success';
+        lossEstimateElement.innerHTML = `<span class="${lossClass}">${lossText}</span>`;
+    } else {
+        lossEstimateElement.textContent = 'N/A';
+    }
+    
+    // Populate context & conditions
+    const ambientTempElement = content.querySelector('.session-ambient-temp');
+    if (data.ambient_temp_c !== null && data.ambient_temp_c !== undefined) {
+        ambientTempElement.textContent = `${data.ambient_temp_c}°C`;
+    } else {
+        ambientTempElement.textContent = 'Not recorded';
+    }
+    
+    // Populate preconditioning badges
+    const preconditioningBadges = content.querySelector('#preconditioningBadges');
+    let badgeHtml = '';
+    
+    if (data.preconditioning_used === true) {
+        badgeHtml += '<span class="badge bg-info me-2">Pre-conditioning</span>';
+        if (data.preconditioning_events && data.preconditioning_events > 0) {
+            badgeHtml += `<span class="badge bg-secondary">×${data.preconditioning_events} events</span>`;
+        }
+    } else if (data.preconditioning_used === false) {
+        badgeHtml += '<span class="badge bg-light text-dark">No pre-conditioning</span>';
+    } else {
+        badgeHtml += '<span class="badge bg-secondary">Pre-conditioning unknown</span>';
+    }
+    
+    preconditioningBadges.innerHTML = badgeHtml;
+    
     // Populate session classification
     const sizeBadge = content.querySelector('.session-size-badge');
     const confidenceBadge = content.querySelector('.session-confidence-badge');
+    const confidenceReasons = content.querySelector('.session-confidence-reasons');
     
     // Session size badge
     if (data.metrics.size_bucket) {
@@ -445,17 +482,47 @@ function renderSessionDetails(data) {
         sizeBadge.className = 'badge bg-secondary session-size-badge';
     }
     
-    // Confidence badge
-    if (data.metrics.low_confidence) {
-        confidenceBadge.textContent = 'Low';
-        confidenceBadge.className = 'badge bg-warning session-confidence-badge';
-        // Add tooltip with reason
-        const deltaMiles = data.metrics.delta_miles || 'N/A';
-        const kwh = data.session.charge_delivered_kwh || 'N/A';
-        confidenceBadge.title = `Δ${deltaMiles} mi, ${kwh} kWh — noisy window`;
+    // Phase 5.2: Enhanced confidence badge with detailed reasons
+    const confidenceLevel = data.metrics.efficiency_confidence || 'unknown';
+    const reasons = data.metrics.confidence_reasons || [];
+    
+    // Set badge text and color
+    const confidenceText = confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1);
+    confidenceBadge.textContent = confidenceText;
+    
+    switch (confidenceLevel) {
+        case 'high':
+            confidenceBadge.className = 'badge bg-success session-confidence-badge';
+            break;
+        case 'medium':
+            confidenceBadge.className = 'badge bg-warning session-confidence-badge';
+            break;
+        case 'low':
+            confidenceBadge.className = 'badge bg-danger session-confidence-badge';
+            break;
+        default:
+            confidenceBadge.className = 'badge bg-secondary session-confidence-badge';
+    }
+    
+    // Add detailed tooltip
+    if (reasons.length > 0) {
+        confidenceBadge.title = `Confidence: ${confidenceLevel}\nIssues: ${reasons.join(', ')}`;
     } else {
-        confidenceBadge.textContent = 'High';
-        confidenceBadge.className = 'badge bg-success session-confidence-badge';
+        confidenceBadge.title = `Confidence: ${confidenceLevel}`;
+    }
+    
+    // Display confidence reasons below badge
+    if (reasons.length > 0) {
+        const reasonsHtml = reasons.map(reason => {
+            const badge = reason.includes('small_window') ? 'bg-warning' :
+                         reason.includes('stale_anchors') ? 'bg-info' :
+                         reason.includes('outlier_clamped') ? 'bg-danger' : 'bg-secondary';
+            const shortReason = reason.split('(')[0].replace('_', ' ');
+            return `<span class="badge ${badge} me-1">${shortReason}</span>`;
+        }).join('');
+        confidenceReasons.innerHTML = `<small>${reasonsHtml}</small>`;
+    } else {
+        confidenceReasons.innerHTML = '';
     }
     
     // Populate comparative context

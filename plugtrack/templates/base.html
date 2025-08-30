@@ -64,6 +64,22 @@
                             </li>
                         </ul>
                     </li>
+                    <li class="nav-item dropdown" id="remindersDropdownContainer" style="{% if not navbar_has_reminder_guidance or not navbar_reminders %}display: none;{% endif %}">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" id="remindersDropdown">
+                            <i class="bi bi-bell"></i> 
+                            <span class="badge bg-danger" id="remindersCount">{{ navbar_reminders|length if navbar_reminders else 0 }}</span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" id="remindersMenu" style="width: 400px;">
+                            <li><h6 class="dropdown-header">100% Charge Reminders</h6></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li id="remindersList">
+                                <div class="text-center text-muted py-3">
+                                    <i class="bi bi-check-circle" style="font-size: 2rem;"></i>
+                                    <p class="mb-0">No reminders due</p>
+                                </div>
+                            </li>
+                        </ul>
+                    </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
                             <i class="bi bi-person-circle"></i> {{ current_user.username }}
@@ -97,6 +113,9 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    
+    <!-- Common Modals -->
+    {% include 'common/_confidence_modal.html' %}
     {% block extra_scripts %}{% endblock %}
     {% block scripts %}{% endblock %}
     
@@ -199,7 +218,65 @@
         if (typeof window.recommendations !== 'undefined') {
             updateRecommendationsDropdown(window.recommendations);
         }
+        
+        // Check if reminders exist in the page context or navbar
+        if (typeof window.reminders !== 'undefined') {
+            updateRemindersDropdown(window.reminders);
+        } else if (typeof window.navbar_reminders !== 'undefined') {
+            updateRemindersDropdown(window.navbar_reminders);
+        }
     });
+    
+    // Global function to update reminders dropdown
+    function updateRemindersDropdown(reminders) {
+        const countElement = document.getElementById('remindersCount');
+        const listElement = document.getElementById('remindersList');
+        const containerElement = document.getElementById('remindersDropdownContainer');
+        
+        if (countElement && listElement && containerElement) {
+            if (reminders && reminders.length > 0) {
+                // Show the dropdown container
+                containerElement.style.display = 'block';
+                
+                countElement.textContent = reminders.length;
+                countElement.className = 'badge bg-danger';
+                
+                let html = '';
+                reminders.forEach(function(reminder) {
+                    const urgencyClass = reminder.urgency === 'critical' ? 'text-danger' : 
+                                       reminder.urgency === 'overdue' ? 'text-warning' : 'text-info';
+                    const urgencyIcon = reminder.urgency === 'critical' ? 'exclamation-triangle-fill' : 
+                                      reminder.urgency === 'overdue' ? 'exclamation-circle-fill' : 'info-circle-fill';
+                    
+                    html += `
+                        <li class="px-3 py-2 border-bottom">
+                            <div class="d-flex align-items-start">
+                                <i class="bi bi-${urgencyIcon} ${urgencyClass} me-2 mt-1"></i>
+                                <div class="flex-grow-1">
+                                    <h6 class="mb-1 fw-bold">${reminder.car_make_model}</h6>
+                                    <p class="mb-1 small">${reminder.message}</p>
+                                    <small class="text-muted">
+                                        ${reminder.days_overdue} day${reminder.days_overdue !== 1 ? 's' : ''} overdue
+                                    </small>
+                                </div>
+                            </div>
+                        </li>
+                    `;
+                });
+                
+                listElement.innerHTML = html;
+            } else {
+                // Hide the dropdown container when no reminders
+                containerElement.style.display = 'none';
+            }
+        }
+    }
+    
+    // Make update function globally available
+    window.updateRemindersDropdown = updateRemindersDropdown;
+    
+    // Make navbar reminders available globally
+    window.navbar_reminders = {{ navbar_reminders|tojson|safe }};
     </script>
 </body>
 </html>
