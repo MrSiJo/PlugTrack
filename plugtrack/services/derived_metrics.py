@@ -15,6 +15,11 @@ class DerivedMetricsService:
     _EFF_MIN = 1.0
     _EFF_MAX = 7.0
     _DEBUG_EFF = True  # flip to True temporarily if you want console logs
+    
+    # confidence thresholds
+    _MIN_DELTA_MILES = 15
+    _MIN_KWH = 3.0
+    _MAX_ANCHOR_GAP_DAYS = 10
 
     # -------- helpers --------
     @staticmethod
@@ -41,7 +46,49 @@ class DerivedMetricsService:
     @staticmethod
     def is_low_confidence(delta_miles: float, kwh: float) -> bool:
         """Determine if session has low confidence due to small window"""
-        return (delta_miles is not None and delta_miles < 15) or (kwh is not None and kwh < 3.0)
+        # If either value is None, we can't have high confidence
+        if delta_miles is None or kwh is None:
+            return True
+        return delta_miles <= DerivedMetricsService._MIN_DELTA_MILES or kwh <= DerivedMetricsService._MIN_KWH
+
+    @staticmethod
+    def get_confidence_info(delta_miles: float, kwh: float, anchor_gap_days: int = None, efficiency: float = None) -> dict:
+        """
+        Get structured confidence information with reasons.
+        Returns: {level: 'high'|'medium'|'low', reasons: [list of reason strings]}
+        """
+        reasons = []
+        
+        # Check for small window reasons
+        if delta_miles is not None and delta_miles <= DerivedMetricsService._MIN_DELTA_MILES:
+            reasons.append(f"small_window (Δ{delta_miles:.1f} mi ≤ {DerivedMetricsService._MIN_DELTA_MILES})")
+        
+        if kwh is not None and kwh <= DerivedMetricsService._MIN_KWH:
+            reasons.append(f"small_window ({kwh:.1f} kWh ≤ {DerivedMetricsService._MIN_KWH})")
+        
+        # Check for stale anchors
+        if anchor_gap_days is not None and anchor_gap_days > DerivedMetricsService._MAX_ANCHOR_GAP_DAYS:
+            reasons.append(f"stale_anchors ({anchor_gap_days} days > {DerivedMetricsService._MAX_ANCHOR_GAP_DAYS})")
+        
+        # Check for outlier clamping
+        if efficiency is not None:
+            if efficiency <= DerivedMetricsService._EFF_MIN:
+                reasons.append(f"outlier_clamped ({efficiency:.1f} mi/kWh ≤ {DerivedMetricsService._EFF_MIN})")
+            elif efficiency >= DerivedMetricsService._EFF_MAX:
+                reasons.append(f"outlier_clamped ({efficiency:.1f} mi/kWh ≥ {DerivedMetricsService._EFF_MAX})")
+        
+        # Determine confidence level
+        if not reasons:
+            level = 'high'
+        elif len(reasons) == 1:
+            level = 'medium'
+        else:
+            level = 'low'
+        
+        return {
+            'level': level,
+            'reasons': reasons
+        }
 
     @staticmethod
     def _compute_session_observed_efficiency(session):
@@ -49,7 +96,7 @@ class DerivedMetricsService:
         Observed mi/kWh for THIS session:
         - miles = odometer_now - odometer_at_previous_anchor (same user/car) within horizon
         - kWh   = sum of charge_delivered_kwh where prev < (date,id) <= current (same user/car)
-        Returns float or None if not enough data.
+        Returns dict with efficiency and anchor gap info, or None if not enough data.
         """
         if session.odometer is None:
             return None
@@ -102,6 +149,9 @@ class DerivedMetricsService:
             if DerivedMetricsService._DEBUG_EFF:
                 print(f"Session {session.id} ({session.date}): Efficiency {eff} outside valid range [{DerivedMetricsService._EFF_MIN}, {DerivedMetricsService._EFF_MAX}]")
             return None
+        
+        # Calculate anchor gap in days
+        anchor_gap_days = (session.date - prev.date).days
             
         if DerivedMetricsService._DEBUG_EFF:
             print({
@@ -111,9 +161,14 @@ class DerivedMetricsService:
                 'anchor_date': str(prev.date),
                 'miles': miles,
                 'kwh_window': float(window_kwh),
-                'eff_observed': round(eff, 2)
+                'eff_observed': round(eff, 2),
+                'anchor_gap_days': anchor_gap_days
             })
-        return round(eff, 2)
+        
+        return {
+            'efficiency': round(eff, 2),
+            'anchor_gap_days': anchor_gap_days
+        }
 
     @staticmethod
     def _resolve_efficiency(user_id, car):
@@ -165,9 +220,11 @@ class DerivedMetricsService:
 
         observed = DerivedMetricsService._compute_session_observed_efficiency(session)
         if observed is not None:
-            efficiency = observed
+            efficiency = observed['efficiency']
             efficiency_source = 'observed_session'
+            anchor_gap_days = observed['anchor_gap_days']
         else:
+            anchor_gap_days = None
             # Optional fallback, controlled by setting
             allow_fb = Settings.get_setting(session.user_id, 'allow_efficiency_fallback', '0')
             if str(allow_fb).strip() == '1':
@@ -216,43 +273,36 @@ class DerivedMetricsService:
         # Home vs public charging
         is_home_charging = session.is_home_charging
         
-        # Calculate delta miles for low confidence detection
+        # Calculate delta miles for confidence detection
         delta_miles = None
         if observed is not None:
-            # Get the miles from the observed efficiency calculation
-            start = session.date - timedelta(days=DerivedMetricsService._ANCHOR_HORIZON_DAYS)
-            prev = (ChargingSession.query
-                    .filter(
-                        ChargingSession.user_id == session.user_id,
-                        ChargingSession.car_id == session.car_id,
-                        ChargingSession.odometer.isnot(None),
-                        ChargingSession.is_baseline == False,
-                        ChargingSession.date >= start,
-                        (ChargingSession.date < session.date) |
-                        and_(ChargingSession.date == session.date,
-                             ChargingSession.id < session.id)
-                    )
-                    .order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
-                    .first())
-            if prev and prev.odometer is not None:
-                delta_miles = float(session.odometer - prev.odometer)
+            # Calculate delta miles from efficiency and kWh
+            if efficiency and session.charge_delivered_kwh:
+                delta_miles = efficiency * session.charge_delivered_kwh
         
         # Session size classification
         delta_soc = max(0.0, float(session.soc_to - session.soc_from))
         size_bucket = DerivedMetricsService.classify_session_size(delta_soc)
         
-        # Low confidence detection
-        low_confidence = DerivedMetricsService.is_low_confidence(delta_miles, session.charge_delivered_kwh)
+        # Get structured confidence information
+        confidence_info = DerivedMetricsService.get_confidence_info(
+            delta_miles=delta_miles,
+            kwh=session.charge_delivered_kwh,
+            anchor_gap_days=anchor_gap_days,
+            efficiency=efficiency
+        )
         
-        # confidence flag
-        if efficiency_source == 'observed_session':
-            efficiency_confidence = 'high'
-        elif efficiency_source.startswith('dynamic'):
-            efficiency_confidence = 'high'
-        elif efficiency_source in ('car', 'user_setting'):
-            efficiency_confidence = 'medium'
-        else:
-            efficiency_confidence = 'low'
+        # Legacy confidence flag for backward compatibility
+        low_confidence = confidence_info['level'] == 'low'
+        
+        # Use confidence level from structured info
+        efficiency_confidence = confidence_info['level']
+        
+        # Calculate mphC (miles per charging hour)
+        mphc = 0
+        if session.duration_mins and session.duration_mins > 0 and miles_gained > 0:
+            hours = session.duration_mins / 60.0
+            mphc = miles_gained / hours
         
         return {
             'total_cost': total_cost,
@@ -267,9 +317,11 @@ class DerivedMetricsService:
             'efficiency_used': efficiency if efficiency else None,
             'efficiency_source': efficiency_source,
             'efficiency_confidence': efficiency_confidence,
+            'confidence_reasons': confidence_info['reasons'],
             'delta_miles': delta_miles,
             'size_bucket': size_bucket,
             'low_confidence': low_confidence,
+            'mphc': mphc,
             'warnings': warnings
         }
 

@@ -21,6 +21,9 @@ class ChargingSession(db.Model):
     notes = db.Column(db.Text, nullable=True)
     venue_type = db.Column(db.String(20), nullable=True)  # 'home' or 'public' - optional for Phase 3
     is_baseline = db.Column(db.Boolean, default=False, nullable=False)  # Marks earliest session per car
+    ambient_temp_c = db.Column(db.Float, nullable=True)  # Ambient temperature in Celsius
+    preconditioning_used = db.Column(db.Boolean, default=False, nullable=False)  # Whether preconditioning was used
+    preconditioning_events = db.Column(db.Integer, default=0, nullable=False)  # Number of preconditioning events
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     def __repr__(self):

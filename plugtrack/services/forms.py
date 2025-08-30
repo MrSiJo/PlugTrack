@@ -41,6 +41,9 @@ class ChargingSessionForm(FlaskForm):
     cost_per_kwh = FloatField('Cost per kWh', validators=[Optional(), NumberRange(min=0)])
     soc_from = IntegerField('SoC From (%)', validators=[DataRequired(), NumberRange(min=0, max=100)])
     soc_to = IntegerField('SoC To (%)', validators=[DataRequired(), NumberRange(min=0, max=100)])
+    ambient_temp_c = FloatField('Ambient Temperature (°C)', validators=[Optional(), NumberRange(min=-50, max=60)])
+    preconditioning_used = BooleanField('Preconditioning Used')
+    preconditioning_events = IntegerField('Preconditioning Events', validators=[Optional(), NumberRange(min=0)])
     notes = TextAreaField('Notes', validators=[Optional()])
     
     def validate_soc_to(self, field):

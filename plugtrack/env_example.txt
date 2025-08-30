@@ -6,7 +6,7 @@ SECRET_KEY=your-secret-key-here-change-in-production
 FLASK_DEBUG=False
 
 # Database Configuration
-DATABASE_URL=sqlite:///plugtrack.db
+DATABASE_URL=sqlite:///instance/plugtrack.db
 
 # Encryption Key - generate with: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ENCRYPTION_KEY=your-encryption-key-here

@@ -95,3 +95,5 @@ Thumbs.db
 # ========================================
 # Keep demo credentials in code but ensure they're not production secrets
 # Demo credentials are intentionally included for first-time setup
+
+docs/project/*

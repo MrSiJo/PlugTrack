@@ -19,6 +19,7 @@ from migrations.seed_phase3_settings import seed_phase3_settings
 from migrations.initialize_baselines import initialize_baselines
 from migrations.add_baseline_flag import run_baseline_migration
 from migrations.run_efficiency_indexes import run_efficiency_indexes_migration
+from migrations.add_phase5_fields import add_phase5_fields
 
 def init_db():
     """Initialize the database with sample data."""
@@ -59,6 +60,12 @@ def init_db():
         except Exception as e:
             print(f"⚠ Settings seeding error: {e}")
         
+        try:
+            print("- Add Phase 5.1 fields...")
+            add_phase5_fields()
+        except Exception as e:
+            print(f"⚠ Phase 5.1 migration error: {e}")
+        
         # Check if we already have a user
         if User.query.first() is None:
             # Create demo user
@@ -97,6 +104,9 @@ def init_db():
                 cost_per_kwh=0.12,
                 soc_from=20,
                 soc_to=54,
+                ambient_temp_c=18.5,
+                preconditioning_used=False,
+                preconditioning_events=0,
                 notes='Evening charge at home'
             )
             db.session.add(session)

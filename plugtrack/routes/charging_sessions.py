@@ -133,6 +133,9 @@ def edit(id):
         session.cost_per_kwh = form.cost_per_kwh.data
         session.soc_from = form.soc_from.data
         session.soc_to = form.soc_to.data
+        session.ambient_temp_c = form.ambient_temp_c.data
+        session.preconditioning_used = form.preconditioning_used.data
+        session.preconditioning_events = form.preconditioning_events.data
         session.notes = form.notes.data
         
         db.session.commit()

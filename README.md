@@ -15,6 +15,7 @@ PlugTrack is a smart personal web application for logging and managing EV chargi
 - **Comprehensive Dashboard**: Overview of active car and recent charging sessions
 - **Analytics Dashboard**: Interactive charts showing cost trends, efficiency, and charging mix
 - **Key Metrics**: Average cost per kWh, cost per mile, efficiency, home vs public charging distribution
+- **Aggregated Analytics**: Lifetime totals, best/worst sessions, seasonal averages by temperature
 - **Data Filtering**: Filter by date range, car profile, charge type, and network
 
 ### Smart Coaching Features
@@ -23,12 +24,14 @@ PlugTrack is a smart personal web application for logging and managing EV chargi
 - **Comparative Analysis**: Compare sessions with similar conditions and rolling averages
 - **Session Detail Analysis**: Comprehensive breakdowns with actionable recommendations
 
-### Data Management
+### Data Management & Automation
 - **User Management**: Secure authentication with password hashing
 - **Settings Management**: Configurable charging rates, preferences, and defaults
 - **Data Export**: CSV export functionality for charging sessions
-- **CLI Operations**: Import/export sessions and backup/restore functionality
+- **CLI Operations**: Import/export sessions, backup/restore, and analytics export functionality
 - **Backup System**: ZIP-based backup and restore with merge/replace modes
+- **Reminder Engine**: Automated 100% charge reminders based on manufacturer recommendations
+- **Metrics Precomputation**: Background processing for instant session detail loading
 
 ## Screenshots
 
@@ -116,6 +119,7 @@ PlugTrack is a smart personal web application for logging and managing EV chargi
    ```bash
    python migrations/add_phase4_fields_and_indexes.py
    python migrations/seed_phase4_settings.py
+   python migrations/add_phase5_fields.py
    ```
 
 8. **Run the application**
@@ -195,11 +199,23 @@ flask --app . sessions-export --to sessions.csv
 # Import sessions (dry run first)
 flask --app . sessions-import --from sessions.csv --dry-run
 
-# Create backup
-flask --app . backup-create --to backup.zip
+# Create backup (create export directory first)
+mkdir export
+flask --app . backup-create --to exports/backup.zip
 
 # Restore backup
-flask --app . backup-restore --from backup.zip --mode merge
+flask --app . backup-restore --from exports/backup.zip --mode merge
+
+# Recompute derived metrics for all sessions
+flask --app . recompute-sessions --user 1 --force
+
+# Export aggregated analytics
+flask --app . analytics-dump --user 1 --format json --pretty
+flask --app . analytics-dump --format csv --output analytics.csv
+
+# Check 100% charge reminders
+flask --app . reminders-run --user 1
+flask --app . reminders-run --json
 ```
 
 ### Creating a New User
@@ -218,6 +234,26 @@ flask db upgrade
 # Rollback migrations
 flask db downgrade
 ```
+
+### Backup and Restore Operations
+```bash
+# Create export directory (required for backups)
+mkdir export
+
+# Create a backup
+flask --app . backup-create --to export/backup.zip
+
+# Restore from backup (merge mode - adds to existing data)
+flask --app . backup-restore --from export/backup.zip --mode merge
+
+# Restore from backup (replace mode - overwrites existing data)
+flask --app . backup-restore --from export/backup.zip --mode replace
+
+# Dry run restore (see what would happen without making changes)
+flask --app . backup-restore --from export/backup.zip --mode merge --dry-run
+```
+
+**Note**: The `export` directory must exist before running backup commands. The backup service creates temporary files in the same directory as the destination ZIP file.
 
 ## Configuration
 
@@ -285,11 +321,13 @@ plugtrack/
 │   └── js/                # JavaScript for interactivity
 ├── migrations/             # Database migration scripts
 │   ├── add_phase4_fields_and_indexes.py
-│   └── seed_phase4_settings.py
+│   ├── seed_phase4_settings.py
+│   └── add_phase5_fields.py
 ├── config.py               # Configuration
 ├── run.py                  # Application entry point
 ├── requirements.txt        # Python dependencies
 ├── test_phase4.py         # Test suite
+├── test_phase5_metrics.py # Phase 5 metrics consistency tests
 ├── Dockerfile.dev          # Development Docker setup
 └── docker-compose.dev.yml  # Development Docker Compose
 ```
@@ -307,7 +345,34 @@ docker-compose -f docker-compose.dev.yml up --build
 ### Running Tests
 ```bash
 python test_phase4.py
+python unit-tests/test_phase5_metrics.py
 ```
+
+## Recent Updates - Phase 5 Complete ✨
+
+Phase 5 adds powerful backend analytics and automation capabilities:
+
+### 🔍 Aggregated Analytics Service
+- **Lifetime totals**: Complete overview of kWh consumed, miles driven, costs, and savings vs petrol
+- **Best/worst sessions**: Automatically identifies cheapest/most expensive sessions, fastest/slowest charging, and efficiency extremes
+- **Seasonal analysis**: Groups sessions by ambient temperature buckets for climate impact insights
+
+### ⏰ Reminder Engine
+- **Smart 100% charge reminders**: Automatically tracks when balance charging is due based on manufacturer recommendations  
+- **Configurable urgency levels**: Due (1-3 days), overdue (4-7 days), critical (>7 days overdue)
+- **Multi-user support**: Checks all users and cars in a single operation
+
+### 🛠️ Enhanced CLI Tools
+- **`flask analytics-dump`**: Export comprehensive analytics data in JSON or CSV format
+- **`flask reminders-run`**: Manual execution of reminder checks with detailed reporting
+- **`flask recompute-sessions`**: Reprocess all derived metrics for consistency validation
+
+### 🧪 Extended Test Suite
+- **Metrics consistency validation**: Ensures aggregated totals match individual session calculations
+- **Reminder logic testing**: Validates urgency levels and frequency calculations
+- **Temperature bucketing tests**: Confirms seasonal analysis accuracy
+
+All Phase 5 features integrate seamlessly with existing functionality and require no additional database setup for fresh installations.
 
 ## Contributing
 

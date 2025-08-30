@@ -23,6 +23,9 @@ def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
     
+    # Initialize configuration after app creation
+    config_class.init_app(app)
+    
     # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
@@ -369,6 +372,250 @@ def create_app(config_class=Config):
             
             if report.errors:
                 exit(1)
+            
+        except Exception as e:
+            click.echo(f"Error: {str(e)}", err=True)
+            exit(1)
+
+    @app.cli.command('recompute-sessions')
+    @click.option('--user', 'user_id', type=int, default=1, help='User ID (default: 1)')
+    @click.option('--car', 'car_id', type=int, help='Filter by car ID')
+    @click.option('--force', is_flag=True, help='Force recomputation even if already computed')
+    @click.option('--summary', is_flag=True, help='Show summary of metrics status')
+    def recompute_sessions(user_id, car_id, force, summary):
+        """Recompute all derived metrics for charging sessions."""
+        try:
+            from services.session_metrics_precompute import SessionMetricsPrecomputeService
+            
+            if summary:
+                # Show summary of current metrics status
+                summary_data = SessionMetricsPrecomputeService.get_metrics_summary(user_id, car_id)
+                click.echo(f"Metrics Summary for User {user_id}:")
+                click.echo(f"  Total sessions: {summary_data['total_sessions']}")
+                click.echo(f"  Sessions with metrics: {summary_data['sessions_with_metrics']}")
+                click.echo(f"  Sessions without metrics: {summary_data['sessions_without_metrics']}")
+                click.echo(f"  Completion: {summary_data['completion_percentage']:.1f}%")
+                return
+            
+            # Recompute metrics
+            click.echo(f"Recomputing metrics for user {user_id}...")
+            if car_id:
+                click.echo(f"Filtering by car {car_id}...")
+            
+            result = SessionMetricsPrecomputeService.precompute_all_sessions(
+                user_id=user_id,
+                car_id=car_id,
+                force_recompute=force
+            )
+            
+            click.echo(f"✅ {result['message']}")
+            click.echo(f"  Total sessions: {result['total_sessions']}")
+            click.echo(f"  Processed: {result['processed']}")
+            
+            if result['errors']:
+                click.echo(f"  Errors: {len(result['errors'])}")
+                for error in result['errors'][:5]:  # Show first 5 errors
+                    click.echo(f"    Session {error['session_id']}: {error['error']}")
+                if len(result['errors']) > 5:
+                    click.echo(f"    ... and {len(result['errors']) - 5} more errors")
+            
+            if not result['success']:
+                exit(1)
+            
+        except Exception as e:
+            click.echo(f"Error: {str(e)}", err=True)
+            exit(1)
+
+    @app.cli.command('reminders-run')
+    @click.option('--user', 'user_id', type=int, help='Check reminders for specific user ID')
+    @click.option('--car', 'car_id', type=int, help='Check reminders for specific car ID')
+    @click.option('--log-level', type=click.Choice(['debug', 'info', 'warning', 'error']), 
+                  default='info', help='Logging level (default: info)')
+    @click.option('--json', 'output_json', is_flag=True, help='Output results as JSON')
+    def reminders_run(user_id, car_id, log_level, output_json):
+        """Run reminder checks for 100% charge frequency."""
+        try:
+            from services.reminders import ReminderService
+            import json
+            
+            if user_id:
+                # Check specific user
+                click.echo(f"Checking reminders for user {user_id}...")
+                if car_id:
+                    click.echo(f"Filtering by car {car_id}...")
+                
+                results = ReminderService.check_full_charge_due(user_id, car_id)
+            else:
+                # Check all users
+                click.echo("Checking reminders for all users...")
+                results = ReminderService.check_all_users()
+            
+            if output_json:
+                # Output as JSON
+                click.echo(json.dumps(results, indent=2))
+            else:
+                # Human-readable output
+                if 'user_reminders' in results:
+                    # Results from check_all_users()
+                    total_reminders = results['total_reminders']
+                    users_with_reminders = results['users_with_reminders']
+                    total_users = results['total_users_checked']
+                    
+                    click.echo(f"✅ Checked {total_users} users")
+                    
+                    if total_reminders == 0:
+                        click.echo("🎉 No 100% charge reminders due!")
+                    else:
+                        click.echo(f"⚠️  {total_reminders} reminders due for {users_with_reminders} users:")
+                        
+                        for user_reminder in results['user_reminders']:
+                            username = user_reminder.get('username', f"User {user_reminder['user_id']}")
+                            click.echo(f"\n  📋 {username}:")
+                            
+                            for reminder in user_reminder['reminders']:
+                                car_name = reminder['car_make_model']
+                                urgency = reminder['urgency']
+                                days_overdue = reminder['days_overdue']
+                                message = reminder['message']
+                                
+                                urgency_emoji = {
+                                    'due': '🟡',
+                                    'overdue': '🟠', 
+                                    'critical': '🔴'
+                                }.get(urgency, '⚪')
+                                
+                                click.echo(f"    {urgency_emoji} {car_name} ({urgency}): {days_overdue} days overdue")
+                                click.echo(f"      {message}")
+                else:
+                    # Results from check_full_charge_due() for single user
+                    reminder_count = results['reminders_due']
+                    user_id = results['user_id']
+                    cars_checked = results['total_cars_checked']
+                    
+                    click.echo(f"✅ Checked {cars_checked} cars for user {user_id}")
+                    
+                    if reminder_count == 0:
+                        click.echo("🎉 No 100% charge reminders due!")
+                    else:
+                        click.echo(f"⚠️  {reminder_count} reminders due:")
+                        
+                        for reminder in results['reminders']:
+                            car_name = reminder['car_make_model']
+                            urgency = reminder['urgency']
+                            days_overdue = reminder['days_overdue']
+                            message = reminder['message']
+                            
+                            urgency_emoji = {
+                                'due': '🟡',
+                                'overdue': '🟠',
+                                'critical': '🔴'
+                            }.get(urgency, '⚪')
+                            
+                            click.echo(f"  {urgency_emoji} {car_name} ({urgency}): {days_overdue} days overdue")
+                            click.echo(f"    {message}")
+            
+            # Log results if not outputting JSON
+            if not output_json:
+                ReminderService.log_reminder_check(results, log_level)
+            
+        except Exception as e:
+            click.echo(f"Error: {str(e)}", err=True)
+            exit(1)
+
+    @app.cli.command('analytics-dump')
+    @click.option('--user', 'user_id', type=int, help='Dump analytics for specific user ID')
+    @click.option('--car', 'car_id', type=int, help='Filter by specific car ID')
+    @click.option('--format', 'output_format', type=click.Choice(['json', 'csv']), 
+                  default='json', help='Output format (default: json)')
+    @click.option('--output', 'output_file', type=str, help='Output file path (default: stdout)')
+    @click.option('--pretty', is_flag=True, help='Pretty-print JSON output')
+    def analytics_dump(user_id, car_id, output_format, output_file, pretty):
+        """Dump aggregated analytics to JSON or CSV format."""
+        try:
+            from services.aggregated_analytics import AggregatedAnalyticsService
+            import json
+            import csv
+            import sys
+            
+            if user_id:
+                click.echo(f"Dumping analytics for user {user_id}...")
+                if car_id:
+                    click.echo(f"Filtering by car {car_id}...")
+                
+                analytics_data = AggregatedAnalyticsService.get_all_aggregated_stats(user_id, car_id)
+                all_data = {f'user_{user_id}': analytics_data}
+            else:
+                # Dump for all users
+                from models.user import User
+                click.echo("Dumping analytics for all users...")
+                
+                all_data = {}
+                users = User.query.all()
+                
+                for user in users:
+                    user_analytics = AggregatedAnalyticsService.get_all_aggregated_stats(user.id, car_id)
+                    all_data[f'user_{user.id}_{user.username}'] = user_analytics
+                
+                click.echo(f"Processed {len(users)} users")
+            
+            # Determine output destination
+            output_stream = open(output_file, 'w', encoding='utf-8') if output_file else sys.stdout
+            
+            try:
+                if output_format == 'json':
+                    # JSON output
+                    if pretty:
+                        json.dump(all_data, output_stream, indent=2, default=str)
+                    else:
+                        json.dump(all_data, output_stream, default=str)
+                    
+                    if output_file:
+                        click.echo(f"✅ Analytics dumped to {output_file} (JSON)")
+                else:
+                    # CSV output - flatten the data
+                    writer = csv.writer(output_stream)
+                    
+                    # Write header
+                    header = [
+                        'user_key', 'total_sessions', 'total_kwh', 'total_miles', 'total_cost_gbp',
+                        'savings_vs_petrol_gbp', 'avg_cost_per_kwh', 'avg_cost_per_mile',
+                        'cheapest_session_cost_per_mile', 'most_expensive_session_cost_per_mile',
+                        'fastest_session_power_kw', 'slowest_session_power_kw',
+                        'most_efficient_session', 'least_efficient_session',
+                        'generated_at'
+                    ]
+                    writer.writerow(header)
+                    
+                    # Write data rows
+                    for user_key, user_data in all_data.items():
+                        lifetime = user_data['lifetime_totals']
+                        best_worst = user_data['best_worst_sessions']
+                        
+                        row = [
+                            user_key,
+                            lifetime['total_sessions'],
+                            lifetime['total_kwh'],
+                            lifetime['total_miles'],
+                            lifetime['total_cost_gbp'],
+                            lifetime['savings_vs_petrol_gbp'],
+                            lifetime['avg_cost_per_kwh'],
+                            lifetime['avg_cost_per_mile'],
+                            best_worst['cheapest_per_mile']['cost_per_mile'] if best_worst['cheapest_per_mile'] else '',
+                            best_worst['most_expensive_per_mile']['cost_per_mile'] if best_worst['most_expensive_per_mile'] else '',
+                            best_worst['fastest_session']['avg_power_kw'] if best_worst['fastest_session'] else '',
+                            best_worst['slowest_session']['avg_power_kw'] if best_worst['slowest_session'] else '',
+                            best_worst['most_efficient']['efficiency_used'] if best_worst['most_efficient'] else '',
+                            best_worst['least_efficient']['efficiency_used'] if best_worst['least_efficient'] else '',
+                            user_data['generated_at']
+                        ]
+                        writer.writerow(row)
+                    
+                    if output_file:
+                        click.echo(f"✅ Analytics dumped to {output_file} (CSV)")
+                
+            finally:
+                if output_file:
+                    output_stream.close()
             
         except Exception as e:
             click.echo(f"Error: {str(e)}", err=True)

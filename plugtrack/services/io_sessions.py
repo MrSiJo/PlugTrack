@@ -22,7 +22,8 @@ class SessionIOService:
     REQUIRED_HEADERS = [
         'date', 'odometer', 'charge_type', 'charge_power_kw', 'location_label',
         'charge_network', 'charge_delivered_kwh', 'duration_mins', 'cost_per_kwh',
-        'total_cost_gbp', 'soc_from', 'soc_to', 'ambient_temp_c', 'notes'
+        'total_cost_gbp', 'soc_from', 'soc_to', 'ambient_temp_c', 'preconditioning_used', 
+        'preconditioning_events', 'notes'
     ]
     
     @staticmethod
@@ -79,7 +80,9 @@ class SessionIOService:
                         'total_cost_gbp': session_obj.total_cost,  # Use computed property
                         'soc_from': session_obj.soc_from,
                         'soc_to': session_obj.soc_to,
-                        'ambient_temp_c': '',  # Not in current model
+                        'ambient_temp_c': session_obj.ambient_temp_c or '',
+                        'preconditioning_used': '1' if session_obj.preconditioning_used else '0',
+                        'preconditioning_events': session_obj.preconditioning_events or 0,
                         'notes': session_obj.notes or ''
                     }
                     writer.writerow(row)
@@ -250,6 +253,8 @@ class SessionIOService:
                 'soc_from': soc_from,
                 'soc_to': soc_to,
                 'ambient_temp_c': row.get('ambient_temp_c', ''),
+                'preconditioning_used': row.get('preconditioning_used', '0') == '1',
+                'preconditioning_events': int(row.get('preconditioning_events', '0')) if row.get('preconditioning_events') else 0,
                 'notes': row.get('notes', ''),
                 'car_id': car_id
             }

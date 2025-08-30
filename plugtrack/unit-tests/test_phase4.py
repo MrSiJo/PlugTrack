@@ -100,12 +100,13 @@ def test_sessions_dedup():
                 writer.writerow([
                     'date', 'odometer', 'charge_type', 'charge_power_kw', 'location_label',
                     'charge_network', 'charge_delivered_kwh', 'duration_mins', 'cost_per_kwh',
-                    'total_cost_gbp', 'soc_from', 'soc_to', 'ambient_temp_c', 'notes'
+                    'total_cost_gbp', 'soc_from', 'soc_to', 'ambient_temp_c', 'preconditioning_used', 
+                    'preconditioning_events', 'notes'
                 ])
                 writer.writerow([
                     '2025-01-01', '1000', 'AC', '7.4', 'Test Location',
-                    'Test Network', '25.0', '180', '0.12', '3.0', '20', '80', '', 'Test session'
-                ])
+                    'Test Network', '25.0', '180', '0.12', '3.0', '20', '80', '', '0', '0', 'Test session'
+                ]
             
             # First import
             first_import = SessionIOService.import_sessions(
