@@ -13,13 +13,15 @@ PlugTrack is a smart personal web application for logging and managing EV chargi
 - **Context-Aware Analysis**: Track environmental conditions and pre-conditioning impact on charging efficiency
 
 ### Advanced Analytics & Insights
-- **Comprehensive Dashboard**: Overview of active car, recent sessions, and battery hygiene insights
-- **Interactive Analytics**: Charts showing cost trends, efficiency patterns, and charging mix with advanced filtering
+- **Comprehensive Dashboard**: Overview with lifetime totals, cost extremes, weighted efficiency, and achievement progress
+- **Interactive Analytics**: Charts showing cost trends, efficiency patterns, charging mix, seasonal analysis, and location leaderboards
 - **Enhanced Efficiency Insights**: £/10% SoC chips, Home ROI analysis vs 30-day baseline, and battery loss estimation
-- **Location Intelligence**: Per-location median costs (£/kWh, £/mi), typical SoC patterns, and session counts
-- **Seasonal Analysis**: Climate impact insights grouped by ambient temperature buckets
+- **Location Intelligence**: Per-location median costs (£/kWh, £/mi), typical SoC patterns, session counts, and leaderboard rankings
+- **Seasonal Analysis**: Efficiency vs ambient temperature analysis with visual charts and climate impact insights
+- **Sweet Spot Analytics**: SoC window efficiency analysis to identify optimal charging ranges
 - **Lifetime Statistics**: Complete overview of total kWh consumed, miles driven, costs, and savings vs petrol
 - **Best/Worst Detection**: Automatically identifies your cheapest/most expensive sessions and efficiency extremes
+- **Aggregated APIs**: Lightweight JSON endpoints for dashboard widgets and mobile integration
 - **Data Filtering**: Filter by date range, car profile, charge type, network, and exclude pre-conditioning sessions
 
 ### Intelligent Reminder & Monitoring System
@@ -29,13 +31,15 @@ PlugTrack is a smart personal web application for logging and managing EV chargi
 - **Auto-Clear Logic**: Reminders automatically clear when ≥95% SoC session is logged
 - **Dashboard Integration**: Reminder cards appear when balance charging is needed
 
-### Smart Coaching & Confidence Features
-- **Blended Charge Planner**: Simulate optimal DC + Home charging strategies with cost optimization
+### Smart Coaching & Session Management
+- **Dedicated Session Detail Pages**: Full-featured session analysis with tabbed interface for detailed insights and planning
+- **Blended Charge Planner**: Simulate optimal DC + Home charging strategies with cost optimization and time estimates
 - **Real-time Hints**: DC taper warnings, "finish at home" suggestions, storage SoC advice
-- **Confidence Transparency**: Clear explanations for efficiency calculation reliability with helpful guidance modals
-- **Smart Confidence Badges**: Visual indicators explaining data quality factors (small window, stale anchors, outlier clamping)
-- **Comparative Analysis**: Compare sessions with similar conditions and rolling averages
-- **Session Detail Analysis**: Comprehensive breakdowns with actionable recommendations and context information
+- **Confidence Transparency**: User-friendly explanations of data quality with visual badges and detailed guidance modals
+- **Smart Confidence System**: Visual indicators with clear explanations for data reliability factors
+- **Comparative Analysis**: Compare sessions with similar conditions, rolling averages, and historical patterns
+- **Session Quick View**: Modal popups for rapid session inspection with links to full detail pages
+- **Comprehensive APIs**: RESTful endpoints for session metrics, insights, and real-time data access
 
 ### Advanced Cost Analysis
 - **Unified Parity System**: All EV parity rates display in p/kWh for direct tariff comparison
@@ -43,6 +47,16 @@ PlugTrack is a smart personal web application for logging and managing EV chargi
 - **Centralized Calculations**: Single source of truth for cost comparisons eliminates inconsistencies
 - **Live Preview**: Real-time cost calculations when adjusting settings with UK average presets
 - **Streamlined Settings**: Consolidated "Cost & Efficiency" page combines all pricing and efficiency controls
+
+### Gamification & Achievement System
+- **Comprehensive Achievement Engine**: 23+ unlockable badges for charging milestones and optimization goals
+- **Smart Achievement Categories**: Cost optimization, power/speed records, time-based challenges, weather conditions, behavioral patterns, and exploration rewards
+- **Weather-Based Achievements**: Winter Warrior (<5°C), Heatwave Hero (>30°C) using ambient temperature data
+- **Milestone Tracking**: 1000 kWh Club, Road to 10,000, Century Session, and efficiency masters
+- **Behavioral Rewards**: Range Anxiety challenges, Staycationer patterns, Explorer network usage, and charging optimization streaks
+- **Visual Progress Dashboard**: Beautiful achievement widget with progress tracking, recent unlocks, and motivational locked previews
+- **Real-time Notifications**: Flash messages when achievements are unlocked during session logging
+- **Achievement API**: RESTful endpoints for unlocked/locked achievement status and progress tracking
 
 ### Data Management & Automation
 - **Enhanced Data Capture**: Ambient temperature logging and tri-state pre-conditioning tracking (Unknown/No/Yes)
@@ -54,7 +68,6 @@ PlugTrack is a smart personal web application for logging and managing EV chargi
 - **Metrics Precomputation**: Background processing for instant session detail loading with consistency validation
 
 ## Screenshots
-
 
 **Dashboard Overview** - Main dashboard showing current car and recent sessions
 ![dashboard](docs/assets/Dashboard_PlugTrack.png)
@@ -73,14 +86,19 @@ PlugTrack is a smart personal web application for logging and managing EV chargi
 
 ## Technology Stack
 
-- **Backend**: Python 3.11+, Flask 3.0
+- **Backend**: Python 3.11+, Flask 3.0 with comprehensive RESTful APIs
 - **Database**: SQLite with SQLAlchemy ORM, optimized with performance indexes
-- **Frontend**: Bootstrap 5, HTML5, CSS3, JavaScript with Chart.js for analytics
+- **Frontend**: Bootstrap 5, HTML5, CSS3, JavaScript with Chart.js for interactive analytics and gamification
+- **APIs**: JSON REST endpoints for analytics, achievements, session metrics, and reminders
 - **Authentication**: Flask-Login with secure password hashing
 - **Security**: Encryption service for sensitive data
-- **Migrations**: Flask-Migrate for database schema management
-- **Charts**: Chart.js for interactive data visualization
-- **CLI**: Click framework for command-line operations
+- **Migrations**: Flask-Migrate for database schema management with versioned migration system
+- **Charts**: Chart.js for seasonal analysis, leaderboards, efficiency trends, and sweet spot visualization
+- **CLI**: Click framework for command-line operations and data management
+
+## Recent Updates
+
+Phase 6 introduces a complete frontend transformation with gamification, advanced analytics visualizations, dedicated session detail pages, and comprehensive API ecosystem. Building on Phase 5's backend foundations, this update delivers professional-grade charging analysis tools, achievement-based user engagement, and enhanced data presentation that makes PlugTrack the most comprehensive and motivating EV charging management platform available.
 
 ## Quick Start
 
@@ -132,15 +150,14 @@ PlugTrack is a smart personal web application for logging and managing EV chargi
 
 6. **Initialize the database**
    ```bash
-   flask --app . init-db
-   ```
-
-7. **Run database migrations**
-   ```bash
-   python migrations/add_phase4_fields_and_indexes.py
-   python migrations/seed_phase4_settings.py
-   python migrations/add_phase5_fields.py
-   python migrations/005_make_preconditioning_nullable.py
+   # Using the convenient migration tool (recommended)
+   python migrate.py init
+   
+   # Check what would be done without making changes
+   python migrate.py init --dry-run
+   
+   # Alternative: Using Flask directly
+   flask --app __init__ init-db
    ```
 
 8. **Run the application**
@@ -249,15 +266,37 @@ flask --app . create-admin
 ```
 
 ### Database Management
+
+PlugTrack uses a modern migration system that provides:
+- ✅ **Version tracking** - Know exactly which migrations have been applied
+- ✅ **Automatic execution** - Single command handles fresh installs and updates
+- ✅ **Rollback support** - Safely undo migrations if needed
+- ✅ **Dry run capability** - Preview changes before applying
+- ✅ **Backup creation** - Automatic backups before migrations
+- ✅ **Dependency resolution** - Migrations run in correct order
+
 ```bash
-# Create a new migration
-flask db migrate -m "Description of changes"
+# Using the convenient migration tool (recommended)
+python migrate.py status                    # Check migration status
+python migrate.py init                      # Initialize database
+python migrate.py init --dry-run           # Preview initialization changes
+python migrate.py init --force-fresh       # Force fresh installation
+python migrate.py create 003 "Add feature" # Create new migration
+python migrate.py organize                 # Organize legacy files
+python migrate.py test                     # Test migration system
 
-# Apply migrations
-flask db upgrade
+# Alternative: Using Flask directly (requires proper app specification)
+flask --app __init__ migration-status
+flask --app __init__ init-db
+flask --app __init__ init-db --dry-run
+flask --app __init__ create-migration 003 "Add feature"
+flask --app __init__ apply-migrations
+flask --app __init__ rollback-migration 003
 
-# Rollback migrations
-flask db downgrade
+# Alternative: Using Python scripts directly
+python init_db_v2.py status
+python init_db_v2.py init
+python init_db_v2.py init --dry-run
 ```
 
 ### Backup and Restore Operations
@@ -377,10 +416,6 @@ docker-compose -f docker-compose.dev.yml up --build
 python test_phase4.py
 python unit-tests/test_phase5_metrics.py
 ```
-
-## Recent Updates
-
-Phase 5 delivers a comprehensive upgrade with advanced insights, smart reminders, enhanced data capture, and unified cost analysis. All new features integrate seamlessly with existing functionality and work together to provide the most comprehensive EV charging analysis and management experience available.
 
 ## Contributing
 

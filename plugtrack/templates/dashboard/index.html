@@ -16,6 +16,49 @@
     .card-header[data-bs-toggle="collapse"] .bi-chevron-up {
         transition: transform 0.2s ease;
     }
+    
+    /* P6-6: Achievement Badges */
+    .achievement-badge {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 0.75rem 0.5rem;
+        border: 2px solid #e9ecef;
+        border-radius: 0.5rem;
+        background: #f8f9fa;
+        transition: all 0.2s ease;
+        text-align: center;
+        min-height: 80px;
+    }
+    
+    .achievement-badge.unlocked {
+        border-color: #ffc107;
+        background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+        box-shadow: 0 2px 4px rgba(255, 193, 7, 0.2);
+    }
+    
+    .achievement-badge:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+    
+    .achievement-badge i {
+        font-size: 1.5rem;
+        margin-bottom: 0.25rem;
+    }
+    
+    .achievement-name {
+        font-size: 0.8rem;
+        font-weight: 600;
+        line-height: 1.2;
+        margin-bottom: 0.25rem;
+    }
+    
+    .achievement-value {
+        font-size: 0.7rem;
+        color: #6c757d;
+        font-weight: 500;
+    }
 </style>
 {% endblock %}
 
@@ -213,7 +256,6 @@
                 <i class="bi bi-speedometer text-primary" style="font-size: 2rem;"></i>
                 <h4 class="mt-2">{{ "%.2f"|format(metrics.weighted_efficiency) if metrics.weighted_efficiency else "N/A" }}</h4>
                 <p class="text-muted mb-0">Weighted Efficiency</p>
-                <small class="text-muted">kWh-weighted mi/kWh</small>
             </div>
         </div>
     </div>
@@ -237,8 +279,121 @@
     </div>
 </div>
 
+<!-- P6-4: Lifetime Totals Card -->
+{% if analytics_summary %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-trophy text-warning"></i> Lifetime Totals
+                    <small class="text-muted ms-2">All-time cumulative data</small>
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="border-end">
+                            <i class="bi bi-lightning text-warning d-block" style="font-size: 2rem;"></i>
+                            <h4 class="mt-2 mb-1">{{ "%.1f"|format(analytics_summary.lifetime.kwh) }}</h4>
+                            <p class="text-muted mb-0">kWh Delivered</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border-end">
+                            <i class="bi bi-speedometer2 text-info d-block" style="font-size: 2rem;"></i>
+                            <h4 class="mt-2 mb-1">{{ "%.1f"|format(analytics_summary.lifetime.miles) }}</h4>
+                            <p class="text-muted mb-0">Miles Driven</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border-end">
+                            <i class="bi bi-{{ 'currency-pound' if get_currency_symbol(current_user.id) == '£' else 'currency-euro' if get_currency_symbol(current_user.id) == '€' else 'currency-dollar' }} text-success d-block" style="font-size: 2rem;"></i>
+                            <h4 class="mt-2 mb-1">{{ format_currency(analytics_summary.lifetime.cost, current_user.id) }}</h4>
+                            <p class="text-muted mb-0">Total Spent</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <i class="bi bi-piggy-bank text-primary d-block" style="font-size: 2rem;"></i>
+                        <h4 class="mt-2 mb-1 text-primary">{{ format_currency(analytics_summary.lifetime.saved_vs_petrol, current_user.id) }}</h4>
+                        <p class="text-muted mb-0">Saved vs Petrol</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- P6-4: Cost Extremes -->
+{% if analytics_summary and (analytics_summary.most_expensive or analytics_summary.cheapest) %}
+<div class="row mb-4">
+    {% if analytics_summary.cheapest %}
+    <div class="col-md-6">
+        <div class="card border-success">
+            <div class="card-header bg-success text-white">
+                <h6 class="mb-0">
+                    <i class="bi bi-star-fill"></i> Cheapest Session
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="text-success mb-1">{{ "%.2f"|format(analytics_summary.cheapest.cost_per_mile) }}p/mi</h5>
+                        <p class="mb-1">
+                            <strong>{{ analytics_summary.cheapest.date }}</strong><br>
+                            {{ analytics_summary.cheapest.location or 'Unknown Location' }}
+                        </p>
+                        <small class="text-muted">
+                            {{ "%.1f"|format(analytics_summary.cheapest.kwh) }} kWh • 
+                            {{ "%.0f"|format(analytics_summary.cheapest.cost_per_kwh * 100) }}p/kWh
+                        </small>
+                    </div>
+                    <a href="{{ url_for('charging_sessions.session_detail_page', id=analytics_summary.cheapest.session_id) }}" 
+                       class="btn btn-outline-success btn-sm">
+                        <i class="bi bi-eye"></i> View
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    {% if analytics_summary.most_expensive %}
+    <div class="col-md-6">
+        <div class="card border-danger">
+            <div class="card-header bg-danger text-white">
+                <h6 class="mb-0">
+                    <i class="bi bi-exclamation-triangle-fill"></i> Most Expensive Session
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="text-danger mb-1">{{ "%.2f"|format(analytics_summary.most_expensive.cost_per_mile) }}p/mi</h5>
+                        <p class="mb-1">
+                            <strong>{{ analytics_summary.most_expensive.date }}</strong><br>
+                            {{ analytics_summary.most_expensive.location or 'Unknown Location' }}
+                        </p>
+                        <small class="text-muted">
+                            {{ "%.1f"|format(analytics_summary.most_expensive.kwh) }} kWh • 
+                            {{ "%.0f"|format(analytics_summary.most_expensive.cost_per_kwh * 100) }}p/kWh
+                        </small>
+                    </div>
+                    <a href="{{ url_for('charging_sessions.session_detail_page', id=analytics_summary.most_expensive.session_id) }}" 
+                       class="btn btn-outline-danger btn-sm">
+                        <i class="bi bi-eye"></i> View
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
 <!-- Info about cost calculations -->
-{% if metrics.free_sessions > 0 %}
+{% if metrics and metrics.free_sessions and metrics.free_sessions > 0 %}
 <div class="row mb-3">
     <div class="col-12">
         <div class="alert alert-info">
@@ -518,12 +673,231 @@
         </div>
     </div>
 </div>
+
+<!-- P6-6: Achievements Widget -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-trophy text-warning"></i> Achievements
+                    <small class="text-muted ms-2">Your EV charging milestones</small>
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="achievements-container">
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading achievements...</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="text-center mt-3">
+                    <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#achievementsModal">
+                        <i class="bi bi-list-ul me-1"></i> View All Achievements
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- P6-6: Achievements Modal -->
+<div class="modal fade" id="achievementsModal" tabindex="-1" aria-labelledby="achievementsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="achievementsModalLabel">
+                    <i class="bi bi-trophy text-warning"></i> All Achievements
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="achievements-modal-content">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading achievements...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
 // Make recommendations available to the global recommendations dropdown
 window.recommendations = {{ recommendations|tojson|safe }};
+
+// P6-6: Load Achievements
+document.addEventListener('DOMContentLoaded', function() {
+    loadAchievements();
+});
+
+function loadAchievements() {
+    fetch('/api/achievements?car_id={{ selected_car.id if selected_car else "" }}')
+        .then(response => response.json())
+        .then(data => {
+            renderAchievementsSummary(data);
+            renderAchievementsModal(data);
+        })
+        .catch(error => {
+            console.error('Error loading achievements:', error);
+            document.getElementById('achievements-container').innerHTML = 
+                '<p class="text-muted text-center"><i class="bi bi-exclamation-triangle"></i> Unable to load achievements</p>';
+        });
+}
+
+function renderAchievementsSummary(data) {
+    const container = document.getElementById('achievements-container');
+    const unlocked = data.unlocked || [];
+    const locked = data.locked || [];
+    const totalAchievements = unlocked.length + locked.length;
+    
+    if (totalAchievements === 0) {
+        container.innerHTML = '<p class="text-muted text-center">No achievements available</p>';
+        return;
+    }
+    
+    // Show recent unlocked achievements (max 6)
+    const recentUnlocked = unlocked
+        .sort((a, b) => new Date(b.date) - new Date(a.date))
+        .slice(0, 6);
+    
+    let html = `
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="mb-0">Progress: ${unlocked.length}/${totalAchievements} Unlocked</h6>
+            <div class="progress" style="width: 150px; height: 8px;">
+                <div class="progress-bar bg-warning" role="progressbar" 
+                     style="width: ${(unlocked.length / totalAchievements * 100)}%"></div>
+            </div>
+        </div>
+    `;
+    
+    if (recentUnlocked.length > 0) {
+        html += '<div class="row">';
+        recentUnlocked.forEach(achievement => {
+            html += `
+                <div class="col-md-4 col-sm-6 mb-2">
+                    <div class="achievement-badge unlocked" title="${achievement.name}">
+                        <i class="bi bi-trophy-fill text-warning"></i>
+                        <span class="achievement-name">${achievement.name}</span>
+                        ${achievement.value ? `<small class="achievement-value">${achievement.value}</small>` : ''}
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+    } else {
+        html += '<p class="text-muted text-center">Start charging to unlock achievements!</p>';
+    }
+    
+    container.innerHTML = html;
+}
+
+function renderAchievementsModal(data) {
+    const container = document.getElementById('achievements-modal-content');
+    const unlocked = data.unlocked || [];
+    const locked = data.locked || [];
+    
+    let html = '';
+    
+    if (unlocked.length > 0) {
+        html += `
+            <h6 class="text-success"><i class="bi bi-check-circle-fill"></i> Unlocked (${unlocked.length})</h6>
+            <div class="row mb-4">
+        `;
+        
+        unlocked.forEach(achievement => {
+            const date = new Date(achievement.date).toLocaleDateString();
+            html += `
+                <div class="col-md-6 mb-3">
+                    <div class="card border-success">
+                        <div class="card-body">
+                            <h6 class="card-title">
+                                <i class="bi bi-trophy-fill text-warning me-2"></i>
+                                ${achievement.name}
+                            </h6>
+                            <p class="card-text text-muted small mb-1">${getAchievementDescription(achievement.code)}</p>
+                            ${achievement.value ? `<p class="card-text"><strong>${achievement.value}</strong></p>` : ''}
+                            <small class="text-muted">Unlocked: ${date}</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+    }
+    
+    if (locked.length > 0) {
+        html += `
+            <h6 class="text-muted"><i class="bi bi-lock-fill"></i> Locked (${locked.length})</h6>
+            <div class="row">
+        `;
+        
+        locked.forEach(achievement => {
+            html += `
+                <div class="col-md-6 mb-3">
+                    <div class="card border-light">
+                        <div class="card-body opacity-75">
+                            <h6 class="card-title">
+                                <i class="bi bi-trophy text-muted me-2"></i>
+                                ${achievement.name}
+                            </h6>
+                            <p class="card-text text-muted small">${getAchievementDescription(achievement.code)}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+    }
+    
+    if (unlocked.length === 0 && locked.length === 0) {
+        html = '<p class="text-center text-muted">No achievements available</p>';
+    }
+    
+    container.innerHTML = html;
+}
+
+function getAchievementDescription(code) {
+    const descriptions = {
+        '1000kwh': 'Delivered 1000+ kWh of energy',
+        'cheapest_mile': 'Found the cheapest cost per mile session',
+        'fastest_session': 'Highest average power charging session',
+        'marathon_charge': 'Charging session longer than 8 hours',
+        'free_charge_finder': 'Found a free charging session',
+        'night_owl': 'Charged between midnight and 6 AM',
+        'efficiency_master': 'Achieved 5+ mi/kWh efficiency in a session',
+        'road_warrior': 'Completed 100+ charging sessions',
+        'winter_warrior': 'Charge completed <5°C ambient temp',
+        'first_plug': 'First tracked session',
+        'road_to_10000': 'Cumulative 10,000 kWh charged',
+        'century_session': '100th charging session logged',
+        'penny_pincher': 'Session cost < £1',
+        'savers_streak': '7 sessions in a row below average cost/kWh',
+        'off_peak_champ': 'Most sessions completed off-peak',
+        'rapid_riser': 'First DC >100kW session',
+        'sprint_finish': '20–80% in under 25 minutes',
+        'solar_soaker': 'Session cost = £0 / solar-powered',
+        'heatwave_hero': 'Charge in >30°C ambient temp',
+        'forgotten_plug': 'Session >12 hours but <5 kWh delivered',
+        'range_anxiety': 'Charge started <5% SoC',
+        'explorer': '10 different networks used',
+        'staycationer': '90%+ of sessions at home'
+    };
+    
+    return descriptions[code] || 'Achievement unlocked!';
+}
 
 // Make reminders available to the global reminders dropdown
 window.reminders = {% if has_reminder_guidance %}{{ reminders|tojson|safe }}{% else %}[]{% endif %};

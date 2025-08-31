@@ -3,6 +3,10 @@ from flask_login import login_required, current_user
 from models.car import Car
 from services.derived_metrics import DerivedMetricsService
 from services.reports import ReportsService
+from services.analytics_agg import AnalyticsAggService
+from services.achievement_engine import AchievementEngine
+from services.reminders import ReminderService
+from services.reminders_api import RemindersApiService
 from datetime import datetime, timedelta
 
 analytics_bp = Blueprint('analytics', __name__)
@@ -145,3 +149,81 @@ def export():
     
     return Response(csv_data, mimetype='text/csv',
                    headers={'Content-Disposition': f'attachment; filename={filename}'})
+
+# Phase 6 Stage A: Aggregated Analytics API
+@analytics_bp.route('/api/analytics/summary')
+@login_required
+def analytics_summary():
+    """API endpoint for lightweight JSON summaries for dashboards"""
+    car_id = request.args.get('car_id', type=int)
+    
+    summary = AnalyticsAggService.get_analytics_summary(current_user.id, car_id)
+    return jsonify(summary)
+
+# Phase 6 Stage B: Seasonal & Leaderboards
+@analytics_bp.route('/api/analytics/seasonal')
+@login_required
+def analytics_seasonal():
+    """API endpoint for efficiency vs ambient temperature bins"""
+    car_id = request.args.get('car_id', type=int)
+    
+    seasonal_data = AnalyticsAggService.get_seasonal_analytics(current_user.id, car_id)
+    return jsonify(seasonal_data)
+
+@analytics_bp.route('/api/analytics/leaderboard')
+@login_required
+def analytics_leaderboard():
+    """API endpoint for per-location metrics (median p/mi, p/kWh, session counts)"""
+    car_id = request.args.get('car_id', type=int)
+    
+    leaderboard_data = AnalyticsAggService.get_leaderboard_analytics(current_user.id, car_id)
+    return jsonify(leaderboard_data)
+
+@analytics_bp.route('/api/analytics/sweetspot')
+@login_required
+def analytics_sweetspot():
+    """API endpoint for SoC window efficiencies"""
+    car_id = request.args.get('car_id', type=int)
+    
+    sweetspot_data = AnalyticsAggService.get_sweetspot_analytics(current_user.id, car_id)
+    return jsonify(sweetspot_data)
+
+# Phase 6 Stage C: Achievements & Gamification
+@analytics_bp.route('/api/achievements')
+@login_required
+def achievements():
+    """API endpoint for achievements/badges - returns unlocked + locked achievements"""
+    car_id = request.args.get('car_id', type=int)
+    
+    achievements_data = AchievementEngine.get_user_achievements(current_user.id, car_id)
+    return jsonify(achievements_data)
+
+# Phase 6 Stage D: Reminders API
+@analytics_bp.route('/api/reminders')
+@login_required
+def reminders():
+    """API endpoint for reminders - returns due and upcoming reminder checks"""
+    car_id = request.args.get('car_id', type=int)
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    
+    # Parse date parameters
+    date_from_obj = None
+    date_to_obj = None
+    
+    if date_from:
+        try:
+            date_from_obj = datetime.strptime(date_from, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+    
+    if date_to:
+        try:
+            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+    
+    reminders_data = RemindersApiService.get_reminders_api(
+        current_user.id, car_id, date_from_obj, date_to_obj
+    )
+    return jsonify(reminders_data)

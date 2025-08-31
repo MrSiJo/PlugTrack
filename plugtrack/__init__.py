@@ -132,8 +132,55 @@ def create_app(config_class=Config):
         return results
     
     @app.cli.command('init-db')
-    def init_db():
-        """Initialize the database with sample data."""
+    @click.option('--dry-run', is_flag=True, help='Show what would be done without making changes')
+    @click.option('--force-fresh', is_flag=True, help='Treat as fresh install even if data exists')
+    def init_db(dry_run, force_fresh):
+        """Initialize or migrate the database using the modern migration system."""
+        from init_db_v2 import init_database
+        success = init_database(dry_run=dry_run, force_fresh=force_fresh)
+        if not success:
+            raise click.ClickException("Database initialization failed")
+    
+    @app.cli.command('migration-status')
+    def migration_status():
+        """Show detailed migration status."""
+        from init_db_v2 import migration_status as show_status
+        show_status()
+    
+    @app.cli.command('create-migration')
+    @click.argument('migration_id')
+    @click.argument('description')
+    def create_migration_cmd(migration_id, description):
+        """Create a new migration file."""
+        from init_db_v2 import create_migration
+        success = create_migration(migration_id, description)
+        if not success:
+            raise click.ClickException("Migration creation failed")
+    
+    @app.cli.command('apply-migrations')
+    @click.option('--dry-run', is_flag=True, help='Show what would be done without making changes')
+    def apply_migrations(dry_run):
+        """Apply all pending migrations."""
+        from migrations.migration_manager import MigrationManager
+        migration_manager = MigrationManager(app)
+        success = migration_manager.apply_all_pending(dry_run=dry_run)
+        if not success:
+            raise click.ClickException("Migration application failed")
+    
+    @app.cli.command('rollback-migration')
+    @click.argument('migration_id')
+    def rollback_migration(migration_id):
+        """Rollback a specific migration."""
+        from migrations.migration_manager import MigrationManager
+        migration_manager = MigrationManager(app)
+        success = migration_manager.rollback_migration(migration_id)
+        if not success:
+            raise click.ClickException(f"Migration rollback failed for {migration_id}")
+    
+    @app.cli.command('init-db-legacy')
+    def init_db_legacy():
+        """Legacy database initialization (deprecated - use init-db instead)."""
+        click.echo("⚠️  This command is deprecated. Use 'flask init-db' instead.")
         db.create_all()
         
         # Check if we already have a user

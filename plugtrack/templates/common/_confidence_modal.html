@@ -1,10 +1,10 @@
-<!-- What Affects Confidence Modal -->
+<!-- What Affects Data Quality Modal -->
 <div class="modal fade" id="confidenceHelpModal" tabindex="-1" aria-labelledby="confidenceHelpModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="confidenceHelpModalLabel">
-                    <i class="bi bi-info-circle"></i> What Affects Confidence?
+                    <i class="bi bi-info-circle"></i> Understanding Data Quality
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -12,75 +12,86 @@
                 <div class="row">
                     <div class="col-12 mb-4">
                         <p class="text-muted">
-                            Confidence levels indicate how reliable the efficiency and cost calculations are for a charging session.
-                            Lower confidence typically means the data is "noisy" or based on limited information.
+                            Data quality levels show how reliable the efficiency and cost calculations are for your charging sessions.
+                            Lower quality usually means we have less information to work with, making calculations less precise.
                         </p>
                     </div>
-                </div>
-                
-                <div class="row">
-                    <div class="col-md-4 mb-3">
-                        <div class="card h-100">
-                            <div class="card-body">
-                                <h6 class="card-title text-warning">
-                                    <i class="bi bi-exclamation-triangle"></i> Small Window
-                                </h6>
-                                <p class="card-text small">
-                                    <strong>When:</strong> Session delivers &lt;3.0 kWh or drives &lt;15 miles
-                                </p>
-                                <p class="card-text small">
-                                    <strong>Why:</strong> Small sessions provide less representative data for efficiency calculations
-                                </p>
+                    
+                    <!-- Quality Levels -->
+                    <div class="col-12 mb-4">
+                        <h6>Quality Levels</h6>
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <div class="card border-success">
+                                    <div class="card-body text-center">
+                                        <i class="bi bi-shield-check text-success" style="font-size: 2rem;"></i>
+                                        <h6 class="mt-2">Reliable Data</h6>
+                                        <p class="small text-muted mb-0">Complete information available. Calculations are trustworthy.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <div class="card border-warning">
+                                    <div class="card-body text-center">
+                                        <i class="bi bi-shield-exclamation text-warning" style="font-size: 2rem;"></i>
+                                        <h6 class="mt-2">Some Limitations</h6>
+                                        <p class="small text-muted mb-0">Most data available but minor issues may affect accuracy.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <div class="card border-danger">
+                                    <div class="card-body text-center">
+                                        <i class="bi bi-shield-x text-danger" style="font-size: 2rem;"></i>
+                                        <h6 class="mt-2">Limited Data</h6>
+                                        <p class="small text-muted mb-0">Several issues mean calculations should be taken with caution.</p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                     
-                    <div class="col-md-4 mb-3">
-                        <div class="card h-100">
-                            <div class="card-body">
-                                <h6 class="card-title text-info">
-                                    <i class="bi bi-clock"></i> Stale Anchors
-                                </h6>
-                                <p class="card-text small">
-                                    <strong>When:</strong> Reference data is &gt;10 days old
-                                </p>
-                                <p class="card-text small">
-                                    <strong>Why:</strong> Older baseline sessions may not reflect current driving patterns or battery condition
-                                </p>
+                    <!-- Common Issues -->
+                    <div class="col-12 mb-4">
+                        <h6>Common Data Issues</h6>
+                        <div class="list-group">
+                            <div class="list-group-item">
+                                <strong>Short trip between charges</strong><br>
+                                <small class="text-muted">When you only drive a short distance between charges, efficiency calculations become less reliable.</small>
+                            </div>
+                            <div class="list-group-item">
+                                <strong>Missing mileage reading</strong><br>
+                                <small class="text-muted">Without odometer data, we can't calculate how efficiently you're driving.</small>
+                            </div>
+                            <div class="list-group-item">
+                                <strong>Very small charge amount</strong><br>
+                                <small class="text-muted">Small top-ups make cost and efficiency calculations less meaningful.</small>
+                            </div>
+                            <div class="list-group-item">
+                                <strong>Long gap since last reading</strong><br>
+                                <small class="text-muted">If it's been a while since your last session, accuracy may be reduced.</small>
+                            </div>
+                            <div class="list-group-item">
+                                <strong>Unusual efficiency reading</strong><br>
+                                <small class="text-muted">Sometimes calculations produce unrealistic results that get adjusted automatically.</small>
                             </div>
                         </div>
                     </div>
                     
-                    <div class="col-md-4 mb-3">
-                        <div class="card h-100">
-                            <div class="card-body">
-                                <h6 class="card-title text-danger">
-                                    <i class="bi bi-scissors"></i> Outlier Clamped
-                                </h6>
-                                <p class="card-text small">
-                                    <strong>When:</strong> Calculated efficiency &lt;1 or &gt;7 mi/kWh
-                                </p>
-                                <p class="card-text small">
-                                    <strong>Why:</strong> Extreme values suggest measurement errors or unusual circumstances
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="row mt-3">
+                    <!-- Tips -->
                     <div class="col-12">
-                        <div class="alert alert-light">
-                            <h6><i class="bi bi-lightbulb"></i> Improving Confidence</h6>
-                            <ul class="mb-0 small">
-                                <li>Log longer charging sessions (more kWh and miles driven)</li>
-                                <li>Keep your data up-to-date with regular session entries</li>
-                                <li>Double-check odometer readings for accuracy</li>
-                                <li>Note unusual circumstances (preconditioning, extreme weather) in session notes</li>
+                        <div class="alert alert-info">
+                            <h6><i class="bi bi-lightbulb me-2"></i>Tips for Better Data Quality</h6>
+                            <ul class="mb-0">
+                                <li>Always record your odometer reading when logging sessions</li>
+                                <li>Log sessions consistently, especially after longer trips</li>
+                                <li>Avoid logging very small top-ups unless necessary</li>
+                                <li>Check your readings for typos before saving</li>
                             </ul>
                         </div>
                     </div>
                 </div>
+
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Got it</button>

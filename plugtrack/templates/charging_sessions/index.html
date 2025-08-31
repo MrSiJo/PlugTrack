@@ -185,9 +185,14 @@
                                     <div class="btn-group btn-group-sm" role="group">
                                         <button type="button" class="btn btn-outline-info btn-sm" 
                                                 onclick="showSessionDetails({{ session.id }})" 
-                                                title="View Details">
-                                            <i class="bi bi-info-circle"></i>
+                                                title="Quick View">
+                                            <i class="bi bi-eye"></i>
                                         </button>
+                                        <a href="{{ url_for('charging_sessions.session_detail_page', id=session.id) }}" 
+                                           class="btn btn-outline-primary btn-sm" 
+                                           title="Full Detail Page">
+                                            <i class="bi bi-info-circle"></i>
+                                        </a>
                                         <button type="button" class="btn btn-outline-primary btn-sm" 
                                                 onclick="showBlendPlanner({{ session.id }}, {{ session.soc_from }}, {{ session.cost_per_kwh }}, {{ session.car.battery_kwh }})" 
                                                 title="Simulate Blend">
@@ -253,6 +258,43 @@
 
 {% block extra_scripts %}
 <script>
+// User-friendly confidence reason mappings (P6-3)
+function getUserFriendlyReason(technicalReason) {
+    const reasonMappings = {
+        'small_window': 'Short trip',
+        'stale_anchors': 'Old data',
+        'outlier_clamped': 'Unusual reading',
+        'Small charging window': 'Short trip',
+        'No odometer data': 'Missing mileage',
+        'No efficiency data': 'No efficiency',
+        'Free session - no cost analysis': 'Free charge',
+        'Baseline session': 'Setup session',
+        'Small energy delivery': 'Small charge'
+    };
+    
+    // Extract base reason (remove parameters in parentheses)
+    const baseReason = technicalReason.split('(')[0].trim();
+    
+    return reasonMappings[baseReason] || 
+           reasonMappings[technicalReason] || 
+           baseReason.replace('_', ' ');
+}
+
+function getFriendlyReasonBadgeClass(technicalReason) {
+    if (technicalReason.includes('small_window') || technicalReason.includes('Small charging window') || technicalReason.includes('Small energy delivery')) {
+        return 'bg-warning';
+    } else if (technicalReason.includes('stale_anchors') || technicalReason.includes('Old data')) {
+        return 'bg-info';
+    } else if (technicalReason.includes('outlier') || technicalReason.includes('Unusual reading')) {
+        return 'bg-danger';
+    } else if (technicalReason.includes('No ') || technicalReason.includes('Missing')) {
+        return 'bg-secondary';
+    } else if (technicalReason.includes('Free') || technicalReason.includes('Baseline')) {
+        return 'bg-success';
+    }
+    return 'bg-secondary';
+}
+
 // Global variables
 let currentSessionId = null;
 let currentBlendPlan = null;
@@ -391,6 +433,12 @@ function loadSessionDetails(sessionId) {
     const contentDiv = document.getElementById('sessionDetailContent');
     contentDiv.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
     
+    // Update the "Full Detail Page" button link
+    const fullDetailBtn = document.getElementById('viewFullDetailBtn');
+    if (fullDetailBtn) {
+        fullDetailBtn.href = `/session/${sessionId}`;
+    }
+    
     fetch(`/charging-sessions/${sessionId}/details`)
         .then(response => response.json())
         .then(data => {
@@ -511,14 +559,13 @@ function renderSessionDetails(data) {
         confidenceBadge.title = `Confidence: ${confidenceLevel}`;
     }
     
-    // Display confidence reasons below badge
+    // Display confidence reasons below badge (with user-friendly labels)
     if (reasons.length > 0) {
         const reasonsHtml = reasons.map(reason => {
-            const badge = reason.includes('small_window') ? 'bg-warning' :
-                         reason.includes('stale_anchors') ? 'bg-info' :
-                         reason.includes('outlier_clamped') ? 'bg-danger' : 'bg-secondary';
-            const shortReason = reason.split('(')[0].replace('_', ' ');
-            return `<span class="badge ${badge} me-1">${shortReason}</span>`;
+            // Convert technical reasons to user-friendly ones
+            const friendlyReason = getUserFriendlyReason(reason);
+            const badge = getFriendlyReasonBadgeClass(reason);
+            return `<span class="badge ${badge} me-1">${friendlyReason}</span>`;
         }).join('');
         confidenceReasons.innerHTML = `<small>${reasonsHtml}</small>`;
     } else {

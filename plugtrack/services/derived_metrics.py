@@ -169,6 +169,49 @@ class DerivedMetricsService:
             'efficiency': round(eff, 2),
             'anchor_gap_days': anchor_gap_days
         }
+    
+    @staticmethod
+    def get_miles_since_previous_session(session):
+        """
+        Get miles driven since the previous charging session.
+        Returns dict with miles, previous session info, or None if no previous session found.
+        """
+        if session.odometer is None:
+            return None
+
+        # Find the most recent previous session (same user/car) with odometer data
+        prev = (ChargingSession.query
+                .filter(
+                    ChargingSession.user_id == session.user_id,
+                    ChargingSession.car_id == session.car_id,
+                    ChargingSession.odometer.isnot(None),
+                    (ChargingSession.date < session.date) |
+                    and_(ChargingSession.date == session.date,
+                         ChargingSession.id < session.id)
+                )
+                .order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
+                .first())
+
+        if not prev or prev.odometer is None:
+            return None
+
+        miles = float(session.odometer - prev.odometer)
+        if miles < 0:
+            return None  # Invalid odometer readings
+
+        # Calculate days between sessions
+        days_between = (session.date - prev.date).days
+        
+        return {
+            'miles': miles,
+            'days': days_between,
+            'previous_session': {
+                'id': prev.id,
+                'date': prev.date,
+                'location': prev.location_label,
+                'odometer': prev.odometer
+            }
+        }
 
     @staticmethod
     def _resolve_efficiency(user_id, car):
@@ -366,6 +409,9 @@ class DerivedMetricsService:
                 'total_miles': 0,
                 'avg_cost_per_kwh': 0,
                 'avg_cost_per_mile': 0,
+                'weighted_efficiency': 0,
+                'free_sessions': 0,
+                'paid_sessions': 0,
                 'home_public_split': {'home': {'count': 0, 'percentage': 0}, 'public': {'count': 0, 'percentage': 0}},
                 'ac_dc_split': {'AC': {'count': 0, 'percentage': 0}, 'DC': {'count': 0, 'percentage': 0}}
             }

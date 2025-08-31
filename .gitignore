@@ -97,3 +97,4 @@ Thumbs.db
 # Demo credentials are intentionally included for first-time setup
 
 docs/project/*
+.cursor/*

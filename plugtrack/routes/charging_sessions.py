@@ -7,6 +7,8 @@ from services.reports import ReportsService
 from services.derived_metrics import DerivedMetricsService
 from services.hints import HintsService
 from services.baseline_manager import BaselineManager
+from services.achievement_engine import AchievementEngine
+from services.session_metrics_api import SessionMetricsApiService
 from datetime import datetime, timedelta
 
 charging_sessions_bp = Blueprint('charging_sessions', __name__)
@@ -115,6 +117,19 @@ def new():
         # Ensure baseline is properly set for this car
         BaselineManager.ensure_baseline_for_car(current_user.id, form.car_id.data)
         
+        # Check for achievements triggered by this new session
+        try:
+            newly_awarded = AchievementEngine.check_achievements_for_session(session.id)
+            if newly_awarded:
+                achievement_names = []
+                for code in newly_awarded:
+                    achievement_def = AchievementEngine.ACHIEVEMENT_DEFINITIONS.get(code, {})
+                    achievement_names.append(achievement_def.get('name', code))
+                flash(f'Achievement unlocked: {", ".join(achievement_names)}!', 'success')
+        except Exception as e:
+            # Don't let achievement errors break session creation
+            print(f"Achievement check failed: {e}")
+        
         flash('Charging session added successfully!', 'success')
         return redirect(url_for('charging_sessions.index'))
     
@@ -168,6 +183,19 @@ def edit(id):
         
         # Ensure baseline is properly set for this car (in case date/order changed)
         BaselineManager.ensure_baseline_for_car(current_user.id, session.car_id)
+        
+        # Check for achievements triggered by this updated session
+        try:
+            newly_awarded = AchievementEngine.check_achievements_for_session(session.id)
+            if newly_awarded:
+                achievement_names = []
+                for code in newly_awarded:
+                    achievement_def = AchievementEngine.ACHIEVEMENT_DEFINITIONS.get(code, {})
+                    achievement_names.append(achievement_def.get('name', code))
+                flash(f'Achievement unlocked: {", ".join(achievement_names)}!', 'success')
+        except Exception as e:
+            # Don't let achievement errors break session updates
+            print(f"Achievement check failed: {e}")
         
         flash('Charging session updated successfully!', 'success')
         return redirect(url_for('charging_sessions.index'))
@@ -225,6 +253,40 @@ def export():
     
     return Response(csv_data, mimetype='text/csv',
                    headers={'Content-Disposition': f'attachment; filename={filename}'})
+
+# Phase 6 P6-2: Session Detail Page
+@charging_sessions_bp.route('/session/<int:id>')
+@login_required
+def session_detail_page(id):
+    """Dedicated session detail page with tabs"""
+    session = ChargingSession.query.filter_by(id=id, user_id=current_user.id).first_or_404()
+    car = Car.query.get(session.car_id)
+    
+    # Get comprehensive session metrics from the API service
+    from services.session_metrics_api import SessionMetricsApiService
+    api_metrics = SessionMetricsApiService.get_session_metrics(id, current_user.id)
+    
+    # Get user-friendly confidence data (P6-3)
+    from services.confidence_ui import ConfidenceUiService
+    confidence_ui = None
+    if api_metrics and api_metrics.get('confidence'):
+        confidence_ui = ConfidenceUiService.get_user_friendly_confidence(api_metrics['confidence'])
+    
+    # Get additional data for the page
+    similar_sessions = DerivedMetricsService.get_similar_sessions(session, limit=5)
+    rolling_avgs = DerivedMetricsService.get_rolling_averages(session.user_id, session.car_id, days=30)
+    
+    # Get miles since previous session
+    miles_since_previous = DerivedMetricsService.get_miles_since_previous_session(session)
+    
+    return render_template('charging_sessions/detail.html',
+                         session=session,
+                         car=car,
+                         api_metrics=api_metrics,
+                         confidence_ui=confidence_ui,
+                         similar_sessions=similar_sessions,
+                         rolling_avgs=rolling_avgs,
+                         miles_since_previous=miles_since_previous)
 
 @charging_sessions_bp.route('/charging-sessions/<int:id>/details')
 @login_required
@@ -290,6 +352,21 @@ def details(id):
         'hints': hints,
         'rolling_averages': rolling_avgs
     })
+
+# Phase 6 Stage E: Session Metrics API
+@charging_sessions_bp.route('/api/session/<int:id>/metrics')
+@login_required  
+def session_metrics_api(id):
+    """
+    API endpoint for session metrics composition.
+    Includes DerivedMetricsService, insights, confidence, and chips array.
+    """
+    metrics_data = SessionMetricsApiService.get_session_metrics(id, current_user.id)
+    
+    if not metrics_data:
+        return jsonify({'error': 'Session not found'}), 404
+    
+    return jsonify(metrics_data)
 
 @charging_sessions_bp.route('/charging-sessions/<int:id>/dismiss-hint', methods=['POST'])
 @login_required

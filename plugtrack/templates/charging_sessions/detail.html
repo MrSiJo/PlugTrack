@@ -1,0 +1,478 @@
+{% extends "base.html" %}
+
+{% block title %}Session {{ session.id }} Details - PlugTrack{% endblock %}
+
+{% block extra_head %}
+<style>
+    .metrics-card {
+        border: none;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        transition: transform 0.2s ease;
+    }
+    
+    .metrics-card:hover {
+        transform: translateY(-2px);
+    }
+    
+    .chip {
+        display: inline-block;
+        padding: 0.375rem 0.75rem;
+        margin: 0.125rem;
+        border-radius: 1rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+    
+    .chip-primary { background-color: #e3f2fd; color: #1976d2; }
+    .chip-success { background-color: #e8f5e8; color: #2e7d32; }
+    .chip-warning { background-color: #fff3e0; color: #f57c00; }
+    .chip-danger { background-color: #ffebee; color: #d32f2f; }
+    .chip-info { background-color: #e0f2f1; color: #00796b; }
+    .chip-secondary { background-color: #f5f5f5; color: #616161; }
+    
+    .confidence-badge {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+    }
+    
+    .confidence-high { background-color: #4caf50; }
+    .confidence-medium { background-color: #ff9800; }
+    .confidence-low { background-color: #f44336; }
+    
+    .session-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 0.5rem;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .tab-content {
+        min-height: 400px;
+    }
+    
+    .nav-tabs .nav-link {
+        border-radius: 0.5rem 0.5rem 0 0;
+        border: none;
+        background: #f8f9fa;
+        color: #495057;
+        margin-right: 0.25rem;
+        transition: all 0.2s ease;
+    }
+    
+    .nav-tabs .nav-link.active {
+        background: white;
+        color: #495057;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .nav-tabs .nav-link:hover:not(.active) {
+        background: #e9ecef;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Back Navigation -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('dashboard.index') }}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{{ url_for('charging_sessions.index') }}">Charging Sessions</a></li>
+                    <li class="breadcrumb-item active">Session {{ session.id }}</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Session Header -->
+    <div class="session-header">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <h1 class="mb-1">
+                    <i class="bi bi-battery-charging"></i> 
+                    {{ session.location_label or 'Charging Session' }}
+                </h1>
+                <p class="mb-0 opacity-75">
+                    {{ session.date.strftime('%A, %B %d, %Y') }} • 
+                    {{ car.make }} {{ car.model }} • 
+                    {{ session.charge_type }} Charging
+                </p>
+            </div>
+            <div class="col-md-4 text-md-end">
+                {% if confidence_ui %}
+                <span class="badge bg-{{ confidence_ui.level_color }} confidence-badge me-2" 
+                      title="{{ confidence_ui.level_explanation }}"
+                      data-bs-toggle="tooltip">
+                    <i class="{{ confidence_ui.level_icon }} me-1"></i>
+                    {{ confidence_ui.level_description }}
+                </span>
+                {% endif %}
+                <a href="{{ url_for('charging_sessions.edit', id=session.id) }}" class="btn btn-light">
+                    <i class="bi bi-pencil"></i> Edit
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab Navigation -->
+    <ul class="nav nav-tabs" id="sessionTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="detail-tab" data-bs-toggle="tab" data-bs-target="#detail" type="button" role="tab">
+                <i class="bi bi-info-circle"></i> Session Detail
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="planner-tab" data-bs-toggle="tab" data-bs-target="#planner" type="button" role="tab">
+                <i class="bi bi-lightning-charge"></i> Blended Planner
+            </button>
+        </li>
+    </ul>
+
+    <!-- Tab Content -->
+    <div class="tab-content" id="sessionTabsContent">
+        <!-- Session Detail Tab -->
+        <div class="tab-pane fade show active" id="detail" role="tabpanel">
+            <div class="row mt-4">
+                <!-- Metrics Cards -->
+                <div class="col-lg-8">
+                    <!-- Key Metrics Row -->
+                    <div class="row mb-4">
+                        <div class="col-md-3 mb-3">
+                            <div class="card metrics-card text-center">
+                                <div class="card-body">
+                                    <i class="bi bi-speedometer text-primary" style="font-size: 2rem;"></i>
+                                    <h4 class="mt-2">
+                                        {% if api_metrics and api_metrics.metrics.efficiency_used %}
+                                            {{ "%.2f"|format(api_metrics.metrics.efficiency_used) }}
+                                        {% else %}
+                                            N/A
+                                        {% endif %}
+                                    </h4>
+                                    <p class="text-muted mb-0">mi/kWh</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 mb-3">
+                            <div class="card metrics-card text-center">
+                                <div class="card-body">
+                                    <i class="bi bi-currency-pound text-success" style="font-size: 2rem;"></i>
+                                    <h4 class="mt-2">
+                                        {% if api_metrics and api_metrics.metrics.cost_per_mile %}
+                                            {{ "%.1f"|format(api_metrics.metrics.cost_per_mile * 100) }}p
+                                        {% else %}
+                                            N/A
+                                        {% endif %}
+                                    </h4>
+                                    <p class="text-muted mb-0">per mile</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 mb-3">
+                            <div class="card metrics-card text-center">
+                                <div class="card-body">
+                                    <i class="bi bi-lightning text-warning" style="font-size: 2rem;"></i>
+                                    <h4 class="mt-2">{{ "%.1f"|format(session.charge_delivered_kwh) }}</h4>
+                                    <p class="text-muted mb-0">kWh</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 mb-3">
+                            <div class="card metrics-card text-center">
+                                <div class="card-body">
+                                    <i class="bi bi-clock text-info" style="font-size: 2rem;"></i>
+                                    <h4 class="mt-2">{{ (session.duration_mins // 60)|int }}h {{ session.duration_mins % 60 }}m</h4>
+                                    <p class="text-muted mb-0">Duration</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Additional Metrics Row (if miles since previous is available) -->
+                    {% if miles_since_previous %}
+                    <div class="row mb-4">
+                        <div class="col-md-3 mb-3">
+                            <div class="card metrics-card text-center">
+                                <div class="card-body">
+                                    <i class="bi bi-arrow-right text-secondary" style="font-size: 2rem;"></i>
+                                    <h4 class="mt-2">{{ "%.1f"|format(miles_since_previous.miles) }}</h4>
+                                    <p class="text-muted mb-0">Miles Since Last</p>
+                                    {% if miles_since_previous.days > 0 %}
+                                    <small class="text-muted">{{ miles_since_previous.days }} day{{ 's' if miles_since_previous.days != 1 else '' }} ago</small>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        {% if miles_since_previous.previous_session %}
+                        <div class="col-md-9 mb-3">
+                            <div class="card metrics-card">
+                                <div class="card-body">
+                                    <h6 class="text-muted mb-1">Previous Session</h6>
+                                    <p class="mb-1">
+                                        <strong>{{ miles_since_previous.previous_session.date.strftime('%B %d, %Y') }}</strong>
+                                        at {{ miles_since_previous.previous_session.location or 'Unknown Location' }}
+                                    </p>
+                                    <small class="text-muted">
+                                        Odometer: {{ "{:,}".format(miles_since_previous.previous_session.odometer) }} miles
+                                        • <a href="{{ url_for('charging_sessions.session_detail_page', id=miles_since_previous.previous_session.id) }}" class="text-decoration-none">View Session</a>
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+
+                    <!-- Chips Display -->
+                    {% if api_metrics and api_metrics.chips %}
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="bi bi-tags"></i> Session Insights</h5>
+                        </div>
+                        <div class="card-body">
+                            {% for chip in api_metrics.chips %}
+                            <span class="chip chip-{{ chip.style }}">
+                                {% if chip.icon %}<i class="bi bi-{{ chip.icon }}"></i> {% endif %}
+                                {{ chip.text }}
+                            </span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Session Summary -->
+                    {% if api_metrics and api_metrics.summary %}
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="bi bi-chat-text"></i> Session Summary</h5>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-0">{{ api_metrics.summary }}</p>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Technical Details -->
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="bi bi-gear"></i> Technical Details</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <table class="table table-sm">
+                                        <tr>
+                                            <td><strong>Charge Type:</strong></td>
+                                            <td>{{ session.charge_type }}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Charge Speed:</strong></td>
+                                            <td>{{ session.charge_speed_kw }} kW</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Network:</strong></td>
+                                            <td>{{ session.charge_network or 'Unknown' }}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Cost per kWh:</strong></td>
+                                            <td>{{ "%.2f"|format(session.cost_per_kwh) }}p</td>
+                                        </tr>
+                                    </table>
+                                </div>
+                                <div class="col-md-6">
+                                    <table class="table table-sm">
+                                        <tr>
+                                            <td><strong>SoC Range:</strong></td>
+                                            <td>{{ session.soc_from }}% → {{ session.soc_to }}%</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Odometer:</strong></td>
+                                            <td>{{ "{:,}".format(session.odometer) }} miles</td>
+                                        </tr>
+                                        {% if miles_since_previous %}
+                                        <tr>
+                                            <td><strong>Miles Since Last:</strong></td>
+                                            <td>
+                                                {{ "%.1f"|format(miles_since_previous.miles) }} miles
+                                                {% if miles_since_previous.days > 0 %}
+                                                    <br><small class="text-muted">{{ miles_since_previous.days }} day{{ 's' if miles_since_previous.days != 1 else '' }} ago</small>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endif %}
+                                        {% if session.ambient_temp_c %}
+                                        <tr>
+                                            <td><strong>Temperature:</strong></td>
+                                            <td>{{ session.ambient_temp_c }}°C</td>
+                                        </tr>
+                                        {% endif %}
+                                        {% if session.preconditioning_used is not none %}
+                                        <tr>
+                                            <td><strong>Preconditioning:</strong></td>
+                                            <td>
+                                                {% if session.preconditioning_used %}
+                                                    Yes{% if session.preconditioning_events %} ({{ session.preconditioning_events }} events){% endif %}
+                                                {% else %}
+                                                    No
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endif %}
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sidebar -->
+                <div class="col-lg-4">
+                    <!-- Confidence Details -->
+                    {% if confidence_ui %}
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="{{ confidence_ui.level_icon }}"></i> Data Quality
+                                <span class="badge bg-{{ confidence_ui.level_color }} ms-2">
+                                    {{ confidence_ui.level_description }}
+                                </span>
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-3">{{ confidence_ui.level_explanation }}</p>
+                            
+                            {% if confidence_ui.detailed_explanations %}
+                            <h6 class="mb-2">Details:</h6>
+                            <ul class="mb-0">
+                                {% for item in confidence_ui.detailed_explanations %}
+                                <li class="mb-2">
+                                    <strong>{{ item.reason }}</strong><br>
+                                    <small class="text-muted">{{ item.explanation }}</small>
+                                </li>
+                                {% endfor %}
+                            </ul>
+                            {% else %}
+                            <div class="alert alert-success mb-0">
+                                <i class="bi bi-check-circle me-2"></i>
+                                All data looks good! Calculations are reliable.
+                            </div>
+                            {% endif %}
+                            
+                            <div class="mt-3">
+                                <button type="button" class="btn btn-outline-info btn-sm" 
+                                        data-bs-toggle="modal" data-bs-target="#confidenceHelpModal">
+                                    <i class="bi bi-question-circle me-1"></i> Learn More
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Petrol Parity -->
+                    {% if api_metrics and api_metrics.insights and api_metrics.insights.petrol_parity %}
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h6 class="mb-0"><i class="bi bi-fuel-pump"></i> vs Petrol</h6>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-1">
+                                <strong>EV:</strong> {{ "%.1f"|format(api_metrics.insights.petrol_parity.ev_p_per_kwh) }}p/kWh
+                            </p>
+                            <p class="mb-0">
+                                <strong>Petrol:</strong> {{ "%.1f"|format(api_metrics.insights.petrol_parity.petrol_p_per_mile) }}p/mile
+                            </p>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Similar Sessions -->
+                    {% if similar_sessions %}
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0"><i class="bi bi-collection"></i> Similar Sessions</h6>
+                        </div>
+                        <div class="card-body">
+                            {% for similar in similar_sessions %}
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <small>
+                                    <a href="{{ url_for('charging_sessions.session_detail_page', id=similar.id) }}" class="text-decoration-none">
+                                        {{ similar.date.strftime('%m/%d') }} - {{ similar.location_label[:20] }}
+                                    </a>
+                                </small>
+                                <small class="text-muted">{{ "%.1f"|format(similar.charge_delivered_kwh) }} kWh</small>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Blended Planner Tab -->
+        <div class="tab-pane fade" id="planner" role="tabpanel">
+            <div class="mt-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-lightning-charge"></i> Blended Charge Planner</h5>
+                        <small class="text-muted">Compare DC rapid + home charging vs AC-only charging</small>
+                    </div>
+                    <div class="card-body">
+                        <!-- Include the blend planner content inline -->
+                        <div id="blendPlannerContent">
+                            {% include 'charging_sessions/_blend_planner_content.html' %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize tab switching
+    const tabLinks = document.querySelectorAll('#sessionTabs button[data-bs-toggle="tab"]');
+    tabLinks.forEach(tab => {
+        tab.addEventListener('shown.bs.tab', function (event) {
+            const targetTab = event.target.getAttribute('data-bs-target');
+            
+            // If switching to planner tab, initialize the planner
+            if (targetTab === '#planner') {
+                initializeBlendPlanner();
+            }
+        });
+    });
+    
+    // Pre-fill planner with session data
+    function initializeBlendPlanner() {
+        // Pre-fill with current session data
+        {% if session and car %}
+        const startSoc = {{ session.soc_from }};
+        const dcCostPerKwh = {{ session.cost_per_kwh if session.charge_type == 'DC' else 'null' }};
+        const batteryKwh = {{ car.battery_kwh }};
+        
+        if (document.getElementById('startSoc')) {
+            document.getElementById('startSoc').value = startSoc;
+        }
+        
+        if (dcCostPerKwh && document.getElementById('dcCostPerKwh')) {
+            document.getElementById('dcCostPerKwh').value = dcCostPerKwh;
+        }
+        
+        if (document.getElementById('batteryKwh')) {
+            document.getElementById('batteryKwh').value = batteryKwh;
+        }
+        {% endif %}
+    }
+});
+</script>
+{% endblock %}

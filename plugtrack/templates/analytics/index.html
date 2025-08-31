@@ -223,7 +223,88 @@
     </div>
 </div>
 
+<!-- P6-5: Leaderboards & Seasonal Analytics -->
+<div class="row mb-4">
+    <div class="col-12">
+        <h3 class="text-muted mb-3">
+            <i class="bi bi-trophy"></i> Advanced Analytics
+            <small class="text-muted ms-2">Seasonal trends and location insights</small>
+        </h3>
+    </div>
+</div>
 
+<!-- Seasonal Efficiency Chart -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-thermometer"></i> Seasonal Efficiency vs Temperature
+                    <small class="text-muted ms-2">How temperature affects your charging efficiency</small>
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="seasonalTempChart"></canvas>
+                </div>
+                <div class="text-center">
+                    <small class="text-muted">
+                        <i class="bi bi-info-circle"></i>
+                        Lower temperatures may reduce efficiency due to battery preconditioning and cabin heating
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Location Leaderboard Chart -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-geo-alt"></i> Location Leaderboard
+                    <small class="text-muted d-block">Best charging locations by cost per mile</small>
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="locationLeaderboardChart"></canvas>
+                </div>
+                <div class="text-center">
+                    <small class="text-muted">
+                        <i class="bi bi-star"></i>
+                        Lower bars = better value charging locations
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SoC Sweet Spot Chart -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-bullseye"></i> SoC Sweet Spot
+                    <small class="text-muted d-block">Optimal charging windows by efficiency</small>
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="socSweetSpotChart"></canvas>
+                </div>
+                <div class="text-center">
+                    <small class="text-muted">
+                        <i class="bi bi-lightning-charge"></i>
+                        Higher bars = more efficient charging ranges
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Selected Car Info -->
 {% if selected_car %}
@@ -399,6 +480,229 @@ new Chart(homePublicCtx, {
         }
     }
 });
+
+// P6-5: Seasonal Efficiency vs Temperature Chart
+const seasonalTempCtx = document.getElementById('seasonalTempChart').getContext('2d');
+
+// Fetch seasonal data from API
+fetch('/api/analytics/seasonal?car_id={{ selected_car.id if selected_car else "" }}')
+    .then(response => response.json())
+    .then(data => {
+        const tempBins = data.temperature_bins || [];
+        const labels = tempBins.map(bin => bin.range);
+        const efficiency = tempBins.map(bin => bin.avg_efficiency);
+        
+        new Chart(seasonalTempCtx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Average Efficiency (mi/kWh)',
+                    data: efficiency,
+                    backgroundColor: efficiency.map((value, index) => {
+                        // Color coding based on efficiency
+                        const maxEff = Math.max(...efficiency);
+                        const ratio = value / maxEff;
+                        const alpha = Math.max(0.3, ratio);
+                        return chartColors.info + Math.round(alpha * 255).toString(16).padStart(2, '0');
+                    }),
+                    borderColor: chartColors.info,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const bin = tempBins[context.dataIndex];
+                                return [
+                                    `Efficiency: ${context.parsed.y.toFixed(2)} mi/kWh`,
+                                    `Sessions: ${bin.session_count}`,
+                                    `Temperature: ${bin.range}`
+                                ];
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Temperature Range'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Average Efficiency (mi/kWh)'
+                        },
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    })
+    .catch(error => {
+        console.error('Error fetching seasonal data:', error);
+        seasonalTempCtx.canvas.parentElement.innerHTML = '<p class="text-muted text-center py-4"><i class="bi bi-exclamation-triangle"></i> Unable to load seasonal data</p>';
+    });
+
+// P6-5: Location Leaderboard Chart
+const locationLeaderboardCtx = document.getElementById('locationLeaderboardChart').getContext('2d');
+
+fetch('/api/analytics/leaderboard?car_id={{ selected_car.id if selected_car else "" }}')
+    .then(response => response.json())
+    .then(data => {
+        const locations = data.locations || [];
+        const labels = locations.map(loc => loc.location || 'Unknown');
+        const costPerMile = locations.map(loc => loc.median_p_per_mile || 0);
+        
+        new Chart(locationLeaderboardCtx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Avg Cost per Mile (p)',
+                    data: costPerMile,
+                    backgroundColor: costPerMile.map((value, index) => {
+                        // Color coding: green for cheaper, red for expensive
+                        const maxCost = Math.max(...costPerMile);
+                        const minCost = Math.min(...costPerMile);
+                        const ratio = (value - minCost) / (maxCost - minCost);
+                        if (ratio < 0.33) return chartColors.success + '80';
+                        if (ratio < 0.66) return chartColors.warning + '80';
+                        return chartColors.danger + '80';
+                    }),
+                    borderColor: costPerMile.map((value, index) => {
+                        const maxCost = Math.max(...costPerMile);
+                        const minCost = Math.min(...costPerMile);
+                        const ratio = (value - minCost) / (maxCost - minCost);
+                        if (ratio < 0.33) return chartColors.success;
+                        if (ratio < 0.66) return chartColors.warning;
+                        return chartColors.danger;
+                    }),
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const location = locations[context.dataIndex];
+                                return [
+                                    `Cost per Mile: ${context.parsed.y.toFixed(1)}p`,
+                                    `Sessions: ${location.session_count || 0}`,
+                                    `Cost per kWh: ${(location.median_p_per_kwh || 0).toFixed(1)}p`
+                                ];
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Charging Location'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Average Cost per Mile (pence)'
+                        },
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    })
+    .catch(error => {
+        console.error('Error fetching leaderboard data:', error);
+        locationLeaderboardCtx.canvas.parentElement.innerHTML = '<p class="text-muted text-center py-4"><i class="bi bi-exclamation-triangle"></i> Unable to load location data</p>';
+    });
+
+// P6-5: SoC Sweet Spot Chart
+const socSweetSpotCtx = document.getElementById('socSweetSpotChart').getContext('2d');
+
+fetch('/api/analytics/sweetspot?car_id={{ selected_car.id if selected_car else "" }}')
+    .then(response => response.json())
+    .then(data => {
+        const socWindows = data.soc_windows || [];
+        const labels = socWindows.map(window => window.soc_range || 'Unknown');
+        const efficiency = socWindows.map(window => window.avg_efficiency || 0);
+        
+        new Chart(socSweetSpotCtx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Avg Efficiency (mi/kWh)',
+                    data: efficiency,
+                    backgroundColor: efficiency.map((value, index) => {
+                        // Color coding: blue shades based on efficiency
+                        const maxEff = Math.max(...efficiency);
+                        const ratio = value / maxEff;
+                        const alpha = Math.max(0.3, ratio);
+                        return chartColors.info + Math.round(alpha * 255).toString(16).padStart(2, '0');
+                    }),
+                    borderColor: chartColors.info,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const window = socWindows[context.dataIndex];
+                                return [
+                                    `Efficiency: ${context.parsed.y.toFixed(2)} mi/kWh`,
+                                    `Sessions: ${window.session_count || 0}`,
+                                    `SoC Range: ${window.soc_range || 'Unknown'}`
+                                ];
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'SoC Window'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Average Efficiency (mi/kWh)'
+                        },
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    })
+    .catch(error => {
+        console.error('Error fetching sweet spot data:', error);
+        socSweetSpotCtx.canvas.parentElement.innerHTML = '<p class="text-muted text-center py-4"><i class="bi bi-exclamation-triangle"></i> Unable to load SoC data</p>';
+    });
 
 // Auto-refresh charts when filters change
 document.getElementById('filters-form').addEventListener('change', function() {

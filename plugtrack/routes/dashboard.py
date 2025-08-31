@@ -58,6 +58,10 @@ def index():
     reminder_data = ReminderService.check_full_charge_due(current_user.id, car_id)
     reminders = reminder_data.get('reminders', [])
     
+    # P6-4: Get analytics summary for lifetime totals and cost extremes
+    from services.analytics_agg import AnalyticsAggService
+    analytics_summary = AnalyticsAggService.get_analytics_summary(current_user.id, car_id)
+    
     # Check if any cars have reminder guidance enabled (for UI conditional display)
     has_reminder_guidance = any(
         car.recommended_full_charge_enabled and 
@@ -81,6 +85,7 @@ def index():
                          has_reminder_guidance=has_reminder_guidance,
                          recent_sessions=recent_sessions,
                          cars=cars,
+                         analytics_summary=analytics_summary,
                          date_from=date_from,
                          date_to=date_to,
                          selected_car=Car.query.get(car_id) if car_id else available_car)

@@ -17,7 +17,9 @@ from datetime import datetime, timedelta
 from models.user import db
 from models.charging_session import ChargingSession
 from models.car import Car
+from models.settings import Settings
 from services.derived_metrics import DerivedMetricsService
+from services.cost_parity import get_parity_comparison, ev_parity_rate_p_per_kwh
 
 
 class InsightsService:
@@ -313,3 +315,145 @@ class InsightsService:
             return (sorted_values[n//2 - 1] + sorted_values[n//2]) / 2
         else:
             return sorted_values[n//2]
+    
+    @staticmethod
+    def generate_summary(session_id: int) -> Optional[str]:
+        """
+        Generate a template-based, non-AI summary for a charging session.
+        Includes variants: home vs public, p/mi vs petrol parity, DC taper flag.
+        Returns a human-readable summary string.
+        """
+        session = ChargingSession.query.get(session_id)
+        if not session:
+            return None
+        
+        car = Car.query.get(session.car_id)
+        if not car:
+            return None
+        
+        # Get derived metrics
+        metrics = DerivedMetricsService.calculate_session_metrics(session, car)
+        
+        # Determine session characteristics
+        is_home = InsightsService._is_home_session(session)
+        is_free = session.cost_per_kwh <= 0
+        is_dc = session.charge_type.upper() == 'DC'
+        delta_soc = session.soc_to - session.soc_from
+        session_size = DerivedMetricsService.classify_session_size(delta_soc)
+        
+        # Build summary components
+        summary_parts = []
+        
+        # 1. Session type and location
+        if is_home:
+            summary_parts.append(f"Home {session_size} charge")
+        else:
+            location = session.location_label or "Unknown location"
+            summary_parts.append(f"Public {session_size} charge at {location}")
+        
+        # 2. Energy and efficiency
+        energy_str = f"{session.charge_delivered_kwh:.1f} kWh"
+        if metrics.get('efficiency_used'):
+            efficiency_str = f"{metrics['efficiency_used']:.1f} mi/kWh"
+            summary_parts.append(f"delivered {energy_str} with {efficiency_str} efficiency")
+        else:
+            summary_parts.append(f"delivered {energy_str}")
+        
+        # 3. Cost information
+        if is_free:
+            summary_parts.append("at no cost")
+        else:
+            cost_str = f"{session.cost_per_kwh:.2f} £/kWh"
+            if metrics.get('cost_per_mile'):
+                cost_per_mile_pence = metrics['cost_per_mile'] * 100
+                summary_parts.append(f"at {cost_str} ({cost_per_mile_pence:.1f}p/mi)")
+            else:
+                summary_parts.append(f"at {cost_str}")
+            
+            # Add petrol parity comparison if available
+            parity_comparison = InsightsService._get_petrol_parity_summary(session, car, metrics)
+            if parity_comparison:
+                summary_parts.append(parity_comparison)
+        
+        # 4. DC taper information
+        if is_dc and session.charge_speed_kw:
+            avg_power = metrics.get('avg_power_kw', session.charge_speed_kw)
+            if avg_power < session.charge_speed_kw * 0.8:  # Significant taper detected
+                summary_parts.append(f"with DC taper (avg {avg_power:.0f} kW)")
+        
+        # 5. Duration and SoC range
+        duration_hours = session.duration_mins / 60
+        if duration_hours >= 1:
+            summary_parts.append(f"over {duration_hours:.1f} hours ({session.soc_from}% → {session.soc_to}%)")
+        else:
+            summary_parts.append(f"in {session.duration_mins} mins ({session.soc_from}% → {session.soc_to}%)")
+        
+        # Combine all parts into a readable sentence
+        if len(summary_parts) >= 2:
+            # Join most parts with commas, last part with "and"
+            main_parts = summary_parts[:-1]
+            last_part = summary_parts[-1]
+            summary = ", ".join(main_parts) + f", {last_part}."
+        else:
+            summary = ". ".join(summary_parts) + "."
+        
+        # Capitalize first letter
+        summary = summary[0].upper() + summary[1:] if summary else summary
+        
+        return summary
+    
+    @staticmethod
+    def _is_home_session(session: ChargingSession) -> bool:
+        """Determine if session is a home charging session"""
+        # Use same logic as DerivedMetricsService._is_home_like
+        try:
+            if hasattr(session, "is_home_charging") and session.is_home_charging is not None:
+                return bool(session.is_home_charging)
+        except Exception:
+            pass
+        label = (session.location_label or "").lower()
+        return any(keyword in label for keyword in ("home", "garage", "driveway"))
+    
+    @staticmethod
+    def _get_petrol_parity_summary(session: ChargingSession, car: Car, metrics: Dict) -> Optional[str]:
+        """Get petrol parity comparison summary snippet"""
+        if not metrics.get('efficiency_used') or not session.cost_per_kwh:
+            return None
+        
+        # Get user settings for petrol price and MPG
+        petrol_ppl = Settings.get_setting(session.user_id, 'petrol_ppl')
+        mpg_uk = Settings.get_setting(session.user_id, 'mpg_uk')
+        
+        if not petrol_ppl or not mpg_uk:
+            return None
+        
+        try:
+            petrol_ppl = float(petrol_ppl)
+            mpg_uk = float(mpg_uk)
+        except (ValueError, TypeError):
+            return None
+        
+        # Calculate EV parity rate
+        parity_rate_p_per_kwh = ev_parity_rate_p_per_kwh(
+            petrol_ppl, 
+            mpg_uk, 
+            metrics['efficiency_used']
+        )
+        
+        if parity_rate_p_per_kwh is None:
+            return None
+        
+        # Session effective rate in p/kWh
+        session_rate_p_per_kwh = session.cost_per_kwh * 100
+        
+        # Get comparison
+        comparison = get_parity_comparison(session_rate_p_per_kwh, parity_rate_p_per_kwh)
+        
+        if comparison['status'] == 'cheaper':
+            savings_percent = ((parity_rate_p_per_kwh - session_rate_p_per_kwh) / parity_rate_p_per_kwh) * 100
+            return f"saving {savings_percent:.0f}% vs petrol"
+        elif comparison['status'] == 'dearer':
+            extra_percent = ((session_rate_p_per_kwh - parity_rate_p_per_kwh) / parity_rate_p_per_kwh) * 100
+            return f"costing {extra_percent:.0f}% more than petrol"
+        
+        return None
