@@ -104,17 +104,19 @@
                 </p>
             </div>
             <div class="col-md-4 text-md-end">
-                {% if confidence_ui %}
-                <span class="badge bg-{{ confidence_ui.level_color }} confidence-badge me-2" 
-                      title="{{ confidence_ui.level_explanation }}"
-                      data-bs-toggle="tooltip">
-                    <i class="{{ confidence_ui.level_icon }} me-1"></i>
-                    {{ confidence_ui.level_description }}
-                </span>
-                {% endif %}
-                <a href="{{ url_for('charging_sessions.edit', id=session.id) }}" class="btn btn-light">
-                    <i class="bi bi-pencil"></i> Edit
-                </a>
+                <div class="d-flex align-items-center justify-content-end gap-2">
+                    {% if confidence_ui %}
+                    <span class="badge bg-{{ confidence_ui.level_color }} confidence-badge" 
+                          title="{{ confidence_ui.level_explanation }}"
+                          data-bs-toggle="tooltip">
+                        <i class="{{ confidence_ui.level_icon }} me-1"></i>
+                        {{ confidence_ui.level_description }}
+                    </span>
+                    {% endif %}
+                    <a href="{{ url_for('charging_sessions.edit', id=session.id) }}" class="btn btn-light btn-sm">
+                        <i class="bi bi-pencil"></i> Edit
+                    </a>
+                </div>
             </div>
         </div>
     </div>
@@ -133,6 +135,27 @@
         </li>
     </ul>
 
+    <!-- Session Navigation -->
+    <div class="session-navigation mt-3 mb-4">
+        <div class="d-flex justify-content-between align-items-center">
+            <div class="session-nav-info">
+                <small class="text-muted">Session {{ session.id }}</small>
+            </div>
+            <div class="session-nav-controls">
+                <div class="btn-group" role="group">
+                    <a href="#" class="btn btn-outline-secondary btn-sm" id="prev-session-btn" 
+                       title="Previous session" data-bs-toggle="tooltip">
+                        <i class="bi bi-chevron-left"></i> Previous
+                    </a>
+                    <a href="#" class="btn btn-outline-secondary btn-sm" id="next-session-btn"
+                       title="Next session" data-bs-toggle="tooltip">
+                        Next <i class="bi bi-chevron-right"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Tab Content -->
     <div class="tab-content" id="sessionTabsContent">
         <!-- Session Detail Tab -->
@@ -140,7 +163,7 @@
             <div class="row mt-4">
                 <!-- Metrics Cards -->
                 <div class="col-lg-8">
-                    <!-- Key Metrics Row -->
+                    <!-- First Row: Core Metrics -->
                     <div class="row mb-4">
                         <div class="col-md-3 mb-3">
                             <div class="card metrics-card text-center">
@@ -195,14 +218,85 @@
                         </div>
                     </div>
 
-                    <!-- Additional Metrics Row (if miles since previous is available) -->
-                    {% if miles_since_previous %}
+                    <!-- Second Row: Insights & Miles Since Last -->
                     <div class="row mb-4">
+                        <!-- Range Gained (if savings cards enabled) -->
+                        {% if show_savings_cards and api_metrics and api_metrics.metrics.relatable_insights %}
+                        <div class="col-md-3 mb-3">
+                            <div class="card metrics-card text-center">
+                                <div class="card-body">
+                                    <i class="bi bi-speedometer2 text-info" style="font-size: 2rem;"></i>
+                                    <h4 class="mt-2">
+                                        ≈ {{ ((api_metrics.metrics.relatable_insights.range_estimate_miles / 5) | round) * 5 | int }}
+                                    </h4>
+                                    <p class="text-muted mb-0">miles</p>
+                                    <small class="text-muted" data-bs-toggle="tooltip" 
+                                           title="Estimated range gained, based on your configured efficiency ({{ "%.1f"|format(api_metrics.metrics.relatable_insights._metadata.range_efficiency_used) }} mi/kWh).">
+                                        Range gained
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Petrol Equivalent -->
+                        <div class="col-md-3 mb-3">
+                            <div class="card metrics-card text-center">
+                                <div class="card-body">
+                                    <i class="bi bi-fuel-pump text-secondary" style="font-size: 2rem;"></i>
+                                    <h4 class="mt-2">
+                                        £{{ "%.2f"|format(api_metrics.metrics.relatable_insights.petrol_equiv_cost) }}
+                                    </h4>
+                                    <p class="text-muted mb-0">Petrol equivalent</p>
+                                    <small class="text-muted" data-bs-toggle="tooltip" 
+                                           title="What this trip would have cost in petrol, based on your configured mpg and fuel price.">
+                                        vs petrol
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- You Saved/Extra Cost -->
+                        <div class="col-md-3 mb-3">
+                            <div class="card metrics-card text-center">
+                                <div class="card-body">
+                                    {% if api_metrics.metrics.relatable_insights.ev_saving >= 0 %}
+                                        <i class="bi bi-piggy-bank text-success" style="font-size: 2rem;"></i>
+                                        <h4 class="mt-2 text-success">
+                                            £{{ "%.2f"|format(api_metrics.metrics.relatable_insights.ev_saving) }}
+                                        </h4>
+                                        <p class="text-success mb-0">You saved</p>
+                                        <small class="text-success" data-bs-toggle="tooltip" 
+                                               title="Your savings compared to petrol for this session.">
+                                            vs petrol
+                                        </small>
+                                    {% else %}
+                                        <i class="bi bi-exclamation-triangle text-warning" style="font-size: 2rem;"></i>
+                                        <h4 class="mt-2 text-warning">
+                                            £{{ "%.2f"|format(-api_metrics.metrics.relatable_insights.ev_saving) }}
+                                        </h4>
+                                        <p class="text-warning mb-0">Extra</p>
+                                        <small class="text-warning" data-bs-toggle="tooltip" 
+                                               title="Additional cost compared to petrol for this session.">
+                                            vs petrol
+                                        </small>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% else %}
+                        <!-- If savings cards are disabled, show empty spaces or alternative content -->
+                        <div class="col-md-3 mb-3"></div>
+                        <div class="col-md-3 mb-3"></div>
+                        <div class="col-md-3 mb-3"></div>
+                        {% endif %}
+                        
+                        <!-- Miles Since Last -->
+                        {% if miles_since_previous %}
                         <div class="col-md-3 mb-3">
                             <div class="card metrics-card text-center">
                                 <div class="card-body">
                                     <i class="bi bi-arrow-right text-secondary" style="font-size: 2rem;"></i>
-                                    <h4 class="mt-2">{{ "%.1f"|format(miles_since_previous.miles) }}</h4>
+                                    <h4 class="mt-2">{{ miles_since_previous.miles | int }}</h4>
                                     <p class="text-muted mb-0">Miles Since Last</p>
                                     {% if miles_since_previous.days > 0 %}
                                     <small class="text-muted">{{ miles_since_previous.days }} day{{ 's' if miles_since_previous.days != 1 else '' }} ago</small>
@@ -210,26 +304,11 @@
                                 </div>
                             </div>
                         </div>
-                        
-                        {% if miles_since_previous.previous_session %}
-                        <div class="col-md-9 mb-3">
-                            <div class="card metrics-card">
-                                <div class="card-body">
-                                    <h6 class="text-muted mb-1">Previous Session</h6>
-                                    <p class="mb-1">
-                                        <strong>{{ miles_since_previous.previous_session.date.strftime('%B %d, %Y') }}</strong>
-                                        at {{ miles_since_previous.previous_session.location or 'Unknown Location' }}
-                                    </p>
-                                    <small class="text-muted">
-                                        Odometer: {{ "{:,}".format(miles_since_previous.previous_session.odometer) }} miles
-                                        • <a href="{{ url_for('charging_sessions.session_detail_page', id=miles_since_previous.previous_session.id) }}" class="text-decoration-none">View Session</a>
-                                    </small>
-                                </div>
-                            </div>
-                        </div>
+                        {% else %}
+                        <!-- Empty space if no miles since previous -->
+                        <div class="col-md-3 mb-3"></div>
                         {% endif %}
                     </div>
-                    {% endif %}
 
                     <!-- Chips Display -->
                     {% if api_metrics and api_metrics.chips %}
@@ -256,6 +335,19 @@
                         </div>
                         <div class="card-body">
                             <p class="mb-0">{{ api_metrics.summary }}</p>
+                            
+                            <!-- Extended Summary with Relatable Insights -->
+                            {% if show_savings_cards and api_metrics.metrics.relatable_insights %}
+                            <p class="mb-0 mt-2 text-muted">
+                                Equivalent to ~{{ ((api_metrics.metrics.relatable_insights.range_estimate_miles / 5) | round) * 5 | int }} miles of range, 
+                                costing £{{ "%.2f"|format(api_metrics.metrics.total_cost) }} vs £{{ "%.2f"|format(api_metrics.metrics.relatable_insights.petrol_equiv_cost) }} in petrol
+                                {% if api_metrics.metrics.relatable_insights.ev_saving >= 0 %}
+                                    — saving £{{ "%.2f"|format(api_metrics.metrics.relatable_insights.ev_saving) }}
+                                {% else %}
+                                    — £{{ "%.2f"|format(-api_metrics.metrics.relatable_insights.ev_saving) }} more than petrol
+                                {% endif %}.
+                            </p>
+                            {% endif %}
                         </div>
                     </div>
                     {% endif %}
@@ -301,7 +393,7 @@
                                         <tr>
                                             <td><strong>Miles Since Last:</strong></td>
                                             <td>
-                                                {{ "%.1f"|format(miles_since_previous.miles) }} miles
+                                                {{ miles_since_previous.miles | int }} miles
                                                 {% if miles_since_previous.days > 0 %}
                                                     <br><small class="text-muted">{{ miles_since_previous.days }} day{{ 's' if miles_since_previous.days != 1 else '' }} ago</small>
                                                 {% endif %}
@@ -376,6 +468,32 @@
                     </div>
                     {% endif %}
 
+                    <!-- Previous Session -->
+                    {% if miles_since_previous and miles_since_previous.previous_session %}
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="bi bi-arrow-left"></i> Previous Session
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-1">
+                                <strong>{{ miles_since_previous.previous_session.date.strftime('%B %d, %Y') }}</strong>
+                                at {{ miles_since_previous.previous_session.location or 'Unknown Location' }}
+                            </p>
+                            <small class="text-muted">
+                                Odometer: {{ "{:,}".format(miles_since_previous.previous_session.odometer) }} miles
+                            </small>
+                            <div class="mt-2">
+                                <a href="{{ url_for('charging_sessions.session_detail_page', id=miles_since_previous.previous_session.id) }}" 
+                                   class="btn btn-outline-primary btn-sm">
+                                    <i class="bi bi-eye"></i> View Session
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
                     <!-- Petrol Parity -->
                     {% if api_metrics and api_metrics.insights and api_metrics.insights.petrol_parity %}
                     <div class="card mb-4">
@@ -439,6 +557,12 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Initialize tooltips
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+    
     // Initialize tab switching
     const tabLinks = document.querySelectorAll('#sessionTabs button[data-bs-toggle="tab"]');
     tabLinks.forEach(tab => {
@@ -473,6 +597,14 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         {% endif %}
     }
+    
+    // Session Navigation
+    const prevBtn = document.getElementById('prev-session-btn');
+    const nextBtn = document.getElementById('next-session-btn');
+    
+    // Set up navigation links
+    prevBtn.href = '{{ url_for("charging_sessions.previous_session", id=session.id) }}';
+    nextBtn.href = '{{ url_for("charging_sessions.next_session", id=session.id) }}';
 });
 </script>
 {% endblock %}

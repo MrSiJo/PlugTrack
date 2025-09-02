@@ -359,6 +359,9 @@ class DerivedMetricsService:
         # Loss estimate
         loss_estimate = InsightsService.calculate_loss_estimate(session, car)
         
+        # Relatable insights calculations
+        relatable_insights = DerivedMetricsService._calculate_relatable_insights(session, car, efficiency, total_cost)
+        
         return {
             'total_cost': total_cost,
             'miles_gained': miles_gained,
@@ -381,7 +384,9 @@ class DerivedMetricsService:
             # Phase 5.1 new metrics
             'cost_per_10_percent': cost_per_10_percent,
             'home_roi_delta': home_roi_delta,
-            'loss_estimate': loss_estimate
+            'loss_estimate': loss_estimate,
+            # Relatable insights
+            'relatable_insights': relatable_insights
         }
 
     @staticmethod
@@ -957,6 +962,126 @@ class DerivedMetricsService:
             'avg_duration_mins': avg_duration_mins,
             'warnings': warnings
         }
+
+    @staticmethod
+    def _calculate_relatable_insights(session, car, efficiency, total_cost):
+        """Calculate relatable insights for session detail page"""
+        insights = {}
+        
+        # Get user settings - no safe defaults, use actual configured values
+        user_id = session.user_id
+        
+        # For Range Gained: Use car's configured efficiency or default from settings
+        # This should be a projection, not the observed efficiency from this session
+        range_efficiency_mpkwh = None
+        
+        # 1. Try car's configured efficiency first
+        if car and hasattr(car, 'avg_efficiency_mpkwh') and car.avg_efficiency_mpkwh:
+            range_efficiency_mpkwh = float(car.avg_efficiency_mpkwh)
+        
+        # 2. Fallback to user's default efficiency setting
+        if not range_efficiency_mpkwh:
+            default_efficiency = Settings.get_setting(user_id, 'default_efficiency_mpkwh')
+            if default_efficiency:
+                try:
+                    range_efficiency_mpkwh = float(default_efficiency)
+                except (ValueError, TypeError):
+                    pass
+        
+        # 3. Final fallback to a reasonable default
+        if not range_efficiency_mpkwh:
+            range_efficiency_mpkwh = 4.0  # Reasonable default for most EVs
+        
+        # For petrol comparison: Use the observed efficiency from this session (if available)
+        # This is more accurate for cost comparisons
+        petrol_efficiency_mpkwh = efficiency
+        
+        # Get petrol comparison settings - use actual user settings
+        petrol_price_p_per_litre = Settings.get_setting(user_id, 'petrol_price_p_per_litre')
+        petrol_mpg = Settings.get_setting(user_id, 'petrol_mpg')
+        
+        # If settings are not configured, return zero values
+        if not petrol_price_p_per_litre or not petrol_mpg:
+            return {
+                'range_estimate_miles': 0,
+                'petrol_equiv_cost': 0.0,
+                'petrol_equiv_ppm': 0.0,
+                'ev_saving': 0.0,
+                '_metadata': {
+                    'range_efficiency_used': range_efficiency_mpkwh,
+                    'petrol_efficiency_used': petrol_efficiency_mpkwh,
+                    'miles_since_last': 0,
+                    'petrol_price_p_per_litre': petrol_price_p_per_litre,
+                    'petrol_mpg': petrol_mpg,
+                    'note': 'Petrol comparison settings not configured'
+                }
+            }
+        
+        # Convert to float
+        try:
+            petrol_price_p_per_litre = float(petrol_price_p_per_litre)
+            petrol_mpg = float(petrol_mpg)
+        except (ValueError, TypeError):
+            return {
+                'range_estimate_miles': 0,
+                'petrol_equiv_cost': 0.0,
+                'petrol_equiv_ppm': 0.0,
+                'ev_saving': 0.0,
+                '_metadata': {
+                    'range_efficiency_used': range_efficiency_mpkwh,
+                    'petrol_efficiency_used': petrol_efficiency_mpkwh,
+                    'miles_since_last': 0,
+                    'petrol_price_p_per_litre': petrol_price_p_per_litre,
+                    'petrol_mpg': petrol_mpg,
+                    'note': 'Invalid petrol comparison settings'
+                }
+            }
+        
+        # 1. Range estimate (miles gained from this session) - PROJECTION using configured efficiency
+        if range_efficiency_mpkwh and session.charge_delivered_kwh:
+            range_estimate_miles = session.charge_delivered_kwh * range_efficiency_mpkwh
+            insights['range_estimate_miles'] = round(range_estimate_miles)
+        else:
+            insights['range_estimate_miles'] = 0
+        
+        # 2. Get miles since previous session for petrol comparison
+        miles_since_previous = DerivedMetricsService.get_miles_since_previous_session(session)
+        miles_since_last = miles_since_previous.get('miles', 0) if miles_since_previous else 0
+        
+        # 3. Petrol equivalent cost calculation using existing utility
+        if miles_since_last > 0 and petrol_mpg > 0:
+            from services.cost_parity import petrol_ppm
+            petrol_ppm_value = petrol_ppm(petrol_price_p_per_litre, petrol_mpg)
+            if petrol_ppm_value:
+                # Convert pence per mile to total cost in pounds
+                petrol_equiv_cost = (miles_since_last * petrol_ppm_value) / 100  # Convert pence to pounds
+                insights['petrol_equiv_cost'] = round(petrol_equiv_cost, 2)
+                insights['petrol_equiv_ppm'] = round(petrol_ppm_value, 1)
+            else:
+                insights['petrol_equiv_cost'] = 0.0
+                insights['petrol_equiv_ppm'] = 0.0
+        else:
+            insights['petrol_equiv_cost'] = 0.0
+            insights['petrol_equiv_ppm'] = 0.0
+        
+        # 4. EV savings vs petrol
+        if insights['petrol_equiv_cost'] > 0 and total_cost > 0:
+            ev_saving = insights['petrol_equiv_cost'] - total_cost
+            insights['ev_saving'] = round(ev_saving, 2)
+        else:
+            insights['ev_saving'] = 0.0
+        
+        # Add metadata for debugging/transparency
+        insights['_metadata'] = {
+            'range_efficiency_used': range_efficiency_mpkwh,
+            'petrol_efficiency_used': petrol_efficiency_mpkwh,
+            'miles_since_last': miles_since_last,
+            'petrol_price_p_per_litre': petrol_price_p_per_litre,
+            'petrol_mpg': petrol_mpg,
+            'note': 'Range gained uses configured efficiency for projection, petrol comparison uses observed efficiency'
+        }
+        
+        return insights
 
     @staticmethod
     def _calculate_daily_efficiency(user_id, date, car_id=None, anchor_horizon_days=10):

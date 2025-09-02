@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, Response, jsonify
 from flask_login import login_required, current_user
 from models.charging_session import ChargingSession, db
+from sqlalchemy import and_
 from models.car import Car
 from services.forms import ChargingSessionForm
 from services.reports import ReportsService
@@ -279,6 +280,10 @@ def session_detail_page(id):
     # Get miles since previous session
     miles_since_previous = DerivedMetricsService.get_miles_since_previous_session(session)
     
+    # Get display settings for conditional rendering
+    from models.settings import Settings
+    show_savings_cards = Settings.get_setting(current_user.id, 'show_savings_cards', '1') == '1'
+    
     return render_template('charging_sessions/detail.html',
                          session=session,
                          car=car,
@@ -286,7 +291,56 @@ def session_detail_page(id):
                          confidence_ui=confidence_ui,
                          similar_sessions=similar_sessions,
                          rolling_avgs=rolling_avgs,
-                         miles_since_previous=miles_since_previous)
+                         miles_since_previous=miles_since_previous,
+                         show_savings_cards=show_savings_cards)
+
+@charging_sessions_bp.route('/session/<int:id>/previous')
+@login_required
+def previous_session(id):
+    """Get the previous session ID for navigation"""
+    current_session = ChargingSession.query.filter_by(id=id, user_id=current_user.id).first_or_404()
+    
+    # Find the most recent previous session (same user/car) ordered by date desc, then id desc
+    prev_session = (ChargingSession.query
+                   .filter(
+                       ChargingSession.user_id == current_user.id,
+                       ChargingSession.car_id == current_session.car_id,
+                       (ChargingSession.date < current_session.date) |
+                       and_(ChargingSession.date == current_session.date,
+                            ChargingSession.id < current_session.id)
+                   )
+                   .order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
+                   .first())
+    
+    if prev_session:
+        return redirect(url_for('charging_sessions.session_detail_page', id=prev_session.id))
+    else:
+        flash('No previous session found', 'info')
+        return redirect(url_for('charging_sessions.session_detail_page', id=id))
+
+@charging_sessions_bp.route('/session/<int:id>/next')
+@login_required
+def next_session(id):
+    """Get the next session ID for navigation"""
+    current_session = ChargingSession.query.filter_by(id=id, user_id=current_user.id).first_or_404()
+    
+    # Find the next session (same user/car) ordered by date asc, then id asc
+    next_session = (ChargingSession.query
+                   .filter(
+                       ChargingSession.user_id == current_user.id,
+                       ChargingSession.car_id == current_session.car_id,
+                       (ChargingSession.date > current_session.date) |
+                       and_(ChargingSession.date == current_session.date,
+                            ChargingSession.id > current_session.id)
+                   )
+                   .order_by(ChargingSession.date.asc(), ChargingSession.id.asc())
+                   .first())
+    
+    if next_session:
+        return redirect(url_for('charging_sessions.session_detail_page', id=next_session.id))
+    else:
+        flash('No next session found', 'info')
+        return redirect(url_for('charging_sessions.session_detail_page', id=id))
 
 @charging_sessions_bp.route('/charging-sessions/<int:id>/details')
 @login_required

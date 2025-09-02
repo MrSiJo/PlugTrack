@@ -167,72 +167,68 @@ class SessionMetricsApiService:
     
     @staticmethod
     def _generate_chips_array(session: ChargingSession, metrics: Dict, insights: Dict, confidence: Dict) -> List[Dict]:
-        """Generate chips array for UI (max 6 objects with type, label, value, tone, tooltip)"""
+        """Generate chips array for UI (max 6 objects with style, icon, text format for template)"""
         chips = []
         
         # 1. Efficiency chip (if available)
         if metrics.get('efficiency_used'):
+            tone = SessionMetricsApiService._get_efficiency_tone(metrics['efficiency_used'])
             chips.append({
-                'type': 'efficiency',
-                'label': 'Efficiency',
-                'value': f"{metrics['efficiency_used']:.1f} mi/kWh",
-                'tone': SessionMetricsApiService._get_efficiency_tone(metrics['efficiency_used']),
-                'tooltip': f"Energy efficiency for this session"
+                'style': SessionMetricsApiService._tone_to_style(tone),
+                'icon': 'speedometer2',
+                'text': f"Efficiency: {metrics['efficiency_used']:.1f} mi/kWh"
             })
         
         # 2. Cost per mile chip (if paid session)
         if metrics.get('cost_per_mile') and session.cost_per_kwh > 0:
             cost_pence = metrics['cost_per_mile'] * 100
+            tone = SessionMetricsApiService._get_cost_tone(cost_pence)
             chips.append({
-                'type': 'cost',
-                'label': 'Cost/Mile',
-                'value': f"{cost_pence:.1f}p",
-                'tone': SessionMetricsApiService._get_cost_tone(cost_pence),
-                'tooltip': f"Cost per mile for this session"
+                'style': SessionMetricsApiService._tone_to_style(tone),
+                'icon': 'cash-coin',
+                'text': f"Cost/Mile: {cost_pence:.1f}p"
             })
         
         # 3. Petrol parity chip (if available)
         if insights.get('petrol_parity'):
             parity = insights['petrol_parity']
+            tone = 'positive' if parity['status'] == 'cheaper' else 'negative'
             chips.append({
-                'type': 'parity',
-                'label': 'vs Petrol',
-                'value': parity['label'],
-                'tone': 'positive' if parity['status'] == 'cheaper' else 'negative',
-                'tooltip': parity['tooltip']
+                'style': SessionMetricsApiService._tone_to_style(tone),
+                'icon': 'fuel-pump',
+                'text': f"vs Petrol: {parity['label']}"
             })
         
         # 4. Loss estimate chip (if available)
         if insights.get('loss_percent') is not None:
             loss = insights['loss_percent']
+            tone = SessionMetricsApiService._get_loss_tone(loss)
+            loss_value = f"{abs(loss):.1f}%" if loss != 0 else "0%"
             chips.append({
-                'type': 'loss',
-                'label': 'Loss Est.',
-                'value': f"{abs(loss):.1f}%" if loss != 0 else "0%",
-                'tone': SessionMetricsApiService._get_loss_tone(loss),
-                'tooltip': f"Estimated charging loss vs battery capacity"
+                'style': SessionMetricsApiService._tone_to_style(tone),
+                'icon': 'battery-half',
+                'text': f"Loss Est.: {loss_value}"
             })
         
         # 5. Home ROI delta chip (if available and this isn't a home session)
         if insights.get('home_roi_delta_pence') is not None:
             delta = insights['home_roi_delta_pence']
+            tone = 'negative' if delta > 0 else 'positive'
+            delta_value = f"+{delta:.0f}p" if delta > 0 else f"{delta:.0f}p"
             chips.append({
-                'type': 'roi_delta',
-                'label': 'vs Home',
-                'value': f"+{delta:.0f}p" if delta > 0 else f"{delta:.0f}p",
-                'tone': 'negative' if delta > 0 else 'positive',
-                'tooltip': f"Cost difference vs 30-day home average (per mile)"
+                'style': SessionMetricsApiService._tone_to_style(tone),
+                'icon': 'house',
+                'text': f"vs Home: {delta_value}"
             })
         
         # 6. Session size chip
         delta_soc = session.soc_to - session.soc_from
         session_size = DerivedMetricsService.classify_session_size(delta_soc)
+        tone = SessionMetricsApiService._get_session_size_tone(session_size)
         chips.append({
-            'type': 'session_size',
-            'label': 'Size',
-            'value': session_size.title(),
-            'tone': SessionMetricsApiService._get_session_size_tone(session_size),
-            'tooltip': f"Session charged {delta_soc}% SoC ({session_size})"
+            'style': SessionMetricsApiService._tone_to_style(tone),
+            'icon': 'battery-charging',
+            'text': f"Size: {session_size.title()}"
         })
         
         # Limit to max 6 chips and prioritize by importance
@@ -276,4 +272,15 @@ class SessionMetricsApiService:
         elif session_size == 'partial':
             return 'neutral'
         else:  # topup
-            return 'neutral'
+            return 'info'
+    
+    @staticmethod
+    def _tone_to_style(tone: str) -> str:
+        """Convert tone to Bootstrap chip style class"""
+        tone_mapping = {
+            'positive': 'success',
+            'negative': 'danger', 
+            'neutral': 'warning',
+            'info': 'info'
+        }
+        return tone_mapping.get(tone, 'secondary')

@@ -120,14 +120,12 @@ class TestSessionMetricsApi(unittest.TestCase):
             self.assertIsInstance(chips, list)
             self.assertLessEqual(len(chips), 6)
             
-            # Verify each chip has required fields
+            # Verify each chip has required fields (template format: style, icon, text)
             for chip in chips:
-                self.assertIn('type', chip)
-                self.assertIn('label', chip)
-                self.assertIn('value', chip)
-                self.assertIn('tone', chip)
-                self.assertIn('tooltip', chip)
-                self.assertIn(chip['tone'], ['positive', 'negative', 'neutral'])
+                self.assertIn('style', chip)
+                self.assertIn('icon', chip)
+                self.assertIn('text', chip)
+                self.assertIn(chip['style'], ['success', 'danger', 'warning', 'info', 'secondary'])
             
             # Verify summary exists
             self.assertIsNotNone(result['summary'])

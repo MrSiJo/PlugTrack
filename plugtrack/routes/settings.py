@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from models.user import db
 from models.settings import Settings
-from services.forms import HomeChargingRateForm, HomeChargingSettingsForm, EfficiencySettingsForm, PetrolComparisonForm, CostAnalysisForm
+from services.forms import HomeChargingRateForm, HomeChargingSettingsForm, EfficiencySettingsForm, PetrolComparisonForm, CostAnalysisForm, DisplaySettingsForm, GeneralSettingsForm
 from services.cost_parity import petrol_ppm, ev_parity_rate_p_per_kwh, ev_parity_rate_gbp_per_kwh, format_petrol_ppm, format_ev_parity_rate
 from services.encryption import EncryptionService
 from datetime import datetime
@@ -35,6 +35,12 @@ def get_phase3_settings():
         'petrol_mpg': Settings.get_setting(current_user.id, 'petrol_mpg', '60.0')
     }
 
+def get_display_settings():
+    """Get current display settings for the user"""
+    return {
+        'show_savings_cards': Settings.get_setting(current_user.id, 'show_savings_cards', '1') == '1'
+    }
+
 from utils.petrol_calculations import calculate_petrol_threshold_p_per_kwh
 
 @settings_bp.route('/settings')
@@ -64,6 +70,9 @@ def index():
     
     # Get Phase 3 settings
     phase3_settings = get_phase3_settings()
+    
+    # Get display settings
+    display_settings = get_display_settings()
     
     # Phase 5.2: Get advanced settings for confidence thresholds
     from services.derived_metrics import DerivedMetricsService
@@ -104,25 +113,38 @@ def index():
     return render_template('settings/index.html', 
                          home_rates=parsed_rates,
                          phase3_settings=phase3_settings,
+                         display_settings=display_settings,
                          advanced_settings=advanced_settings,
                          petrol_threshold=petrol_threshold,
                          cost_parity_data=cost_parity_data,
                          **currency_info)
 
-@settings_bp.route('/settings/update-currency', methods=['POST'])
+@settings_bp.route('/settings/general', methods=['GET', 'POST'])
 @login_required
-def update_currency():
-    """Update user's currency preference"""
-    currency = request.form.get('currency')
+def general_settings():
+    """Configure general application settings"""
+    form = GeneralSettingsForm()
     
-    if currency in ['GBP', 'EUR', 'USD']:
-        Settings.set_setting(current_user.id, 'currency', currency)
-        db.session.commit()
-        flash(f'Currency updated to {currency}', 'success')
-    else:
-        flash('Invalid currency selected', 'error')
+    if request.method == 'GET':
+        # Pre-populate with current values
+        currency_info = get_currency_info()
+        display_settings = get_display_settings()
+        
+        form.currency.data = currency_info['current_currency']
+        form.show_savings_cards.data = display_settings['show_savings_cards']
     
-    return redirect(url_for('settings.index'))
+    if form.validate_on_submit():
+        # Update currency setting
+        if form.currency.data in ['GBP', 'EUR', 'USD']:
+            Settings.set_setting(current_user.id, 'currency', form.currency.data)
+        
+        # Update display settings
+        Settings.set_setting(current_user.id, 'show_savings_cards', '1' if form.show_savings_cards.data else '0')
+        
+        flash('General settings updated successfully!', 'success')
+        return redirect(url_for('settings.index'))
+    
+    return render_template('settings/general_settings.html', form=form, title='General Settings')
 
 @settings_bp.route('/settings/home-charging/new', methods=['GET', 'POST'])
 @login_required

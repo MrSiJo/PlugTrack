@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - PlugTrack{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{{ url_for('settings.index') }}">Settings</a></li>
+                <li class="breadcrumb-item active">General</li>
+            </ol>
+        </nav>
+        <h1><i class="bi bi-gear"></i> {{ title }}</h1>
+        <p class="text-muted">Configure general application settings including currency and display preferences.</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-sliders"></i> General Settings</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    {{ form.hidden_tag() }}
+                    
+                    <!-- Currency Section -->
+                    <div class="mb-4">
+                        <h6 class="mb-3">Currency</h6>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="currency" class="form-label">Currency</label>
+                                    {{ form.currency(class="form-select", id="currency") }}
+                                    <div class="form-text">{{ form.currency.description }}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Preview</label>
+                                    <div class="form-control-plaintext">
+                                        <span id="currency-preview">£0.00</span>
+                                    </div>
+                                    <small class="text-muted">Example of how costs will appear</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <hr class="my-4">
+                    
+                    <!-- Display Section -->
+                    <div class="mb-4">
+                        <h6 class="mb-3">Display Options</h6>
+                        
+                        <div class="form-check form-switch">
+                            {{ form.show_savings_cards(class="form-check-input", id="show_savings_cards") }}
+                            <label class="form-check-label" for="show_savings_cards">
+                                <strong>{{ form.show_savings_cards.label.text }}</strong>
+                            </label>
+                            <div class="form-text">{{ form.show_savings_cards.description }}</div>
+                        </div>
+                        
+                        <div class="mt-3 p-3 bg-light rounded">
+                            <small class="text-muted">
+                                <i class="bi bi-info-circle me-1"></i>
+                                <strong>What this controls:</strong> When enabled, session detail pages will show three additional cards:
+                                <ul class="mb-0 mt-2">
+                                    <li><strong>Range gained:</strong> Estimated miles gained from the charging session</li>
+                                    <li><strong>Petrol equivalent:</strong> What the trip would have cost in petrol</li>
+                                    <li><strong>You saved:</strong> Your savings compared to petrol for this session</li>
+                                </ul>
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('settings.index') }}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-left"></i> Back to Settings
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check"></i> Save Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-lightbulb"></i> Tips</h6>
+            </div>
+            <div class="card-body">
+                <p class="mb-3">
+                    <strong>Currency:</strong> This setting affects how all costs are displayed throughout the application, including session costs, charging rates, and savings calculations.
+                </p>
+                
+                <p class="mb-3">
+                    <strong>Savings Cards:</strong> These cards help you understand the practical impact of your EV charging sessions by comparing them to petrol costs.
+                </p>
+                
+                <p class="mb-0">
+                    <strong>Data Requirements:</strong> The savings cards will only appear when you have:
+                </p>
+                <ul class="mb-0">
+                    <li>Configured petrol price and MPG in Cost & Efficiency settings</li>
+                    <li>Session efficiency data available</li>
+                    <li>Miles since previous session for comparison</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Update currency preview when selection changes
+    const currencySelect = document.getElementById('currency');
+    const currencyPreview = document.getElementById('currency-preview');
+    
+    const currencySymbols = {
+        'GBP': '£',
+        'EUR': '€',
+        'USD': '$'
+    };
+    
+    function updatePreview() {
+        const selectedCurrency = currencySelect.value;
+        const symbol = currencySymbols[selectedCurrency] || '£';
+        currencyPreview.textContent = symbol + '0.00';
+    }
+    
+    currencySelect.addEventListener('change', updatePreview);
+    updatePreview(); // Initial update
+});
+</script>
+{% endblock %}

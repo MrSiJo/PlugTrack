@@ -99,3 +99,17 @@ class CostAnalysisForm(FlaskForm):
     petrol_mpg = FloatField('Petrol MPG (UK)', 
                            validators=[DataRequired(), NumberRange(min=25, max=90)],
                            description='Reference petrol efficiency for break-even analysis')
+
+class DisplaySettingsForm(FlaskForm):
+    """Form for display and UI settings"""
+    show_savings_cards = BooleanField('Show petrol comparison and savings cards', 
+                                     description='Display the "Range gained", "Petrol equivalent", and "You saved" cards on session detail pages')
+
+class GeneralSettingsForm(FlaskForm):
+    """Form for general application settings"""
+    currency = SelectField('Currency', 
+                          choices=[('GBP', '£ GBP (British Pound)'), ('EUR', '€ EUR (Euro)'), ('USD', '$ USD (US Dollar)')],
+                          validators=[DataRequired()],
+                          description='This affects how costs are displayed throughout the application')
+    show_savings_cards = BooleanField('Show petrol comparison and savings cards', 
+                                     description='Display the "Range gained", "Petrol equivalent", and "You saved" cards on session detail pages')
