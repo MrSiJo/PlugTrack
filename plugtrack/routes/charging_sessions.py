@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, Response, jsonify
+from flask import Blueprint, render_template, redirect, url_for, flash, request, Response, jsonify, current_app
 from flask_login import login_required, current_user
 from models.charging_session import ChargingSession, db
 from sqlalchemy import and_
@@ -115,6 +115,15 @@ def new():
         db.session.add(session)
         db.session.commit()
         
+        # Precompute derived metrics for the new session
+        try:
+            from services.precompute import PrecomputeService
+            precompute_result = PrecomputeService.compute_for_session(session.id)
+            if not precompute_result['success']:
+                current_app.logger.warning(f"Failed to precompute metrics for session {session.id}: {precompute_result['error']}")
+        except Exception as e:
+            current_app.logger.warning(f"Error precomputing metrics for session {session.id}: {e}")
+        
         # Ensure baseline is properly set for this car
         BaselineManager.ensure_baseline_for_car(current_user.id, form.car_id.data)
         
@@ -181,6 +190,15 @@ def edit(id):
         session.notes = form.notes.data
         
         db.session.commit()
+        
+        # Precompute derived metrics for the updated session
+        try:
+            from services.precompute import PrecomputeService
+            precompute_result = PrecomputeService.compute_for_session(session.id)
+            if not precompute_result['success']:
+                current_app.logger.warning(f"Failed to precompute metrics for session {session.id}: {precompute_result['error']}")
+        except Exception as e:
+            current_app.logger.warning(f"Error precomputing metrics for session {session.id}: {e}")
         
         # Ensure baseline is properly set for this car (in case date/order changed)
         BaselineManager.ensure_baseline_for_car(current_user.id, session.car_id)

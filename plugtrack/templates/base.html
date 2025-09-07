@@ -48,6 +48,11 @@
                     </li>
                 </ul>
                 <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <button class="btn btn-link nav-link" id="themeToggle" title="Toggle theme">
+                            <i class="bi bi-sun" id="themeIcon"></i>
+                        </button>
+                    </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" id="recommendationsDropdown">
                             <i class="bi bi-lightbulb"></i> 
@@ -97,12 +102,22 @@
     {% endif %}
 
     <main class="container mt-4">
+        <!-- Persistent Alert Container -->
+        <div id="alertContainer"></div>
+        
+        <!-- Flash Messages (converted to persistent alerts) -->
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show persistent-alert" 
+                         role="alert" data-alert-id="flash-{{ loop.index }}" data-category="{{ category }}">
+                        <div class="d-flex align-items-start">
+                            <i class="bi bi-{% if category == 'success' %}check-circle-fill{% elif category == 'error' or category == 'danger' %}exclamation-triangle-fill{% elif category == 'warning' %}exclamation-circle-fill{% else %}info-circle-fill{% endif %} me-2 mt-1 flex-shrink-0"></i>
+                            <div class="flex-grow-1">
+                                <div class="alert-content">{{ message }}</div>
+                            </div>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
                     </div>
                 {% endfor %}
             {% endif %}
@@ -110,6 +125,27 @@
 
         {% block content %}{% endblock %}
     </main>
+
+    <!-- Footer -->
+    <footer class="bg-light text-center text-muted py-3 mt-5">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-6 text-md-start">
+                    <small>&copy; 2025 PlugTrack. All rights reserved.</small>
+                </div>
+                <div class="col-md-6 text-md-end">
+                    <small>
+                        <a href="{{ url_for('help.index') }}" class="text-decoration-none me-3">
+                            <i class="bi bi-question-circle me-1"></i> Help & FAQ
+                        </a>
+                        <a href="#" data-bs-toggle="modal" data-bs-target="#confidenceHelpModal" class="text-decoration-none">
+                            <i class="bi bi-info-circle me-1"></i> Data Quality
+                        </a>
+                    </small>
+                </div>
+            </div>
+        </div>
+    </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
@@ -277,6 +313,343 @@
     
     // Make navbar reminders available globally
     window.navbar_reminders = {{ navbar_reminders|tojson|safe }};
+    
+    // Persistent Alert System
+    class PersistentAlertManager {
+        constructor() {
+            this.storageKey = 'plugtrack_dismissed_alerts';
+            this.alertContainer = document.getElementById('alertContainer');
+            this.init();
+        }
+        
+        init() {
+            // Load persistent alerts from localStorage
+            this.loadPersistentAlerts();
+            
+            // Set up event listeners for new alerts
+            this.setupAlertListeners();
+            
+            // Convert existing flash messages to persistent alerts
+            this.convertFlashMessages();
+        }
+        
+        loadPersistentAlerts() {
+            const dismissedAlerts = this.getDismissedAlerts();
+            const persistentAlerts = this.getPersistentAlerts();
+            
+            // Show only non-dismissed alerts
+            persistentAlerts.forEach(alert => {
+                if (!dismissedAlerts.includes(alert.id)) {
+                    this.showAlert(alert);
+                }
+            });
+        }
+        
+        convertFlashMessages() {
+            const flashAlerts = document.querySelectorAll('.persistent-alert');
+            flashAlerts.forEach(alert => {
+                const alertId = alert.getAttribute('data-alert-id');
+                const category = alert.getAttribute('data-category');
+                const content = alert.querySelector('.alert-content').textContent;
+                
+                // Store as persistent alert
+                this.storePersistentAlert({
+                    id: alertId,
+                    category: category,
+                    content: content,
+                    timestamp: Date.now()
+                });
+                
+                // Set up dismissal handler
+                this.setupDismissalHandler(alert, alertId);
+            });
+        }
+        
+        setupAlertListeners() {
+            // Listen for custom alert events
+            document.addEventListener('showPersistentAlert', (event) => {
+                this.showAlert(event.detail);
+            });
+        }
+        
+        setupDismissalHandler(alertElement, alertId) {
+            const closeButton = alertElement.querySelector('.btn-close');
+            if (closeButton) {
+                closeButton.addEventListener('click', () => {
+                    this.dismissAlert(alertId);
+                });
+            }
+        }
+        
+        showAlert(alertData) {
+            const alertElement = this.createAlertElement(alertData);
+            this.alertContainer.appendChild(alertElement);
+            this.setupDismissalHandler(alertElement, alertData.id);
+        }
+        
+        createAlertElement(alertData) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${alertData.category === 'error' ? 'danger' : alertData.category} alert-dismissible fade show persistent-alert`;
+            alertDiv.setAttribute('role', 'alert');
+            alertDiv.setAttribute('data-alert-id', alertData.id);
+            alertDiv.setAttribute('data-category', alertData.category);
+            
+            const iconClass = this.getIconClass(alertData.category);
+            
+            alertDiv.innerHTML = `
+                <div class="d-flex align-items-start">
+                    <i class="bi ${iconClass} me-2 mt-1 flex-shrink-0"></i>
+                    <div class="flex-grow-1">
+                        <div class="alert-content">${alertData.content}</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+            
+            return alertDiv;
+        }
+        
+        getIconClass(category) {
+            const icons = {
+                'success': 'bi-check-circle-fill',
+                'error': 'bi-exclamation-triangle-fill',
+                'danger': 'bi-exclamation-triangle-fill',
+                'warning': 'bi-exclamation-circle-fill',
+                'info': 'bi-info-circle-fill'
+            };
+            return icons[category] || 'bi-info-circle-fill';
+        }
+        
+        dismissAlert(alertId) {
+            this.addToDismissedAlerts(alertId);
+            
+            // Remove from persistent storage
+            this.removePersistentAlert(alertId);
+            
+            // Remove from DOM
+            const alertElement = document.querySelector(`[data-alert-id="${alertId}"]`);
+            if (alertElement) {
+                alertElement.remove();
+            }
+        }
+        
+        // Storage methods
+        getDismissedAlerts() {
+            try {
+                return JSON.parse(localStorage.getItem(this.storageKey)) || [];
+            } catch {
+                return [];
+            }
+        }
+        
+        addToDismissedAlerts(alertId) {
+            const dismissed = this.getDismissedAlerts();
+            if (!dismissed.includes(alertId)) {
+                dismissed.push(alertId);
+                localStorage.setItem(this.storageKey, JSON.stringify(dismissed));
+            }
+        }
+        
+        getPersistentAlerts() {
+            try {
+                return JSON.parse(localStorage.getItem('plugtrack_persistent_alerts')) || [];
+            } catch {
+                return [];
+            }
+        }
+        
+        storePersistentAlert(alertData) {
+            const alerts = this.getPersistentAlerts();
+            const existingIndex = alerts.findIndex(alert => alert.id === alertData.id);
+            
+            if (existingIndex >= 0) {
+                alerts[existingIndex] = alertData;
+            } else {
+                alerts.push(alertData);
+            }
+            
+            localStorage.setItem('plugtrack_persistent_alerts', JSON.stringify(alerts));
+        }
+        
+        removePersistentAlert(alertId) {
+            const alerts = this.getPersistentAlerts();
+            const filteredAlerts = alerts.filter(alert => alert.id !== alertId);
+            localStorage.setItem('plugtrack_persistent_alerts', JSON.stringify(filteredAlerts));
+        }
+        
+        // Public API
+        addAlert(category, content, customId = null) {
+            const alertId = customId || `alert-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const alertData = {
+                id: alertId,
+                category: category,
+                content: content,
+                timestamp: Date.now()
+            };
+            
+            this.storePersistentAlert(alertData);
+            this.showAlert(alertData);
+        }
+        
+        clearAllAlerts() {
+            localStorage.removeItem('plugtrack_persistent_alerts');
+            localStorage.removeItem(this.storageKey);
+            this.alertContainer.innerHTML = '';
+        }
+    }
+    
+    // Initialize persistent alert manager
+    window.persistentAlertManager = new PersistentAlertManager();
+    
+    // Global function to add alerts
+    window.addPersistentAlert = function(category, content, customId = null) {
+        window.persistentAlertManager.addAlert(category, content, customId);
+    };
+    
+    // Global function to clear all alerts
+    window.clearAllPersistentAlerts = function() {
+        window.persistentAlertManager.clearAllAlerts();
+    };
+    
+    // Theme Management System
+    class ThemeManager {
+        constructor() {
+            this.themeKey = 'plugtrack_theme';
+            this.currentTheme = this.getStoredTheme() || this.getSystemTheme();
+            this.init();
+        }
+        
+        init() {
+            this.applyTheme(this.currentTheme);
+            this.setupThemeToggle();
+            this.setupChartThemeListener();
+        }
+        
+        getStoredTheme() {
+            try {
+                return localStorage.getItem(this.themeKey);
+            } catch {
+                return null;
+            }
+        }
+        
+        getSystemTheme() {
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        
+        storeTheme(theme) {
+            try {
+                localStorage.setItem(this.themeKey, theme);
+            } catch (e) {
+                console.warn('Could not store theme preference:', e);
+            }
+        }
+        
+        applyTheme(theme) {
+            document.documentElement.setAttribute('data-bs-theme', theme);
+            this.currentTheme = theme;
+            this.updateThemeIcon(theme);
+            this.storeTheme(theme);
+        }
+        
+        updateThemeIcon(theme) {
+            const themeIcon = document.getElementById('themeIcon');
+            if (themeIcon) {
+                themeIcon.className = theme === 'dark' ? 'bi bi-moon' : 'bi bi-sun';
+            }
+        }
+        
+        toggleTheme() {
+            const newTheme = this.currentTheme === 'dark' ? 'light' : 'dark';
+            this.applyTheme(newTheme);
+            this.notifyChartsThemeChange();
+        }
+        
+        setupThemeToggle() {
+            const themeToggle = document.getElementById('themeToggle');
+            if (themeToggle) {
+                themeToggle.addEventListener('click', () => {
+                    this.toggleTheme();
+                });
+            }
+        }
+        
+        setupChartThemeListener() {
+            // Listen for theme changes to re-render charts
+            document.addEventListener('themeChanged', () => {
+                this.notifyChartsThemeChange();
+            });
+        }
+        
+        notifyChartsThemeChange() {
+            // Dispatch custom event for charts to listen to
+            document.dispatchEvent(new CustomEvent('themeChanged', {
+                detail: { theme: this.currentTheme }
+            }));
+        }
+        
+        // Public API
+        getCurrentTheme() {
+            return this.currentTheme;
+        }
+        
+        setTheme(theme) {
+            if (theme === 'light' || theme === 'dark') {
+                this.applyTheme(theme);
+                this.notifyChartsThemeChange();
+            }
+        }
+    }
+    
+    // Initialize theme manager
+    window.themeManager = new ThemeManager();
+    
+    // Global functions for theme control
+    window.toggleTheme = function() {
+        window.themeManager.toggleTheme();
+    };
+    
+    window.setTheme = function(theme) {
+        window.themeManager.setTheme(theme);
+    };
+    
+    window.getCurrentTheme = function() {
+        return window.themeManager.getCurrentTheme();
+    };
+    
+    // Test functions for development (remove in production)
+    window.testPersistentAlerts = function() {
+        window.addPersistentAlert('success', 'This is a test success alert!', 'test-success');
+        window.addPersistentAlert('info', 'This is a test info alert!', 'test-info');
+        window.addPersistentAlert('warning', 'This is a test warning alert!', 'test-warning');
+        window.addPersistentAlert('danger', 'This is a test danger alert!', 'test-danger');
+    };
+    
+    // Auto-convert existing settings info alerts to persistent
+    document.addEventListener('DOMContentLoaded', function() {
+        const settingsInfoAlerts = document.querySelectorAll('.settings-info-persistent.persistent-alert');
+        settingsInfoAlerts.forEach(alert => {
+            const alertId = alert.getAttribute('data-alert-id');
+            const category = alert.getAttribute('data-category');
+            const content = alert.querySelector('.alert-content').textContent;
+            
+            // Store as persistent alert
+            window.persistentAlertManager.storePersistentAlert({
+                id: alertId,
+                category: category,
+                content: content,
+                timestamp: Date.now()
+            });
+            
+            // Set up dismissal handler
+            const closeButton = alert.querySelector('.btn-close');
+            if (closeButton) {
+                closeButton.addEventListener('click', () => {
+                    window.persistentAlertManager.dismissAlert(alertId);
+                });
+            }
+        });
+    });
     </script>
 </body>
 </html>

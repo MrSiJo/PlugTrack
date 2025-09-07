@@ -26,6 +26,11 @@ class ChargingSession(db.Model):
     preconditioning_events = db.Column(db.Integer, nullable=True)  # Number of preconditioning events
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
+    # Precomputed derived metrics (Phase 7 B7-2)
+    computed_efficiency_mpkwh = db.Column(db.Float, nullable=True)  # Precomputed efficiency in miles per kWh
+    computed_pence_per_mile = db.Column(db.Float, nullable=True)  # Precomputed cost per mile in pence
+    computed_loss_pct = db.Column(db.Float, nullable=True)  # Precomputed loss percentage
+    
     def __repr__(self):
         return f'<ChargingSession {self.date} - {self.charge_delivered_kwh}kWh>'
     

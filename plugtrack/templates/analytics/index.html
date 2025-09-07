@@ -340,27 +340,119 @@
 
 {% block extra_scripts %}
 <script>
-// Chart.js configuration
+// Chart.js configuration with theme support
 const chartColors = {
-    primary: '#0d6efd',
-    secondary: '#6c757d',
-    success: '#198754',
-    danger: '#dc3545',
-    warning: '#ffc107',
-    info: '#0dcaf0'
+    light: {
+        primary: '#0d6efd',
+        secondary: '#6c757d',
+        success: '#198754',
+        danger: '#dc3545',
+        warning: '#ffc107',
+        info: '#0dcaf0',
+        text: '#212529',
+        grid: '#dee2e6',
+        background: '#ffffff'
+    },
+    dark: {
+        primary: '#6ea8fe',
+        secondary: '#adb5bd',
+        success: '#75b798',
+        danger: '#f1aeb5',
+        warning: '#ffda6a',
+        info: '#6edff6',
+        text: '#f8f9fa',
+        grid: '#495057',
+        background: '#212529'
+    }
 };
 
+// Get current theme colors
+function getChartColors() {
+    const theme = window.getCurrentTheme ? window.getCurrentTheme() : 'light';
+    return chartColors[theme] || chartColors.light;
+}
+
+// Chart instances storage
+const chartInstances = {};
+
+// Chart creation function
+function createChart(canvasId, config) {
+    const ctx = document.getElementById(canvasId).getContext('2d');
+    const colors = getChartColors();
+    
+    // Apply theme colors to config
+    const themedConfig = JSON.parse(JSON.stringify(config));
+    themedConfig.options.scales = themedConfig.options.scales || {};
+    themedConfig.options.scales.x = themedConfig.options.scales.x || {};
+    themedConfig.options.scales.y = themedConfig.options.scales.y || {};
+    
+    // Apply theme colors to scales
+    themedConfig.options.scales.x.ticks = themedConfig.options.scales.x.ticks || {};
+    themedConfig.options.scales.x.ticks.color = colors.text;
+    themedConfig.options.scales.x.grid = themedConfig.options.scales.x.grid || {};
+    themedConfig.options.scales.x.grid.color = colors.grid;
+    
+    themedConfig.options.scales.y.ticks = themedConfig.options.scales.y.ticks || {};
+    themedConfig.options.scales.y.ticks.color = colors.text;
+    themedConfig.options.scales.y.grid = themedConfig.options.scales.y.grid || {};
+    themedConfig.options.scales.y.grid.color = colors.grid;
+    
+    // Apply theme colors to title
+    if (themedConfig.options.scales.y.title) {
+        themedConfig.options.scales.y.title.color = colors.text;
+    }
+    
+    // Apply theme colors to legend
+    if (themedConfig.options.plugins && themedConfig.options.plugins.legend) {
+        themedConfig.options.plugins.legend.labels = themedConfig.options.plugins.legend.labels || {};
+        themedConfig.options.plugins.legend.labels.color = colors.text;
+    }
+    
+    // Apply theme colors to datasets
+    themedConfig.data.datasets.forEach(dataset => {
+        if (dataset.borderColor && typeof dataset.borderColor === 'string') {
+            dataset.borderColor = dataset.borderColor.replace(/#[0-9a-f]{6}/i, (match) => {
+                const colorMap = {
+                    '#0d6efd': colors.primary,
+                    '#6c757d': colors.secondary,
+                    '#198754': colors.success,
+                    '#dc3545': colors.danger,
+                    '#ffc107': colors.warning,
+                    '#0dcaf0': colors.info
+                };
+                return colorMap[match] || match;
+            });
+        }
+        if (dataset.backgroundColor && typeof dataset.backgroundColor === 'string') {
+            dataset.backgroundColor = dataset.backgroundColor.replace(/#[0-9a-f]{6}/i, (match) => {
+                const colorMap = {
+                    '#0d6efd': colors.primary,
+                    '#6c757d': colors.secondary,
+                    '#198754': colors.success,
+                    '#dc3545': colors.danger,
+                    '#ffc107': colors.warning,
+                    '#0dcaf0': colors.info
+                };
+                return colorMap[match] || match;
+            });
+        }
+    });
+    
+    const chart = new Chart(ctx, themedConfig);
+    chartInstances[canvasId] = chart;
+    return chart;
+}
+
 // Cost per Mile Chart
-const costPerMileCtx = document.getElementById('costPerMileChart').getContext('2d');
-new Chart(costPerMileCtx, {
+createChart('costPerMileChart', {
     type: 'line',
     data: {
         labels: {{ chart_data.dates | tojson }},
         datasets: [{
             label: 'Cost per Mile (£)',
             data: {{ chart_data.cost_per_mile | tojson }},
-            borderColor: chartColors.danger,
-            backgroundColor: chartColors.danger + '20',
+            borderColor: '#dc3545',
+            backgroundColor: '#dc354520',
             tension: 0.1,
             fill: true
         }]
@@ -386,16 +478,15 @@ new Chart(costPerMileCtx, {
 });
 
 // Energy Delivered Chart
-const energyDeliveredCtx = document.getElementById('energyDeliveredChart').getContext('2d');
-new Chart(energyDeliveredCtx, {
+createChart('energyDeliveredChart', {
     type: 'bar',
     data: {
         labels: {{ chart_data.dates | tojson }},
         datasets: [{
             label: 'AC Charging',
             data: {{ chart_data.energy_delivered | tojson }},
-            backgroundColor: chartColors.success + '80',
-            borderColor: chartColors.success,
+            backgroundColor: '#19875480',
+            borderColor: '#198754',
             borderWidth: 1
         }]
     },
@@ -420,16 +511,15 @@ new Chart(energyDeliveredCtx, {
 });
 
 // Efficiency Chart
-const efficiencyCtx = document.getElementById('efficiencyChart').getContext('2d');
-new Chart(efficiencyCtx, {
+createChart('efficiencyChart', {
     type: 'line',
     data: {
         labels: {{ chart_data.dates | tojson }},
         datasets: [{
             label: 'Weighted Efficiency (mi/kWh)',
             data: {{ chart_data.efficiency | tojson }},
-            borderColor: chartColors.info,
-            backgroundColor: chartColors.info + '20',
+            borderColor: '#0dcaf0',
+            backgroundColor: '#0dcaf020',
             tension: 0.1,
             fill: true
         }]
@@ -455,8 +545,7 @@ new Chart(efficiencyCtx, {
 });
 
 // Home vs Public Chart
-const homePublicCtx = document.getElementById('homePublicChart').getContext('2d');
-new Chart(homePublicCtx, {
+createChart('homePublicChart', {
     type: 'doughnut',
     data: {
         labels: ['Home', 'Public'],
@@ -465,7 +554,7 @@ new Chart(homePublicCtx, {
                 {{ metrics.home_public_split.home.percentage | round(1) }},
                 {{ metrics.home_public_split.public.percentage | round(1) }}
             ],
-            backgroundColor: [chartColors.success, chartColors.warning],
+            backgroundColor: ['#198754', '#ffc107'],
             borderWidth: 2,
             borderColor: '#fff'
         }]
@@ -748,6 +837,63 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     }
+});
+
+// Theme change listener for chart re-rendering
+document.addEventListener('themeChanged', function(event) {
+    // Re-render all charts with new theme colors
+    Object.keys(chartInstances).forEach(canvasId => {
+        const chart = chartInstances[canvasId];
+        if (chart) {
+            const colors = getChartColors();
+            
+            // Update chart colors
+            chart.options.scales.x.ticks.color = colors.text;
+            chart.options.scales.x.grid.color = colors.grid;
+            chart.options.scales.y.ticks.color = colors.text;
+            chart.options.scales.y.grid.color = colors.grid;
+            
+            if (chart.options.scales.y.title) {
+                chart.options.scales.y.title.color = colors.text;
+            }
+            
+            if (chart.options.plugins && chart.options.plugins.legend) {
+                chart.options.plugins.legend.labels.color = colors.text;
+            }
+            
+            // Update dataset colors
+            chart.data.datasets.forEach(dataset => {
+                if (dataset.borderColor && typeof dataset.borderColor === 'string') {
+                    dataset.borderColor = dataset.borderColor.replace(/#[0-9a-f]{6}/i, (match) => {
+                        const colorMap = {
+                            '#0d6efd': colors.primary,
+                            '#6c757d': colors.secondary,
+                            '#198754': colors.success,
+                            '#dc3545': colors.danger,
+                            '#ffc107': colors.warning,
+                            '#0dcaf0': colors.info
+                        };
+                        return colorMap[match] || match;
+                    });
+                }
+                if (dataset.backgroundColor && typeof dataset.backgroundColor === 'string') {
+                    dataset.backgroundColor = dataset.backgroundColor.replace(/#[0-9a-f]{6}/i, (match) => {
+                        const colorMap = {
+                            '#0d6efd': colors.primary,
+                            '#6c757d': colors.secondary,
+                            '#198754': colors.success,
+                            '#dc3545': colors.danger,
+                            '#ffc107': colors.warning,
+                            '#0dcaf0': colors.info
+                        };
+                        return colorMap[match] || match;
+                    });
+                }
+            });
+            
+            chart.update();
+        }
+    });
 });
 </script>
 {% endblock %}

@@ -314,6 +314,111 @@ class TestSessionDetailPage(unittest.TestCase):
         self.assertIn('col-lg-4', content)
         self.assertIn('col-md-3', content)
         self.assertIn('container-fluid', content)
+    
+    def test_similar_sessions_refined_matching(self):
+        """Test that similar sessions uses refined matching logic"""
+        from services.derived_metrics import DerivedMetricsService
+        
+        with self.app.app_context():
+            # Create additional test sessions with different characteristics
+            # 1. Similar home AC session (should match)
+            similar_home_session = ChargingSession(
+                user_id=self.user_id,
+                car_id=self.car_id,
+                date=date.today() - timedelta(days=1),
+                odometer=14900,
+                charge_type='AC',
+                charge_speed_kw=7.4,
+                location_label='Home Garage',
+                charge_network='Home Charger',
+                charge_delivered_kwh=24.0,  # Similar energy (within ±50% of 25.5)
+                duration_mins=290,
+                cost_per_kwh=0.12,
+                soc_from=25,
+                soc_to=55,
+                venue_type='home',
+                is_baseline=False
+            )
+            db.session.add(similar_home_session)
+            
+            # 2. Different energy home AC session (should not match in strict mode)
+            different_energy_home = ChargingSession(
+                user_id=self.user_id,
+                car_id=self.car_id,
+                date=date.today() - timedelta(days=2),
+                odometer=14800,
+                charge_type='AC',
+                charge_speed_kw=7.4,
+                location_label='Home',
+                charge_network='Home Charger',
+                charge_delivered_kwh=50.0,  # Much higher energy (outside ±50% range)
+                duration_mins=600,
+                cost_per_kwh=0.12,
+                soc_from=10,
+                soc_to=80,
+                venue_type='home',
+                is_baseline=False
+            )
+            db.session.add(different_energy_home)
+            
+            # 3. Public AC session (should not match home session)
+            public_ac_session = ChargingSession(
+                user_id=self.user_id,
+                car_id=self.car_id,
+                date=date.today() - timedelta(days=3),
+                odometer=14700,
+                charge_type='AC',
+                charge_speed_kw=11.0,
+                location_label='Shopping Center',
+                charge_network='Pod Point',
+                charge_delivered_kwh=25.0,  # Similar energy but different location type
+                duration_mins=200,
+                cost_per_kwh=0.25,
+                soc_from=20,
+                soc_to=55,
+                venue_type='public',
+                is_baseline=False
+            )
+            db.session.add(public_ac_session)
+            
+            # 4. DC session (should not match AC session)
+            dc_session = ChargingSession(
+                user_id=self.user_id,
+                car_id=self.car_id,
+                date=date.today() - timedelta(days=4),
+                odometer=14600,
+                charge_type='DC',
+                charge_speed_kw=50.0,
+                location_label='Motorway Services',
+                charge_network='Ionity',
+                charge_delivered_kwh=30.0,
+                duration_mins=45,
+                cost_per_kwh=0.35,
+                soc_from=15,
+                soc_to=65,
+                venue_type='public',
+                is_baseline=False
+            )
+            db.session.add(dc_session)
+            
+            db.session.commit()
+            
+            # Test similar sessions for our home AC session
+            similar_sessions = DerivedMetricsService.get_similar_sessions(self.session, limit=5)
+            
+            # Should find the similar home session first (strict match)
+            self.assertGreater(len(similar_sessions), 0)
+            
+            # The first match should be the similar home session
+            if len(similar_sessions) > 0:
+                first_match = similar_sessions[0]
+                self.assertEqual(first_match.id, similar_home_session.id)
+                self.assertEqual(first_match.charge_type, 'AC')
+                self.assertTrue('home' in first_match.location_label.lower() or 
+                              'garage' in first_match.location_label.lower())
+                # Energy should be within reasonable range
+                self.assertGreaterEqual(first_match.charge_delivered_kwh, 12.0)  # At least 50% of 25.5
+                self.assertLessEqual(first_match.charge_delivered_kwh, 38.0)     # At most 150% of 25.5
 
 
 class TestSessionDetailPageRoute(unittest.TestCase):

@@ -51,8 +51,18 @@ def downgrade():
     print("✅ Display settings removed successfully")
 
 
+# Migration metadata
+MIGRATION_ID = "006"
+DESCRIPTION = "Add display settings for savings cards"
+DEPENDENCIES = ["005"]
+
+
 if __name__ == '__main__':
-    if len(sys.argv) > 1 and sys.argv[1] == 'downgrade':
-        downgrade()
-    else:
-        upgrade()
+    from __init__ import create_app
+    
+    app = create_app()
+    with app.app_context():
+        if len(sys.argv) > 1 and sys.argv[1] == 'downgrade':
+            downgrade()
+        else:
+            upgrade()

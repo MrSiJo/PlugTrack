@@ -300,7 +300,7 @@ class AchievementEngine:
         elif achievement_code == 'efficiency_master':
             # Check if session achieved 5+ mi/kWh efficiency
             metrics = DerivedMetricsService.calculate_session_metrics(session, None)
-            if metrics['efficiency_used'] and metrics['efficiency_used'] >= 5.0:
+            if metrics['efficiency_used'] is not None and metrics['efficiency_used'] >= 5.0:
                 return True, {'value': f'{metrics["efficiency_used"]:.1f} mi/kWh'}
         
         elif achievement_code == 'road_warrior':

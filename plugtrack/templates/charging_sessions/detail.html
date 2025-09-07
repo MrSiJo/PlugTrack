@@ -192,7 +192,7 @@
                                             N/A
                                         {% endif %}
                                     </h4>
-                                    <p class="text-muted mb-0">per mile</p>
+                                    <p class="text-muted mb-0">p/mi</p>
                                 </div>
                             </div>
                         </div>
@@ -375,7 +375,7 @@
                                         </tr>
                                         <tr>
                                             <td><strong>Cost per kWh:</strong></td>
-                                            <td>{{ "%.2f"|format(session.cost_per_kwh) }}p</td>
+                                            <td>{{ "%.2f"|format(session.cost_per_kwh) }} p/kWh</td>
                                         </tr>
                                     </table>
                                 </div>
@@ -461,7 +461,7 @@
                             <div class="mt-3">
                                 <button type="button" class="btn btn-outline-info btn-sm" 
                                         data-bs-toggle="modal" data-bs-target="#confidenceHelpModal">
-                                    <i class="bi bi-question-circle me-1"></i> Learn More
+                                    <i class="bi bi-question-circle me-1"></i> Learn More About Confidence
                                 </button>
                             </div>
                         </div>

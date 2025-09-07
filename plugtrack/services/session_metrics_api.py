@@ -171,7 +171,7 @@ class SessionMetricsApiService:
         chips = []
         
         # 1. Efficiency chip (if available)
-        if metrics.get('efficiency_used'):
+        if metrics.get('efficiency_used') is not None and metrics['efficiency_used'] > 0:
             tone = SessionMetricsApiService._get_efficiency_tone(metrics['efficiency_used'])
             chips.append({
                 'style': SessionMetricsApiService._tone_to_style(tone),
