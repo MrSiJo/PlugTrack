@@ -78,7 +78,7 @@ class AnalyticsAggService:
         for session in sessions:
             # Get observed efficiency for this session
             metrics = DerivedMetricsService.calculate_session_metrics(session, None)
-            if metrics['efficiency_used'] and not metrics['low_confidence']:
+            if metrics['efficiency_used'] is not None and metrics['efficiency_used'] > 0 and not metrics['low_confidence']:
                 total_weighted_numerator += metrics['efficiency_used'] * session.charge_delivered_kwh
                 total_weighted_denominator += session.charge_delivered_kwh
         
@@ -165,7 +165,7 @@ class AnalyticsAggService:
         session_costs = []
         for session in sessions:
             metrics = DerivedMetricsService.calculate_session_metrics(session, None)
-            if metrics['cost_per_mile'] > 0 and metrics['efficiency_used']:
+            if metrics['cost_per_mile'] > 0 and metrics['efficiency_used'] is not None and metrics['efficiency_used'] > 0:
                 cost_per_mile_pence = metrics['cost_per_mile'] * 100  # Convert to pence
                 session_costs.append({
                     'session': session,

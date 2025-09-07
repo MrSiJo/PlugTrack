@@ -6,7 +6,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-from flask import Flask
+from flask import Flask, redirect, url_for, request
 from flask_migrate import Migrate
 from flask_login import LoginManager
 from config import Config
@@ -37,10 +37,15 @@ def create_app(config_class=Config):
     
     @login_manager.user_loader
     def load_user(id):
-        return User.query.get(int(id))
+        try:
+            return User.query.get(int(id))
+        except Exception as e:
+            # If there's an error (like missing tables), return None
+            app.logger.warning(f"Error loading user {id}: {e}")
+            return None
     
     # Register blueprints
-    from routes import auth_bp, cars_bp, charging_sessions_bp, settings_bp, dashboard_bp, analytics_bp
+    from routes import auth_bp, cars_bp, charging_sessions_bp, settings_bp, dashboard_bp, analytics_bp, onboarding_bp, help_bp
     from routes.blend import blend_bp
     
     app.register_blueprint(auth_bp)
@@ -49,7 +54,38 @@ def create_app(config_class=Config):
     app.register_blueprint(settings_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(analytics_bp)
+    app.register_blueprint(onboarding_bp)
+    app.register_blueprint(help_bp)
     app.register_blueprint(blend_bp)
+    
+    # Add first-run detection and redirect logic
+    @app.before_request
+    def check_first_run():
+        """Redirect to onboarding if this is a first run (no users exist)."""
+        from services.onboarding import OnboardingService
+        from flask_login import current_user
+        
+        # Skip check for onboarding routes and static files
+        if request.endpoint and (
+            request.endpoint.startswith('onboarding.') or 
+            request.endpoint.startswith('static') or
+            request.endpoint == 'favicon'
+        ):
+            return
+        
+        # Skip if user is already authenticated
+        if current_user.is_authenticated:
+            return
+        
+        # Check if this is a first run (with error handling for missing tables)
+        try:
+            if OnboardingService.is_first_run():
+                # Redirect to onboarding welcome page
+                return redirect(url_for('onboarding.welcome'))
+        except Exception as e:
+            # If there's an error (like missing tables), assume first run
+            app.logger.warning(f"Error checking first run status: {e}. Assuming first run.")
+            return redirect(url_for('onboarding.welcome'))
     
     # Add template globals for currency formatting
     from utils.currency import format_currency, get_currency_symbol, get_currency_info
@@ -182,54 +218,7 @@ def create_app(config_class=Config):
         """Legacy database initialization (deprecated - use init-db instead)."""
         click.echo("⚠️  This command is deprecated. Use 'flask init-db' instead.")
         db.create_all()
-        
-        # Check if we already have a user
-        if User.query.first() is None:
-            # Create demo user
-            user = User(username='demo')
-            user.set_password('demo123')
-            db.session.add(user)
-            db.session.commit()
-            
-            # Create demo car
-            car = Car(
-                user_id=user.id,
-                make='Tesla',
-                model='Model 3',
-                battery_kwh=75.0,
-                efficiency_mpkwh=4.2,
-                active=True,
-                recommended_full_charge_enabled=True,
-                recommended_full_charge_frequency_value=7,
-                recommended_full_charge_frequency_unit='days'
-            )
-            db.session.add(car)
-            db.session.commit()
-            
-            # Create demo charging session
-            session = ChargingSession(
-                user_id=user.id,
-                car_id=car.id,
-                date=date.today(),
-                odometer=15000,
-                charge_type='AC',
-                charge_speed_kw=7.4,
-                location_label='Home',
-                charge_network='Home Charger',
-                charge_delivered_kwh=25.5,
-                duration_mins=180,
-                cost_per_kwh=0.12,
-                soc_from=20,
-                soc_to=54,
-                notes='Evening charge at home'
-            )
-            db.session.add(session)
-            db.session.commit()
-            
-            print('Database initialized with demo data!')
-            print('Username: demo, Password: demo123')
-        else:
-            print('Database already contains data.')
+        print('Database tables created. Use the web interface to create your first account.')
 
     @app.cli.command('create-admin')
     def create_admin():
@@ -351,34 +340,62 @@ def create_app(config_class=Config):
         print(f"User '{user.username}' and all associated data deleted successfully!")
 
     @app.cli.command('sessions-export')
-    @click.option('--to', 'dst_path', required=True, help='Destination CSV file path')
+    @click.option('--to', 'dst_path', help='Destination CSV file path')
     @click.option('--car', 'car_id', type=int, help='Filter by car ID')
     @click.option('--from', 'date_from', help='Filter from date (YYYY-MM-DD)')
     @click.option('--to-date', 'date_to', help='Filter to date (YYYY-MM-DD)')
     @click.option('--user', 'user_id', type=int, default=1, help='User ID (default: 1)')
-    def sessions_export(dst_path, car_id, date_from, date_to, user_id):
+    @click.option('--verbose', '-v', is_flag=True, help='Enable verbose output')
+    @click.option('--quiet', '-q', is_flag=True, help='Suppress non-error output')
+    @click.option('--examples', is_flag=True, help='Show usage examples')
+    def sessions_export(dst_path, car_id, date_from, date_to, user_id, verbose, quiet, examples):
         """Export charging sessions to CSV file."""
+        from utils.cli_utils import CLIOutput, VerbosityLevel, show_examples
+        
+        if examples:
+            show_examples('sessions-export')
+            return
+        
+        if not dst_path:
+            click.echo("Error: --to option is required", err=True)
+            click.echo("Use --help for more information or --examples for usage examples")
+            sys.exit(1)
+        
+        if verbose and quiet:
+            click.echo("Error: Cannot specify both --verbose and --quiet", err=True)
+            sys.exit(1)
+        
+        verbosity = VerbosityLevel.VERBOSE if verbose else (VerbosityLevel.QUIET if quiet else VerbosityLevel.NORMAL)
+        output = CLIOutput(verbosity)
+        
         try:
             from services.io_sessions import SessionIOService
+            
+            output.verbose(f"Starting sessions export to: {dst_path}")
+            output.verbose(f"User ID: {user_id}, Car ID: {car_id}")
+            output.verbose(f"Date range: {date_from} to {date_to}")
             
             # Parse dates
             parsed_date_from = None
             if date_from:
                 try:
                     parsed_date_from = date.fromisoformat(date_from)
+                    output.verbose(f"Parsed from date: {parsed_date_from}")
                 except ValueError:
-                    click.echo(f"Error: Invalid date format for --from: {date_from}. Use YYYY-MM-DD")
-                    return
+                    output.error(f"Invalid date format for --from: {date_from}. Use YYYY-MM-DD")
+                    sys.exit(1)
             
             parsed_date_to = None
             if date_to:
                 try:
                     parsed_date_to = date.fromisoformat(date_to)
+                    output.verbose(f"Parsed to date: {parsed_date_to}")
                 except ValueError:
-                    click.echo(f"Error: Invalid date format for --to-date: {date_to}. Use YYYY-MM-DD")
-                    return
+                    output.error(f"Invalid date format for --to-date: {date_to}. Use YYYY-MM-DD")
+                    sys.exit(1)
             
             # Export sessions
+            output.verbose("Calling SessionIOService.export_sessions...")
             report = SessionIOService.export_sessions(
                 user_id=user_id,
                 dst_path=dst_path,
@@ -387,10 +404,14 @@ def create_app(config_class=Config):
                 date_to=parsed_date_to
             )
             
-            click.echo(report.to_cli_text())
+            output.success(f"Export completed: {report.to_cli_text()}")
             
         except Exception as e:
-            click.echo(f"Error: {str(e)}", err=True)
+            output.error(f"Export failed: {str(e)}")
+            if verbosity >= VerbosityLevel.VERBOSE:
+                import traceback
+                output.verbose(f"Traceback: {traceback.format_exc()}")
+            sys.exit(1)
 
     @app.cli.command('sessions-import')
     @click.option('--from', 'src_path', required=True, help='Source CSV file path')
@@ -495,53 +516,122 @@ def create_app(config_class=Config):
             exit(1)
 
     @app.cli.command('recompute-sessions')
-    @click.option('--user', 'user_id', type=int, default=1, help='User ID (default: 1)')
-    @click.option('--car', 'car_id', type=int, help='Filter by car ID')
+    @click.option('--all', 'recompute_all', is_flag=True, help='Recompute all sessions in database')
+    @click.option('--user', 'user_id', type=int, help='Recompute sessions for specific user ID')
+    @click.option('--session', 'session_id', type=int, help='Recompute specific session ID')
     @click.option('--force', is_flag=True, help='Force recomputation even if already computed')
     @click.option('--summary', is_flag=True, help='Show summary of metrics status')
-    def recompute_sessions(user_id, car_id, force, summary):
-        """Recompute all derived metrics for charging sessions."""
+    @click.option('--verbose', '-v', is_flag=True, help='Enable verbose output')
+    @click.option('--quiet', '-q', is_flag=True, help='Suppress non-error output')
+    @click.option('--examples', is_flag=True, help='Show usage examples')
+    def recompute_sessions(recompute_all, user_id, session_id, force, summary, verbose, quiet, examples):
+        """Recompute derived metrics for charging sessions."""
+        from utils.cli_utils import CLIOutput, VerbosityLevel, show_examples
+        
+        if examples:
+            show_examples('recompute-sessions')
+            return
+        
+        if verbose and quiet:
+            click.echo("Error: Cannot specify both --verbose and --quiet", err=True)
+            sys.exit(1)
+        
+        verbosity = VerbosityLevel.VERBOSE if verbose else (VerbosityLevel.QUIET if quiet else VerbosityLevel.NORMAL)
+        output = CLIOutput(verbosity)
+        
         try:
-            from services.session_metrics_precompute import SessionMetricsPrecomputeService
+            from services.precompute import PrecomputeService
             
-            if summary:
-                # Show summary of current metrics status
-                summary_data = SessionMetricsPrecomputeService.get_metrics_summary(user_id, car_id)
-                click.echo(f"Metrics Summary for User {user_id}:")
+            if session_id:
+                # Recompute specific session
+                output.verbose(f"Recomputing metrics for session {session_id}...")
+                result = PrecomputeService.compute_for_session(session_id)
+                
+                if result['success']:
+                    output.success(f"Session {session_id} processed successfully")
+                    metrics = result['metrics']
+                    output.echo(f"  Efficiency: {metrics['efficiency_mpkwh']:.2f} mi/kWh")
+                    output.echo(f"  Cost per mile: {metrics['pence_per_mile']:.1f} p/mile")
+                    output.echo(f"  Loss percentage: {metrics['loss_pct']:.1f}%")
+                else:
+                    output.error(f"Error processing session {session_id}: {result['error']}")
+                    sys.exit(1)
+                    
+            elif recompute_all:
+                # Recompute all sessions
+                click.echo("Recomputing metrics for all sessions...")
+                result = PrecomputeService.compute_all(force_recompute=force)
+                
+                if result['success']:
+                    click.echo(f"✅ {result['message']}")
+                    click.echo(f"  Total sessions: {result['total_sessions']}")
+                    click.echo(f"  Processed: {result['processed']}")
+                    
+                    if result['errors']:
+                        click.echo(f"  Errors: {len(result['errors'])}")
+                        for error in result['errors'][:5]:  # Show first 5 errors
+                            click.echo(f"    Session {error['session_id']}: {error['error']}")
+                        if len(result['errors']) > 5:
+                            click.echo(f"    ... and {len(result['errors']) - 5} more errors")
+                else:
+                    click.echo(f"❌ Error: {result['error']}", err=True)
+                    exit(1)
+                    
+            elif user_id:
+                # Recompute sessions for specific user
+                click.echo(f"Recomputing metrics for user {user_id}...")
+                result = PrecomputeService.compute_for_user(user_id, force_recompute=force)
+                
+                if result['success']:
+                    click.echo(f"✅ {result['message']}")
+                    click.echo(f"  Total sessions: {result['total_sessions']}")
+                    click.echo(f"  Processed: {result['processed']}")
+                    
+                    if result['errors']:
+                        click.echo(f"  Errors: {len(result['errors'])}")
+                        for error in result['errors'][:5]:  # Show first 5 errors
+                            click.echo(f"    Session {error['session_id']}: {error['error']}")
+                        if len(result['errors']) > 5:
+                            click.echo(f"    ... and {len(result['errors']) - 5} more errors")
+                else:
+                    click.echo(f"❌ Error: {result['error']}", err=True)
+                    exit(1)
+                    
+            elif summary:
+                # Show summary only
+                click.echo("Showing metrics summary...")
+                result = PrecomputeService.get_metrics_summary()
+                if result['success']:
+                    click.echo(f"📊 Metrics Summary:")
+                    click.echo(f"  Total sessions: {result['total_sessions']}")
+                    click.echo(f"  Computed sessions: {result['computed_sessions']}")
+                    click.echo(f"  Pending sessions: {result['pending_sessions']}")
+                    click.echo(f"  Completion rate: {result['completion_rate']:.1f}%")
+                else:
+                    click.echo(f"❌ Error: {result['error']}", err=True)
+                    exit(1)
+            
+            else:
+                # Show help if no options provided
+                click.echo("Please specify --all, --user <id>, --session <id>, or --summary")
+                click.echo("Use --help for more information")
+                exit(1)
+            
+            if summary and user_id:
+                # Show summary for user
+                summary_data = PrecomputeService.get_metrics_summary(user_id)
+                click.echo(f"\nMetrics Summary for User {user_id}:")
                 click.echo(f"  Total sessions: {summary_data['total_sessions']}")
                 click.echo(f"  Sessions with metrics: {summary_data['sessions_with_metrics']}")
                 click.echo(f"  Sessions without metrics: {summary_data['sessions_without_metrics']}")
-                click.echo(f"  Completion: {summary_data['completion_percentage']:.1f}%")
-                return
-            
-            # Recompute metrics
-            click.echo(f"Recomputing metrics for user {user_id}...")
-            if car_id:
-                click.echo(f"Filtering by car {car_id}...")
-            
-            result = SessionMetricsPrecomputeService.precompute_all_sessions(
-                user_id=user_id,
-                car_id=car_id,
-                force_recompute=force
-            )
-            
-            click.echo(f"✅ {result['message']}")
-            click.echo(f"  Total sessions: {result['total_sessions']}")
-            click.echo(f"  Processed: {result['processed']}")
-            
-            if result['errors']:
-                click.echo(f"  Errors: {len(result['errors'])}")
-                for error in result['errors'][:5]:  # Show first 5 errors
-                    click.echo(f"    Session {error['session_id']}: {error['error']}")
-                if len(result['errors']) > 5:
-                    click.echo(f"    ... and {len(result['errors']) - 5} more errors")
-            
-            if not result['success']:
-                exit(1)
+                output.echo(f"  Completion: {summary_data['completion_percentage']:.1f}%")
             
         except Exception as e:
-            click.echo(f"Error: {str(e)}", err=True)
-            exit(1)
+            output.error(f"Unexpected error: {str(e)}")
+            if verbosity >= VerbosityLevel.VERBOSE:
+                import traceback
+                output.verbose(f"Traceback: {traceback.format_exc()}")
+            sys.exit(1)
 
     @app.cli.command('reminders-run')
     @click.option('--user', 'user_id', type=int, help='Check reminders for specific user ID')
@@ -735,7 +825,9 @@ def create_app(config_class=Config):
                     output_stream.close()
             
         except Exception as e:
+            import traceback
             click.echo(f"Error: {str(e)}", err=True)
+            click.echo(f"Traceback: {traceback.format_exc()}", err=True)
             exit(1)
     
     return app

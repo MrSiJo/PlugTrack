@@ -142,7 +142,7 @@ class AggregatedAnalyticsService:
         
         # Filter out sessions with zero cost_per_mile (free charging or no efficiency)
         valid_cost_sessions = [s for s in session_metrics if s['cost_per_mile'] > 0]
-        valid_efficiency_sessions = [s for s in session_metrics if s['efficiency_used'] > 0]
+        valid_efficiency_sessions = [s for s in session_metrics if s['efficiency_used'] is not None and s['efficiency_used'] > 0]
         valid_power_sessions = [s for s in session_metrics if s['avg_power_kw'] > 0]
         
         def format_session_summary(session_data):
@@ -256,7 +256,7 @@ class AggregatedAnalyticsService:
                 cost_per_mile = metrics.get('cost_per_mile', 0)
                 power = metrics.get('avg_power_kw', 0)
                 
-                if efficiency > 0:
+                if efficiency is not None and efficiency > 0:
                     total_efficiency += efficiency
                     valid_efficiency_count += 1
                 

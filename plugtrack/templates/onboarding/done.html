@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Setup Complete{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card shadow">
+                <div class="card-body text-center p-5">
+                    <div class="mb-4">
+                        <i class="bi bi-check-circle-fill text-success" style="font-size: 4rem;"></i>
+                    </div>
+                    
+                    <h1 class="card-title mb-4 text-success">Setup Complete!</h1>
+                    
+                    <p class="lead mb-4">
+                        Welcome to PlugTrack! Your account has been created and you're ready to start tracking your EV charging sessions.
+                    </p>
+                    
+                    <div class="row text-start mb-4">
+                        <div class="col-md-6">
+                            <h5><i class="bi bi-rocket-takeoff text-primary"></i> Next Steps:</h5>
+                            <ul class="list-unstyled">
+                                <li><i class="bi bi-battery-charging text-success"></i> Log your first charging session</li>
+                                <li><i class="bi bi-gear text-info"></i> Configure your settings</li>
+                                <li><i class="bi bi-graph-up text-warning"></i> View your analytics</li>
+                                <li><i class="bi bi-car-front text-secondary"></i> Add more cars if needed</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h5><i class="bi bi-lightbulb text-warning"></i> Quick Tips:</h5>
+                            <ul class="list-unstyled">
+                                <li><i class="bi bi-1-circle text-primary"></i> Start with a simple session log</li>
+                                <li><i class="bi bi-2-circle text-primary"></i> Check your efficiency settings</li>
+                                <li><i class="bi bi-3-circle text-primary"></i> Explore the dashboard</li>
+                                <li><i class="bi bi-4-circle text-primary"></i> Set up cost tracking</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info text-start">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>Pro Tip:</strong> The more data you log, the better insights you'll get. PlugTrack learns from your charging patterns to provide personalized recommendations and cost analysis.
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <a href="{{ url_for('dashboard.index') }}" class="btn btn-success btn-lg">
+                            <i class="bi bi-speedometer2"></i> Go to Dashboard
+                        </a>
+                        <a href="{{ url_for('charging_sessions.new') }}" class="btn btn-outline-primary">
+                            <i class="bi bi-plus-circle"></i> Log First Session
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

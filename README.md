@@ -40,6 +40,8 @@ PlugTrack is a smart personal web application for logging and managing EV chargi
 - **Comparative Analysis**: Compare sessions with similar conditions, rolling averages, and historical patterns
 - **Session Quick View**: Modal popups for rapid session inspection with links to full detail pages
 - **Comprehensive APIs**: RESTful endpoints for session metrics, insights, and real-time data access
+- **Onboarding Wizard**: Guided first-run setup with user creation and optional car profile setup
+- **Dark Theme Support**: Modern dark/light theme toggle with system preference detection and Chart.js integration
 
 ### Advanced Cost Analysis
 - **Unified Parity System**: All EV parity rates display in p/kWh for direct tariff comparison
@@ -63,9 +65,11 @@ PlugTrack is a smart personal web application for logging and managing EV chargi
 - **User Management**: Secure authentication with password hashing
 - **Settings Management**: Configurable charging rates, preferences, thresholds, and advanced confidence parameters
 - **Data Export**: CSV export functionality for charging sessions and comprehensive analytics
-- **Advanced CLI Operations**: Import/export sessions, backup/restore, analytics export, and reminder management
+- **Advanced CLI Operations**: Import/export sessions, backup/restore, analytics export, reminder management, and session recomputation
 - **Backup System**: ZIP-based backup and restore with merge/replace modes
 - **Metrics Precomputation**: Background processing for instant session detail loading with consistency validation
+- **Performance Optimization**: Precomputed efficiency, cost per mile, and loss percentage for faster page loads
+- **Migration System**: Simplified baseline migrations with version tracking, rollback support, and dry-run capabilities
 
 ## Screenshots
 
@@ -98,7 +102,16 @@ PlugTrack is a smart personal web application for logging and managing EV chargi
 
 ## Recent Updates
 
-Phase 6 introduces a complete frontend transformation with gamification, advanced analytics visualizations, dedicated session detail pages, and comprehensive API ecosystem. Building on Phase 5's backend foundations, this update delivers professional-grade charging analysis tools, achievement-based user engagement, and enhanced data presentation that makes PlugTrack the most comprehensive and motivating EV charging management platform available.
+Phase 7 introduces a polished user experience with secure onboarding, performance optimizations, and modern UI enhancements. Key improvements include:
+
+- **Secure Onboarding**: Replaced demo credentials with a guided first-run wizard for secure user creation
+- **Performance Optimization**: Precomputed session metrics for faster page loads and improved responsiveness
+- **Dark Theme Support**: Modern dark/light theme toggle with system preference detection and Chart.js integration
+- **Enhanced CLI**: Improved command-line tools with verbosity options and better error handling
+- **Migration Simplification**: Streamlined database migrations with baseline consolidation and better version tracking
+- **Settings Consolidation**: Unified cost and efficiency settings in a single, intuitive interface
+
+Building on Phase 6's comprehensive analytics and gamification features, Phase 7 delivers a production-ready experience that prioritizes security, performance, and user experience.
 
 ## Quick Start
 
@@ -167,19 +180,19 @@ Phase 6 introduces a complete frontend transformation with gamification, advance
 
 9. **Access the application**
    - Open your browser to `http://localhost:5000`
-   - Login with demo credentials: `demo` / `demo123`
+   - Complete the onboarding wizard to create your first user account
+   - Optionally set up your first car profile during onboarding
 
 ## Security
 
-### Demo Credentials
-This repository includes demo credentials for first-time setup:
-- **Username**: `demo`
-- **Password**: `demo123`
-
-⚠️ **IMPORTANT**: These are demo credentials only and should NEVER be used in production!
+### First-Run Setup
+PlugTrack uses a secure onboarding wizard for initial setup:
+- **No default credentials**: Fresh installations require creating your first user account
+- **Guided setup**: Onboarding wizard walks you through user creation and optional car profile setup
+- **Secure by default**: No demo accounts or default passwords
 
 ### Production Security
-For production deployment, you MUST update these security settings:
+For production deployment, ensure these security settings:
 
 1. **Set SECRET_KEY**: Generate a secure random key
    ```bash
@@ -191,7 +204,7 @@ For production deployment, you MUST update these security settings:
    python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
    ```
 
-3. **Change Demo Password**: Use the admin creation command
+3. **Create Admin User**: Use the admin creation command for additional users
    ```bash
    flask create-admin
    ```
@@ -206,8 +219,8 @@ For production deployment, you MUST update these security settings:
 ## Usage Guide
 
 ### Getting Started
-1. **Login**: Use the demo credentials or create a new admin user
-2. **Add a Car**: Create your first car profile with battery capacity and efficiency
+1. **Onboarding**: Complete the guided setup wizard to create your first user account
+2. **Car Setup**: Optionally create your first car profile during onboarding or add it later
 3. **Configure Settings**: Set your home charging rate and other preferences
 4. **Log Sessions**: Start recording your charging sessions
 5. **View Analytics**: Explore the analytics dashboard for insights
@@ -232,10 +245,10 @@ For production deployment, you MUST update these security settings:
 #### CLI Operations
 ```bash
 # Export sessions
-flask --app . sessions-export --to sessions.csv
+flask --app . sessions-export --to exports/sessions.csv
 
 # Import sessions (dry run first)
-flask --app . sessions-import --from sessions.csv --dry-run
+flask --app . sessions-import --from exports/sessions.csv --dry-run
 
 # Create backup (create export directory first)
 mkdir export
@@ -245,11 +258,13 @@ flask --app . backup-create --to exports/backup.zip
 flask --app . backup-restore --from exports/backup.zip --mode merge
 
 # Recompute derived metrics for all sessions
+flask --app . recompute-sessions --all --force
 flask --app . recompute-sessions --user 1 --force
+flask --app . recompute-sessions --session 123 --force
 
 # Export aggregated analytics
 flask --app . analytics-dump --user 1 --format json --pretty
-flask --app . analytics-dump --format csv --output analytics.csv
+flask --app . analytics-dump --format csv --output exports/analytics.csv
 
 # Check 100% charge reminders
 flask --app . reminders-run --user 1
@@ -258,6 +273,11 @@ flask --app . reminders-run --json
 # Manual reminder operations
 flask --app . reminders-run  # Check all users
 flask --app . reminders-run --user 1 --verbose  # Detailed output for specific user
+
+# CLI verbosity options (available for most commands)
+flask --app . sessions-import --from exports/sessions.csv --verbose
+flask --app . backup-create --to exports/backup.zip --quiet
+flask --app . analytics-dump --format json --verbose
 ```
 
 ### Creating a New User

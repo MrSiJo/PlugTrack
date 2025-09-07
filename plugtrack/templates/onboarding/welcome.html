@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Welcome to PlugTrack{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card shadow">
+                <div class="card-body text-center p-5">
+                    <div class="mb-4">
+                        <i class="bi bi-lightning-charge text-primary" style="font-size: 4rem;"></i>
+                    </div>
+                    
+                    <h1 class="card-title mb-4">Welcome to PlugTrack!</h1>
+                    
+                    <p class="lead mb-4">
+                        Track your electric vehicle charging sessions, analyze costs, and optimize your charging habits.
+                    </p>
+                    
+                    <div class="row text-start mb-4">
+                        <div class="col-md-6 mb-3">
+                            <h5><i class="bi bi-check-circle text-success"></i> What you can do:</h5>
+                            <ul class="list-unstyled">
+                                <li class="mb-2"><i class="bi bi-battery-charging text-primary"></i> Log charging sessions</li>
+                                <li class="mb-2"><i class="bi bi-graph-up text-primary"></i> Track costs and efficiency</li>
+                                <li class="mb-2"><i class="bi bi-car-front text-primary"></i> Manage multiple vehicles</li>
+                                <li class="mb-2"><i class="bi bi-pie-chart text-primary"></i> View detailed analytics</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <h5><i class="bi bi-info-circle text-info"></i> Getting started:</h5>
+                            <ol class="list-unstyled">
+                                <li class="mb-2"><i class="bi bi-1-circle text-primary"></i> Create your account</li>
+                                <li class="mb-2"><i class="bi bi-2-circle text-primary"></i> Add your first car (optional)</li>
+                                <li class="mb-2"><i class="bi bi-3-circle text-primary"></i> Start logging sessions</li>
+                            </ol>
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <a href="{{ url_for('onboarding.create_user') }}" class="btn btn-primary btn-lg">
+                            <i class="bi bi-person-plus"></i> Create Your Account
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

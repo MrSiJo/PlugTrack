@@ -113,3 +113,35 @@ class GeneralSettingsForm(FlaskForm):
                           description='This affects how costs are displayed throughout the application')
     show_savings_cards = BooleanField('Show petrol comparison and savings cards', 
                                      description='Display the "Range gained", "Petrol equivalent", and "You saved" cards on session detail pages')
+
+class OnboardingUserForm(FlaskForm):
+    """Form for creating the initial user during onboarding"""
+    username = StringField('Username', validators=[DataRequired(), Length(min=3, max=80)],
+                          description='Choose a username for your account')
+    password = PasswordField('Password', validators=[DataRequired(), Length(min=6)],
+                           description='Choose a secure password (minimum 6 characters)')
+    confirm_password = PasswordField('Confirm Password', validators=[DataRequired()],
+                                   description='Re-enter your password to confirm')
+    
+    def validate_confirm_password(self, field):
+        if self.password.data != field.data:
+            raise ValidationError('Passwords must match')
+
+class OnboardingCarForm(FlaskForm):
+    """Form for optionally creating the first car during onboarding"""
+    make = StringField('Car Make', validators=[Optional(), Length(max=100)],
+                      description='e.g., Tesla, BMW, Nissan')
+    model = StringField('Car Model', validators=[Optional(), Length(max=100)],
+                       description='e.g., Model 3, i3, Leaf')
+    battery_kwh = FloatField('Battery Capacity (kWh)', validators=[Optional(), NumberRange(min=0.1)],
+                            description='Total battery capacity in kilowatt-hours')
+    efficiency_mpkwh = FloatField('Efficiency (mi/kWh)', validators=[Optional(), NumberRange(min=0.1)],
+                                 description='Miles per kilowatt-hour (optional, can be set later)')
+    
+    def validate_battery_kwh(self, field):
+        if field.data is not None and field.data <= 0:
+            raise ValidationError('Battery capacity must be greater than 0')
+    
+    def validate_efficiency_mpkwh(self, field):
+        if field.data is not None and field.data <= 0:
+            raise ValidationError('Efficiency must be greater than 0')

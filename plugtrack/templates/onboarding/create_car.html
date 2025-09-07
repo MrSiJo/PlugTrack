@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Add Your First Car{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card shadow">
+                <div class="card-header text-center">
+                    <h4 class="mb-0">
+                        <i class="bi bi-car-front text-primary"></i> Add Your First Car
+                    </h4>
+                    <p class="text-muted mb-0 mt-2">Optional - you can add cars later from the Cars page</p>
+                </div>
+                <div class="card-body p-4">
+                    <form method="POST">
+                        {{ form.hidden_tag() }}
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    {{ form.make.label(class="form-label") }}
+                                    {{ form.make(class="form-control" + (" is-invalid" if form.make.errors else "")) }}
+                                    {% if form.make.errors %}
+                                        <div class="invalid-feedback">
+                                            {% for error in form.make.errors %}
+                                                {{ error }}
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+                                    <div class="form-text">{{ form.make.description }}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    {{ form.model.label(class="form-label") }}
+                                    {{ form.model(class="form-control" + (" is-invalid" if form.model.errors else "")) }}
+                                    {% if form.model.errors %}
+                                        <div class="invalid-feedback">
+                                            {% for error in form.model.errors %}
+                                                {{ error }}
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+                                    <div class="form-text">{{ form.model.description }}</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    {{ form.battery_kwh.label(class="form-label") }}
+                                    {{ form.battery_kwh(class="form-control" + (" is-invalid" if form.battery_kwh.errors else "")) }}
+                                    {% if form.battery_kwh.errors %}
+                                        <div class="invalid-feedback">
+                                            {% for error in form.battery_kwh.errors %}
+                                                {{ error }}
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+                                    <div class="form-text">{{ form.battery_kwh.description }}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    {{ form.efficiency_mpkwh.label(class="form-label") }}
+                                    {{ form.efficiency_mpkwh(class="form-control" + (" is-invalid" if form.efficiency_mpkwh.errors else "")) }}
+                                    {% if form.efficiency_mpkwh.errors %}
+                                        <div class="invalid-feedback">
+                                            {% for error in form.efficiency_mpkwh.errors %}
+                                                {{ error }}
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+                                    <div class="form-text">{{ form.efficiency_mpkwh.description }}</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i>
+                            <strong>Tip:</strong> You can add more cars later and update these details anytime from the Cars page.
+                        </div>
+                        
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-between">
+                            <a href="{{ url_for('onboarding.skip_car') }}" class="btn btn-outline-secondary btn-lg">
+                                <i class="bi bi-skip-forward"></i> Skip for Now
+                            </a>
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="bi bi-check-circle"></i> Add Car
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

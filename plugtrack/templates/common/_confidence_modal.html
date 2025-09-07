@@ -1,100 +1,314 @@
 <!-- What Affects Data Quality Modal -->
 <div class="modal fade" id="confidenceHelpModal" tabindex="-1" aria-labelledby="confidenceHelpModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="confidenceHelpModalLabel">
-                    <i class="bi bi-info-circle"></i> Understanding Data Quality
+                    <i class="bi bi-info-circle"></i> Understanding Data Quality & Confidence
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <div class="row">
                     <div class="col-12 mb-4">
-                        <p class="text-muted">
+                        <p class="lead">
                             Data quality levels show how reliable the efficiency and cost calculations are for your charging sessions.
-                            Lower quality usually means we have less information to work with, making calculations less precise.
+                            Understanding these factors helps you get the most accurate insights from your EV data.
                         </p>
                     </div>
                     
                     <!-- Quality Levels -->
                     <div class="col-12 mb-4">
-                        <h6>Quality Levels</h6>
+                        <h5><i class="bi bi-shield-check me-2"></i>Confidence Levels</h5>
                         <div class="row">
                             <div class="col-md-4 mb-3">
-                                <div class="card border-success">
+                                <div class="card border-success h-100">
                                     <div class="card-body text-center">
-                                        <i class="bi bi-shield-check text-success" style="font-size: 2rem;"></i>
-                                        <h6 class="mt-2">Reliable Data</h6>
-                                        <p class="small text-muted mb-0">Complete information available. Calculations are trustworthy.</p>
+                                        <i class="bi bi-shield-check text-success" style="font-size: 2.5rem;"></i>
+                                        <h6 class="mt-3 text-success">High Confidence</h6>
+                                        <p class="small text-muted mb-3">Complete information available. Calculations are trustworthy and reliable.</p>
+                                        <div class="badge bg-success">Reliable Data</div>
                                     </div>
                                 </div>
                             </div>
                             <div class="col-md-4 mb-3">
-                                <div class="card border-warning">
+                                <div class="card border-warning h-100">
                                     <div class="card-body text-center">
-                                        <i class="bi bi-shield-exclamation text-warning" style="font-size: 2rem;"></i>
-                                        <h6 class="mt-2">Some Limitations</h6>
-                                        <p class="small text-muted mb-0">Most data available but minor issues may affect accuracy.</p>
+                                        <i class="bi bi-shield-exclamation text-warning" style="font-size: 2.5rem;"></i>
+                                        <h6 class="mt-3 text-warning">Medium Confidence</h6>
+                                        <p class="small text-muted mb-3">Most data available but minor issues may affect accuracy.</p>
+                                        <div class="badge bg-warning">Some Limitations</div>
                                     </div>
                                 </div>
                             </div>
                             <div class="col-md-4 mb-3">
-                                <div class="card border-danger">
+                                <div class="card border-danger h-100">
                                     <div class="card-body text-center">
-                                        <i class="bi bi-shield-x text-danger" style="font-size: 2rem;"></i>
-                                        <h6 class="mt-2">Limited Data</h6>
-                                        <p class="small text-muted mb-0">Several issues mean calculations should be taken with caution.</p>
+                                        <i class="bi bi-shield-x text-danger" style="font-size: 2.5rem;"></i>
+                                        <h6 class="mt-3 text-danger">Low Confidence</h6>
+                                        <p class="small text-muted mb-3">Several issues mean calculations should be taken with caution.</p>
+                                        <div class="badge bg-danger">Limited Data</div>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                     
-                    <!-- Common Issues -->
+                    <!-- What Affects Confidence -->
                     <div class="col-12 mb-4">
-                        <h6>Common Data Issues</h6>
-                        <div class="list-group">
-                            <div class="list-group-item">
-                                <strong>Short trip between charges</strong><br>
-                                <small class="text-muted">When you only drive a short distance between charges, efficiency calculations become less reliable.</small>
+                        <h5><i class="bi bi-gear me-2"></i>What Affects Confidence?</h5>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <div class="card h-100">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0"><i class="bi bi-speedometer2 text-primary me-2"></i>Odometer Data</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <p class="small mb-2"><strong>Why it matters:</strong> We need to know how far you drove to calculate efficiency (miles per kWh).</p>
+                                        <div class="alert alert-warning alert-sm mb-2">
+                                            <strong>Low confidence when:</strong>
+                                            <ul class="mb-0 small">
+                                                <li>Missing odometer reading</li>
+                                                <li>Very short trip (< 15 miles)</li>
+                                                <li>Long gap since last reading (> 10 days)</li>
+                                            </ul>
+                                        </div>
+                                        <div class="alert alert-success alert-sm mb-0">
+                                            <strong>High confidence when:</strong>
+                                            <ul class="mb-0 small">
+                                                <li>Recent odometer reading</li>
+                                                <li>Reasonable trip distance (15+ miles)</li>
+                                                <li>Consistent logging pattern</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="list-group-item">
-                                <strong>Missing mileage reading</strong><br>
-                                <small class="text-muted">Without odometer data, we can't calculate how efficiently you're driving.</small>
+                            
+                            <div class="col-md-6 mb-3">
+                                <div class="card h-100">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0"><i class="bi bi-battery-charging text-success me-2"></i>Charge Amount</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <p class="small mb-2"><strong>Why it matters:</strong> Larger charges provide more reliable cost and efficiency data.</p>
+                                        <div class="alert alert-warning alert-sm mb-2">
+                                            <strong>Low confidence when:</strong>
+                                            <ul class="mb-0 small">
+                                                <li>Very small charge (< 3 kWh)</li>
+                                                <li>Quick top-up sessions</li>
+                                                <li>Inconsistent charge amounts</li>
+                                            </ul>
+                                        </div>
+                                        <div class="alert alert-success alert-sm mb-0">
+                                            <strong>High confidence when:</strong>
+                                            <ul class="mb-0 small">
+                                                <li>Substantial charge (3+ kWh)</li>
+                                                <li>Regular charging patterns</li>
+                                                <li>Consistent energy delivery</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="list-group-item">
-                                <strong>Very small charge amount</strong><br>
-                                <small class="text-muted">Small top-ups make cost and efficiency calculations less meaningful.</small>
+                            
+                            <div class="col-md-6 mb-3">
+                                <div class="card h-100">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0"><i class="bi bi-graph-up text-info me-2"></i>Efficiency Range</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <p class="small mb-2"><strong>Why it matters:</strong> Unrealistic efficiency values indicate data quality issues.</p>
+                                        <div class="alert alert-warning alert-sm mb-2">
+                                            <strong>Low confidence when:</strong>
+                                            <ul class="mb-0 small">
+                                                <li>Efficiency < 1.0 mi/kWh (too low)</li>
+                                                <li>Efficiency > 7.0 mi/kWh (too high)</li>
+                                                <li>Extreme variations between sessions</li>
+                                            </ul>
+                                        </div>
+                                        <div class="alert alert-success alert-sm mb-0">
+                                            <strong>High confidence when:</strong>
+                                            <ul class="mb-0 small">
+                                                <li>Efficiency 1.0-7.0 mi/kWh</li>
+                                                <li>Consistent with car's rated efficiency</li>
+                                                <li>Reasonable seasonal variations</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="list-group-item">
-                                <strong>Long gap since last reading</strong><br>
-                                <small class="text-muted">If it's been a while since your last session, accuracy may be reduced.</small>
-                            </div>
-                            <div class="list-group-item">
-                                <strong>Unusual efficiency reading</strong><br>
-                                <small class="text-muted">Sometimes calculations produce unrealistic results that get adjusted automatically.</small>
+                            
+                            <div class="col-md-6 mb-3">
+                                <div class="card h-100">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0"><i class="bi bi-clock text-warning me-2"></i>Data Freshness</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <p class="small mb-2"><strong>Why it matters:</strong> Recent data is more relevant for current driving patterns.</p>
+                                        <div class="alert alert-warning alert-sm mb-2">
+                                            <strong>Low confidence when:</strong>
+                                            <ul class="mb-0 small">
+                                                <li>Last session > 30 days ago</li>
+                                                <li>Inconsistent logging frequency</li>
+                                                <li>Long gaps between readings</li>
+                                            </ul>
+                                        </div>
+                                        <div class="alert alert-success alert-sm mb-0">
+                                            <strong>High confidence when:</strong>
+                                            <ul class="mb-0 small">
+                                                <li>Regular session logging</li>
+                                                <li>Recent data points</li>
+                                                <li>Consistent usage patterns</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                     
-                    <!-- Tips -->
-                    <div class="col-12">
+                    <!-- Real Examples -->
+                    <div class="col-12 mb-4">
+                        <h5><i class="bi bi-lightbulb me-2"></i>Real Examples</h5>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <div class="card border-success">
+                                    <div class="card-header bg-success text-white">
+                                        <h6 class="mb-0"><i class="bi bi-check-circle me-2"></i>High Confidence Example</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <p class="small mb-2"><strong>Scenario:</strong> Regular charging session</p>
+                                        <ul class="small mb-2">
+                                            <li>Drove 45 miles since last charge</li>
+                                            <li>Added 12.5 kWh of energy</li>
+                                            <li>Last session was 3 days ago</li>
+                                            <li>Efficiency: 3.6 mi/kWh</li>
+                                        </ul>
+                                        <div class="alert alert-success alert-sm mb-0">
+                                            <strong>Result:</strong> High confidence - all data points are reliable and realistic.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6 mb-3">
+                                <div class="card border-warning">
+                                    <div class="card-header bg-warning text-dark">
+                                        <h6 class="mb-0"><i class="bi bi-exclamation-triangle me-2"></i>Medium Confidence Example</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <p class="small mb-2"><strong>Scenario:</strong> Short trip session</p>
+                                        <ul class="small mb-2">
+                                            <li>Drove only 8 miles since last charge</li>
+                                            <li>Added 4.2 kWh of energy</li>
+                                            <li>Last session was 1 day ago</li>
+                                            <li>Efficiency: 1.9 mi/kWh</li>
+                                        </ul>
+                                        <div class="alert alert-warning alert-sm mb-0">
+                                            <strong>Result:</strong> Medium confidence - short trip makes efficiency calculation less reliable.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6 mb-3">
+                                <div class="card border-danger">
+                                    <div class="card-header bg-danger text-white">
+                                        <h6 class="mb-0"><i class="bi bi-x-circle me-2"></i>Low Confidence Example</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <p class="small mb-2"><strong>Scenario:</strong> Missing data session</p>
+                                        <ul class="small mb-2">
+                                            <li>No odometer reading recorded</li>
+                                            <li>Added 2.1 kWh of energy</li>
+                                            <li>Last session was 2 weeks ago</li>
+                                            <li>Cannot calculate efficiency</li>
+                                        </ul>
+                                        <div class="alert alert-danger alert-sm mb-0">
+                                            <strong>Result:</strong> Low confidence - missing critical data for calculations.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6 mb-3">
+                                <div class="card border-info">
+                                    <div class="card-header bg-info text-white">
+                                        <h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>Cost Analysis</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <p class="small mb-2"><strong>Cost per mile calculation:</strong></p>
+                                        <ul class="small mb-2">
+                                            <li>Session cost: £8.50</li>
+                                            <li>Miles driven: 45 miles</li>
+                                            <li>Cost per mile: <strong>18.9 p/mi</strong></li>
+                                            <li>Parity rate: <strong>£0.52/kWh</strong></li>
+                                        </ul>
+                                        <div class="alert alert-info alert-sm mb-0">
+                                            <strong>Note:</strong> All costs shown in p/kWh and p/mi for easy comparison.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Tips for Better Data -->
+                    <div class="col-12 mb-4">
                         <div class="alert alert-info">
                             <h6><i class="bi bi-lightbulb me-2"></i>Tips for Better Data Quality</h6>
-                            <ul class="mb-0">
-                                <li>Always record your odometer reading when logging sessions</li>
-                                <li>Log sessions consistently, especially after longer trips</li>
-                                <li>Avoid logging very small top-ups unless necessary</li>
-                                <li>Check your readings for typos before saving</li>
-                            </ul>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <ul class="mb-0">
+                                        <li><strong>Always record odometer readings</strong> - This is the most important data point</li>
+                                        <li><strong>Log sessions consistently</strong> - Especially after longer trips</li>
+                                        <li><strong>Check for typos</strong> - Verify readings before saving</li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <ul class="mb-0">
+                                        <li><strong>Avoid very small top-ups</strong> - Unless absolutely necessary</li>
+                                        <li><strong>Log within 24 hours</strong> - Fresh data is more accurate</li>
+                                        <li><strong>Use consistent units</strong> - All costs in p/kWh and p/mi</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Unit Consistency -->
+                    <div class="col-12">
+                        <div class="alert alert-success">
+                            <h6><i class="bi bi-check-circle me-2"></i>Unit Consistency</h6>
+                            <p class="mb-2">PlugTrack uses consistent units throughout the application:</p>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <ul class="mb-0">
+                                        <li><strong>Cost per kWh:</strong> Always shown as <code>p/kWh</code></li>
+                                        <li><strong>Cost per mile:</strong> Always shown as <code>p/mi</code></li>
+                                        <li><strong>Efficiency:</strong> Always shown as <code>mi/kWh</code></li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <ul class="mb-0">
+                                        <li><strong>Energy:</strong> Always shown as <code>kWh</code></li>
+                                        <li><strong>Distance:</strong> Always shown as <code>miles</code></li>
+                                        <li><strong>Speed:</strong> Always shown as <code>mph</code></li>
+                                    </ul>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
-
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Got it</button>
+                <a href="{{ url_for('help.index') }}" class="btn btn-outline-secondary me-2">
+                    <i class="bi bi-question-circle me-1"></i> More Help
+                </a>
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">
+                    <i class="bi bi-check-circle me-1"></i> Got it
+                </button>
             </div>
         </div>
     </div>

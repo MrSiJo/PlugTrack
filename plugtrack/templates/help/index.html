@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block title %}Help & FAQ - PlugTrack{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1><i class="bi bi-question-circle text-primary"></i> Help & FAQ</h1>
+            <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Dashboard
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <!-- Quick Start Guide -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-rocket-takeoff text-success"></i> Quick Start Guide</h5>
+            </div>
+            <div class="card-body">
+                <p class="lead">Get up and running with PlugTrack in just a few steps!</p>
+                <ol>
+                    <li><strong>Add your cars:</strong> Go to <a href="{{ url_for('cars.index') }}">Cars</a> and add your electric vehicles with their battery capacity and efficiency.</li>
+                    <li><strong>Log charging sessions:</strong> Use the <a href="{{ url_for('charging_sessions.new') }}">Add Session</a> button to record your charging data.</li>
+                    <li><strong>View analytics:</strong> Check the <a href="{{ url_for('analytics.index') }}">Analytics</a> page to see your charging patterns and costs.</li>
+                    <li><strong>Configure settings:</strong> Visit <a href="{{ url_for('settings.index') }}">Settings</a> to set up cost analysis and preferences.</li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- Frequently Asked Questions -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-chat-quote text-info"></i> Frequently Asked Questions</h5>
+            </div>
+            <div class="card-body">
+                <div class="accordion" id="faqAccordion">
+                    <!-- FAQ 1: How do I add a charging session? -->
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="faq1">
+                            <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#faq1Content" aria-expanded="true" aria-controls="faq1Content">
+                                <i class="bi bi-plus-circle me-2"></i> How do I add a charging session?
+                            </button>
+                        </h2>
+                        <div id="faq1Content" class="accordion-collapse collapse show" aria-labelledby="faq1" data-bs-parent="#faqAccordion">
+                            <div class="accordion-body">
+                                <p>Adding a charging session is easy! Here's how:</p>
+                                <ol>
+                                    <li><strong>Click "Add Session":</strong> Use the blue "Add Session" button on the dashboard or go to the Charging Sessions page.</li>
+                                    <li><strong>Fill in the details:</strong>
+                                        <ul>
+                                            <li><strong>Car:</strong> Select which vehicle you're charging</li>
+                                            <li><strong>Date & Time:</strong> When did the charging start?</li>
+                                            <li><strong>Start SoC:</strong> Battery level when you started charging (e.g., 20%)</li>
+                                            <li><strong>End SoC:</strong> Battery level when you finished (e.g., 80%)</li>
+                                            <li><strong>kWh Delivered:</strong> How much energy was added (check your car's display or charging station)</li>
+                                            <li><strong>Cost:</strong> What you paid for this charging session</li>
+                                            <li><strong>Location:</strong> Where you charged (home, work, public station, etc.)</li>
+                                        </ul>
+                                    </li>
+                                    <li><strong>Save:</strong> Click "Add Session" to save your data.</li>
+                                </ol>
+                                <div class="alert alert-info mt-3">
+                                    <i class="bi bi-lightbulb"></i> <strong>Pro tip:</strong> You can also add sessions from the mobile app or import data from your car's app if supported.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- FAQ 2: What does "confidence" mean? -->
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="faq2">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq2Content" aria-expanded="false" aria-controls="faq2Content">
+                                <i class="bi bi-shield-check me-2"></i> What does "confidence" mean?
+                            </button>
+                        </h2>
+                        <div id="faq2Content" class="accordion-collapse collapse" aria-labelledby="faq2" data-bs-parent="#faqAccordion">
+                            <div class="accordion-body">
+                                <p>Confidence is a measure of how reliable your charging session data is. PlugTrack analyzes several factors to determine data quality:</p>
+                                
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h6><i class="bi bi-check-circle text-success"></i> High Confidence</h6>
+                                        <ul class="small">
+                                            <li>Complete odometer readings</li>
+                                            <li>Accurate charge amounts</li>
+                                            <li>Reasonable efficiency range</li>
+                                            <li>Recent data (within 7 days)</li>
+                                        </ul>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h6><i class="bi bi-exclamation-triangle text-warning"></i> Low Confidence</h6>
+                                        <ul class="small">
+                                            <li>Missing odometer data</li>
+                                            <li>Estimated charge amounts</li>
+                                            <li>Unusual efficiency values</li>
+                                            <li>Old or incomplete data</li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <div class="alert alert-warning mt-3">
+                                    <i class="bi bi-info-circle"></i> <strong>Why it matters:</strong> High confidence data gives you more accurate cost analysis and better insights into your charging patterns.
+                                </div>
+
+                                <p class="mt-3">
+                                    <a href="#" data-bs-toggle="modal" data-bs-target="#confidenceHelpModal" class="btn btn-outline-info btn-sm">
+                                        <i class="bi bi-question-circle me-1"></i> Learn More About Confidence
+                                    </a>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- FAQ 3: How do I set up cost analysis? -->
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="faq3">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq3Content" aria-expanded="false" aria-controls="faq3Content">
+                                <i class="bi bi-calculator me-2"></i> How do I set up cost analysis?
+                            </button>
+                        </h2>
+                        <div id="faq3Content" class="accordion-collapse collapse" aria-labelledby="faq3" data-bs-parent="#faqAccordion">
+                            <div class="accordion-body">
+                                <p>Cost analysis helps you understand the true cost of EV ownership compared to petrol cars. Here's how to set it up:</p>
+                                
+                                <h6><i class="bi bi-gear text-primary"></i> Step 1: Go to Settings</h6>
+                                <p>Navigate to <a href="{{ url_for('settings.index') }}">Settings</a> and click on the "Cost & Efficiency" tab.</p>
+                                
+                                <h6><i class="bi bi-lightning-charge text-warning"></i> Step 2: Set EV Efficiency</h6>
+                                <p>Enter your car's typical efficiency in miles per kWh (mi/kWh). This is usually between 3-5 mi/kWh for most EVs.</p>
+                                
+                                <h6><i class="bi bi-fuel-pump text-danger"></i> Step 3: Configure Petrol Comparison</h6>
+                                <p>Enter the current petrol price per litre and your previous car's MPG to compare costs.</p>
+                                
+                                <h6><i class="bi bi-graph-up text-success"></i> Step 4: View Results</h6>
+                                <p>PlugTrack will automatically calculate:</p>
+                                <ul>
+                                    <li><strong>Cost per mile</strong> for both EV and petrol</li>
+                                    <li><strong>EV parity rate</strong> - the electricity price that makes EV and petrol costs equal</li>
+                                    <li><strong>Savings analysis</strong> in your analytics</li>
+                                </ul>
+
+                                <div class="alert alert-success mt-3">
+                                    <i class="bi bi-check-circle"></i> <strong>Real-time updates:</strong> The cost analysis updates automatically as you enter new charging sessions!
+                                </div>
+
+                                <p class="mt-3">
+                                    <a href="{{ url_for('settings.index') }}" class="btn btn-primary btn-sm">
+                                        <i class="bi bi-gear me-1"></i> Go to Settings
+                                    </a>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Additional Resources -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-book text-secondary"></i> Additional Resources</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="bi bi-graph-up text-primary"></i> Analytics Guide</h6>
+                        <p class="small text-muted">Learn how to interpret your charging data and identify patterns in your EV usage.</p>
+                        <a href="{{ url_for('analytics.index') }}" class="btn btn-outline-primary btn-sm">View Analytics</a>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="bi bi-gear text-info"></i> Settings & Configuration</h6>
+                        <p class="small text-muted">Configure advanced settings, thresholds, and preferences for optimal data quality.</p>
+                        <a href="{{ url_for('settings.index') }}" class="btn btn-outline-info btn-sm">Open Settings</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <!-- Quick Actions -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-lightning-charge text-warning"></i> Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('charging_sessions.new') }}" class="btn btn-primary">
+                        <i class="bi bi-plus-circle me-2"></i> Add Charging Session
+                    </a>
+                    <a href="{{ url_for('cars.new') }}" class="btn btn-outline-secondary">
+                        <i class="bi bi-car-front me-2"></i> Add New Car
+                    </a>
+                    <a href="{{ url_for('analytics.index') }}" class="btn btn-outline-info">
+                        <i class="bi bi-graph-up me-2"></i> View Analytics
+                    </a>
+                    <a href="{{ url_for('settings.index') }}" class="btn btn-outline-warning">
+                        <i class="bi bi-gear me-2"></i> Settings
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contact Support -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-headset text-success"></i> Need More Help?</h5>
+            </div>
+            <div class="card-body">
+                <p class="small">If you can't find what you're looking for, here are some ways to get help:</p>
+                <ul class="small">
+                    <li><strong>Check the confidence modal</strong> for detailed data quality information</li>
+                    <li><strong>Review your settings</strong> to ensure everything is configured correctly</li>
+                    <li><strong>Look at the analytics</strong> to understand your data better</li>
+                </ul>
+                <div class="alert alert-info mt-3">
+                    <i class="bi bi-info-circle"></i> <strong>Tip:</strong> Most issues can be resolved by checking your car profiles and session data for completeness.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Include confidence modal for FAQ links -->
+{% include 'common/_confidence_modal.html' %}
+{% endblock %}

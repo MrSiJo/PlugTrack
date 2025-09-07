@@ -808,10 +808,10 @@ class DerivedMetricsService:
 
     @staticmethod
     def get_similar_sessions(session, limit=5):
-        """Find similar sessions for comparison and delta calculations"""
-        # Get sessions with same car and either:
-        # 1. Same charge type and overlapping SoC window (±10% of soc_from), OR
-        # 2. Same location/network
+        """Find similar sessions for comparison and delta calculations with refined matching logic"""
+        # DEBUG: Print session details
+        print(f"DEBUG: get_similar_sessions called for session {session.id}")
+        print(f"DEBUG: Energy: {session.charge_delivered_kwh} kWh, Type: {session.charge_type}, Location: {session.location_label}")
         
         # Build base query for same car
         base_query = ChargingSession.query.filter(
@@ -822,38 +822,75 @@ class DerivedMetricsService:
             )
         )
         
-        # Get sessions with same charge type and overlapping SoC window
-        soc_window_query = base_query.filter(
+        # Determine session characteristics
+        is_home = DerivedMetricsService._is_home_like(session)
+        charge_type = session.charge_type
+        energy_delivered = session.charge_delivered_kwh or 0
+        
+        print(f"DEBUG: is_home={is_home}, charge_type={charge_type}, energy_delivered={energy_delivered}")
+        
+        # Calculate energy range based on charge type and energy delivered
+        if charge_type == 'DC':
+            # DC sessions: ±40% energy range, minimum 10kWh range
+            energy_range = max(10.0, energy_delivered * 0.4)
+        else:
+            # AC sessions: ±50% energy range, minimum 2kWh range
+            energy_range = max(2.0, energy_delivered * 0.5)
+        
+        min_energy = max(0, energy_delivered - energy_range)
+        max_energy = energy_delivered + energy_range
+        
+        print(f"DEBUG: Energy range: {min_energy:.1f} - {max_energy:.1f} kWh")
+        
+        # Strategy 1: Strict matching - same charge type, same location type, similar energy
+        strict_query = base_query.filter(
             and_(
-                ChargingSession.charge_type == session.charge_type,
-                ChargingSession.soc_from >= max(0, session.soc_from - 10),
-                ChargingSession.soc_from <= min(100, session.soc_from + 10)
+                ChargingSession.charge_type == charge_type,
+                ChargingSession.charge_delivered_kwh >= min_energy,
+                ChargingSession.charge_delivered_kwh <= max_energy
             )
-        ).order_by(ChargingSession.date.desc()).limit(limit)
+        )
         
-        # Get sessions with same location/network
-        location_query = base_query.filter(
-            or_(
-                ChargingSession.location_label.ilike(f'%{session.location_label}%'),
-                ChargingSession.charge_network == session.charge_network
+        # Add location type filter
+        if is_home:
+            strict_query = strict_query.filter(
+                or_(
+                    ChargingSession.location_label.ilike('%home%'),
+                    ChargingSession.location_label.ilike('%garage%'),
+                    ChargingSession.location_label.ilike('%driveway%')
+                )
             )
-        ).order_by(ChargingSession.date.desc()).limit(limit)
+        else:
+            # Public charging - exclude home-like locations
+            strict_query = strict_query.filter(
+                not_(
+                    or_(
+                        ChargingSession.location_label.ilike('%home%'),
+                        ChargingSession.location_label.ilike('%garage%'),
+                        ChargingSession.location_label.ilike('%driveway%')
+                    )
+                )
+            )
         
-        # Combine and deduplicate results
+        # Get strict matches first
         similar_sessions = []
         seen_ids = set()
         
-        for s in soc_window_query.all():
-            if s.id not in seen_ids:
-                similar_sessions.append(s)
-                seen_ids.add(s.id)
+        strict_matches = strict_query.order_by(ChargingSession.date.desc()).limit(limit).all()
+        print(f"DEBUG: Found {len(strict_matches)} strict matches")
+        for s in strict_matches:
+            print(f"DEBUG: Strict match - ID: {s.id}, Energy: {s.charge_delivered_kwh} kWh, Location: {s.location_label}")
+            similar_sessions.append(s)
+            seen_ids.add(s.id)
         
-        for s in location_query.all():
-            if s.id not in seen_ids and len(similar_sessions) < limit:
-                similar_sessions.append(s)
-                seen_ids.add(s.id)
+        # Only use strict matching - no fallbacks to maintain energy range integrity
+        print(f"DEBUG: Using only strict matching - found {len(similar_sessions)} sessions within energy range")
         
-        return similar_sessions[:limit]
+        result = similar_sessions[:limit]
+        print(f"DEBUG: Returning {len(result)} similar sessions")
+        for s in result:
+            print(f"DEBUG: Final result - ID: {s.id}, Energy: {s.charge_delivered_kwh} kWh, Location: {s.location_label}")
+        return result
 
     @staticmethod
     def calculate_dynamic_efficiency(
