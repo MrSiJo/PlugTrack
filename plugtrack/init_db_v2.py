@@ -162,9 +162,11 @@ def initialize_baseline_sessions():
         
         baseline_count = 0
         for user_id, username in users_with_sessions:
-            baselines = BaselineManager.initialize_user_baselines(user_id)
-            baseline_count += len(baselines)
-            print(f"   ✓ User {username}: {len(baselines)} baseline sessions")
+            BaselineManager.initialize_all_baselines(user_id)
+            # Count baseline sessions for this user
+            user_baselines = ChargingSession.query.filter_by(user_id=user_id, is_baseline=True).count()
+            baseline_count += user_baselines
+            print(f"   ✓ User {username}: {user_baselines} baseline sessions")
         
         print(f"✅ Initialized {baseline_count} baseline sessions")
         

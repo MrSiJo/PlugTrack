@@ -1,0 +1,17 @@
+[Unit]
+Description=PlugTrack EV Charging Session Manager Web Application
+After=network.target
+
+[Service]
+Type=simple
+User=PlugTrack
+Group=PlugTrack
+WorkingDirectory=/opt/plugtrack
+ExecStart=/opt/plugtrack/start-web.sh
+StandardOutput=append:/var/log/plugtrack-web.log
+StandardError=append:/var/log/plugtrack-web.err
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
