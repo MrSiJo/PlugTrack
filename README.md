@@ -445,6 +445,8 @@ python unit-tests/test_phase5_metrics.py
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
+Before opening a PR, review the [Repository Guidelines](plugtrack/AGENTS.md) for project structure, testing, and review expectations.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
