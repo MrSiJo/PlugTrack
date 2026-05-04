@@ -15,6 +15,7 @@ import SessionDetail from '@/pages/SessionDetail'
 import Sessions from '@/pages/Sessions'
 import SettingsPage from '@/pages/SettingsPage'
 import SetupPage from '@/pages/SetupPage'
+import SyncStreamSubscriber from '@/components/SyncStreamSubscriber'
 
 interface BootstrapResult {
   setupNeeded: boolean
@@ -203,6 +204,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AppShell>
+        <SyncStreamSubscriber />
         <AppRoutes result={result} />
       </AppShell>
     </BrowserRouter>

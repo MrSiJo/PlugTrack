@@ -9,6 +9,11 @@ import App from './App'
 beforeEach(() => {
   useAuthStore.setState({ user: null, loading: false, initialised: false })
   useSettingsStore.setState({ settings: {}, loaded: false, loading: false, error: null })
+  // SyncStreamSubscriber pings /api/sync/status on mount; stub it to a
+  // 401 so the silent-no-op branch is taken in App-routing tests.
+  vi.spyOn(clientModule.api, 'getSyncStatus').mockRejectedValue(
+    new ApiError(401, 'Authentication required', null),
+  )
   // jsdom doesn't ship matchMedia.
   if (!window.matchMedia) {
     Object.defineProperty(window, 'matchMedia', {

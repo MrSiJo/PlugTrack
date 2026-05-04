@@ -343,4 +343,46 @@ export const api = {
       method: 'PATCH',
       body: req,
     }),
+
+  // ----- Sync -----
+
+  syncCar: (carId: number): Promise<SyncJobResponse> =>
+    fetchJSON<SyncJobResponse>(`/api/sync/${carId}`, { method: 'POST' }),
+
+  wakeCar: (carId: number): Promise<WakeResponse> =>
+    fetchJSON<WakeResponse>(`/api/sync/${carId}/wake`, { method: 'POST' }),
+
+  getSyncStatus: (): Promise<SyncStatusResponse> =>
+    fetchJSON<SyncStatusResponse>('/api/sync/status'),
+}
+
+// ---------------------------------------------------------------------------
+// Sync types
+// ---------------------------------------------------------------------------
+
+export interface SyncJobResponse {
+  job_id: string
+  stream_url: string
+  kind: string
+  status: string
+}
+
+export interface WakeResponse {
+  woken: boolean
+  car_id: number
+  reason?: string
+  retry_after?: number
+}
+
+export interface CarSyncStatus {
+  last_state: string | null
+  last_soc: number | null
+  next_poll_at: string | null
+  last_error: string | null
+  active_job_id: string | null
+  consecutive_failures: number
+}
+
+export interface SyncStatusResponse {
+  cars: Record<string, CarSyncStatus>
 }
