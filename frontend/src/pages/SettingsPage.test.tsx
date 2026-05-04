@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as clientModule from '@/api/client'
 import { useSettingsStore } from '@/stores/settingsStore'
 import SettingsPage from './SettingsPage'
@@ -77,6 +77,56 @@ describe('SettingsPage', () => {
     expect(screen.getByText('Cupra password')).toBeInTheDocument()
     // Secret value is rendered as ***
     expect(screen.getByText(/\*\*\*/)).toBeInTheDocument()
+  })
+
+  describe('Clear cached Cupra tokens button', () => {
+    beforeEach(() => {
+      vi.restoreAllMocks()
+    })
+    afterEach(() => {
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    })
+
+    it('POSTs to clearPycupraTokens after the user confirms', async () => {
+      const clearSpy = vi
+        .spyOn(clientModule.api, 'clearPycupraTokens')
+        .mockResolvedValue({ cleared: true, count: 3 })
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+      render(
+        <MemoryRouter>
+          <SettingsPage />
+        </MemoryRouter>,
+      )
+
+      await userEvent.click(screen.getByTestId('clear-pycupra-tokens-button'))
+      expect(confirmSpy).toHaveBeenCalled()
+      expect(clearSpy).toHaveBeenCalled()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('clear-pycupra-tokens-toast')).toHaveTextContent(
+          /Tokens cleared/i,
+        )
+      })
+    })
+
+    it('does NOT POST when the user cancels the confirm', async () => {
+      const clearSpy = vi
+        .spyOn(clientModule.api, 'clearPycupraTokens')
+        .mockResolvedValue({ cleared: false, count: 0 })
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+      render(
+        <MemoryRouter>
+          <SettingsPage />
+        </MemoryRouter>,
+      )
+
+      await userEvent.click(screen.getByTestId('clear-pycupra-tokens-button'))
+      expect(confirmSpy).toHaveBeenCalled()
+      expect(clearSpy).not.toHaveBeenCalled()
+    })
   })
 
   it('PUTs setting on Save click', async () => {
