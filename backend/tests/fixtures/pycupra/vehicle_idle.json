@@ -1,0 +1,29 @@
+{
+  "_comment": "SYNTHETIC fixture — not real account data. Vehicle parked, plug disconnected.",
+  "vehicle_id": "TESTVIN0000000002",
+  "battery_level": 62,
+  "charging": false,
+  "charging_state": false,
+  "charging_power": null,
+  "charging_time_left": null,
+  "target_soc": 80,
+  "charging_cable_connected": false,
+  "charging_cable_locked": false,
+  "external_power": false,
+  "energy_flow": "off",
+  "vehicle_online": true,
+  "last_connected": "2026-04-12T08:01:12+00:00",
+  "distance_km": 18920,
+  "electric_range_km": 252,
+  "position": null,
+  "attrs": {
+    "charging": {
+      "carCapturedTimestamp": "2026-04-12T08:01:12+00:00",
+      "status": {
+        "charging": {
+          "state": "off"
+        }
+      }
+    }
+  }
+}
