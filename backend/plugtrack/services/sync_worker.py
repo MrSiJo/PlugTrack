@@ -41,6 +41,7 @@ from ..models import Car, ChargingSession, Location, PlugInRecord, SyncRun
 from ..plugins.pycupra.models import Position, VehicleState
 from .cost import compute_session_cost
 from .event_bus import EventBus, SyncEvent
+from .geocoding import get_provider as get_geocoding_provider
 from .location_clustering import find_or_create_location
 from .session_synthesiser import StateMachine, Transitions
 from .sync_orchestrator import CarSyncState, SyncJob
@@ -601,8 +602,9 @@ class ProductionPollWorker:
         if positions and plug_in_id is not None:
             avg_lat = sum(p.lat for p in positions) / len(positions)
             avg_lng = sum(p.lng for p in positions) / len(positions)
+            was_created = False
             async with self._db_sessionmaker() as session:
-                location, _ = await find_or_create_location(
+                location, was_created = await find_or_create_location(
                     session, car.user_id, avg_lat, avg_lng
                 )
                 await session.commit()
@@ -627,7 +629,78 @@ class ProductionPollWorker:
                     {"session_id": sid, "fields": ["location_id"]},
                 )
 
+            # 3. If we just created a brand-new location row, schedule a
+            #    fire-and-forget reverse-geocode. The actual provider
+            #    call inside `_geocode_async` is wrapped in
+            #    `asyncio.shield` so worker / lifespan shutdown doesn't
+            #    kill a mid-flight HTTP request and leave the row
+            #    half-populated.
+            if was_created and location_id is not None:
+                user_id = car.user_id
+                asyncio.create_task(
+                    self._geocode_async(user_id, location_id, avg_lat, avg_lng)
+                )
+
         return updated
+
+    async def _geocode_async(
+        self,
+        user_id: int,
+        location_id: int,
+        lat: float,
+        lng: float,
+    ) -> None:
+        """Background reverse-geocode for a freshly-created Location.
+
+        Reads settings, picks a provider via the factory, and writes the
+        result back. Failures (network, parse, provider-disabled) are
+        logged and the row is left with `address=NULL`.
+        """
+        try:
+            settings = await self._settings_provider(user_id)
+        except Exception:
+            logger.exception("geocode: failed to read settings")
+            return
+
+        try:
+            provider = get_geocoding_provider(settings)
+        except ValueError as exc:
+            # Provider mis-configured (e.g. mapbox without key). Log and
+            # bail — the row stays unannotated until the user fixes
+            # settings + re-runs.
+            logger.warning("geocode: provider misconfigured: %s", exc)
+            return
+
+        try:
+            # Shield the actual HTTP round-trip so a worker/lifespan
+            # shutdown mid-fetch doesn't cancel an in-flight request and
+            # leave the location row half-populated.
+            result = await asyncio.shield(provider.reverse(lat, lng))
+        except asyncio.CancelledError:
+            # Re-raise so the surrounding task knows it was cancelled,
+            # but the shielded inner request continues to completion in
+            # its own task per asyncio.shield semantics.
+            raise
+        except Exception:
+            logger.exception("geocode: provider raised")
+            return
+
+        if result is None:
+            # NoOp / no-match / network error already logged inside the
+            # provider.
+            return
+
+        try:
+            async with self._db_sessionmaker() as session:
+                row = await session.get(Location, location_id)
+                if row is None:
+                    return
+                row.address = result.address
+                row.address_provider = result.provider
+                row.address_fetched_at = _utcnow()
+                await session.commit()
+        except Exception:
+            logger.exception("geocode: db write failed for location %s", location_id)
 
     # ---------------- helpers ----------------
 
