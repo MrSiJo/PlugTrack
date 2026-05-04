@@ -241,6 +241,8 @@ export interface ChargingSessionPayload {
   cost_per_kwh_override_p: number | null
   total_cost_pence_override: number | null
   location_id: number | null
+  location_name: string | null
+  location_address: string | null
   user_label: string | null
   charge_network: string | null
   notes: string | null

@@ -156,13 +156,13 @@ function SessionRowDisplay({ row, currency }: SessionRowDisplayProps) {
       className="border-b border-slate-200 last:border-b-0 dark:border-slate-700"
       data-testid={`recent-session-${row.id}`}
     >
-      <td className="py-2 text-xs font-mono">{row.date}</td>
-      <td className="py-2 text-xs">car #{row.car_id}</td>
-      <td className="py-2 text-xs text-right">{row.kwh_added.toFixed(2)} kWh</td>
-      <td className="py-2 text-xs text-right">
+      <td className="px-3 py-2 text-xs font-mono">{row.date}</td>
+      <td className="px-3 py-2 text-xs">car #{row.car_id}</td>
+      <td className="px-3 py-2 text-xs text-right">{row.kwh_added.toFixed(2)} kWh</td>
+      <td className="px-3 py-2 text-xs text-right">
         {formatCurrency(row.cost_pence, currency)}
       </td>
-      <td className="py-2 text-xs">
+      <td className="px-3 py-2 text-xs">
         {row.location_id !== null ? (
           <Link
             to={`/locations/${row.location_id}`}
@@ -174,7 +174,7 @@ function SessionRowDisplay({ row, currency }: SessionRowDisplayProps) {
           <span className="text-slate-500">—</span>
         )}
       </td>
-      <td className="py-2 text-xs">
+      <td className="px-3 py-2 text-xs">
         <span
           className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium ${
             SOURCE_BADGE_CLASS[row.source] ?? SOURCE_BADGE_CLASS.manual
@@ -183,7 +183,7 @@ function SessionRowDisplay({ row, currency }: SessionRowDisplayProps) {
           {row.source}
         </span>
       </td>
-      <td className="py-2 text-xs text-right">
+      <td className="px-3 py-2 text-xs text-right">
         <Link
           to={`/sessions/${row.id}`}
           className="text-indigo-600 underline"
