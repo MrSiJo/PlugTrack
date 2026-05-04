@@ -498,6 +498,10 @@ export interface DashboardCarPanel {
   active_job_id: string | null
   location_name: string | null
   location_address: string | null
+  electric_range_km: number | null
+  charging_power_kw: number | null
+  target_soc: number | null
+  nominal_efficiency_mi_per_kwh: number | null
 }
 
 export interface DashboardSessionRow {

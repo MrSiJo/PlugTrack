@@ -43,6 +43,12 @@ class CarPanel:
     active_job_id: Optional[str]
     location_name: Optional[str] = None
     location_address: Optional[str] = None
+    # Live telemetry — only meaningful while CHARGING (power/rate) or any
+    # state where the car has reported range. Frontend hides nulls.
+    electric_range_km: Optional[int] = None
+    charging_power_kw: Optional[float] = None
+    target_soc: Optional[int] = None
+    nominal_efficiency_mi_per_kwh: Optional[float] = None
 
 
 @dataclass
@@ -151,6 +157,9 @@ async def dashboard_summary(
         next_poll_at: Optional[datetime] = None
         active_job_id: Optional[str] = None
         location_id: Optional[int] = None
+        electric_range_km: Optional[int] = None
+        charging_power_kw: Optional[float] = None
+        target_soc: Optional[int] = None
 
         if orchestrator is not None:
             try:
@@ -167,6 +176,9 @@ async def dashboard_summary(
                 next_poll_at = live.next_poll_at
                 active_job_id = live.active_job_id
                 location_id = getattr(live, "last_location_id", None)
+                electric_range_km = getattr(live, "last_electric_range_km", None)
+                charging_power_kw = getattr(live, "last_charging_power_kw", None)
+                target_soc = getattr(live, "last_target_soc", None)
 
         # `charging_cable_connected` is derived from the in-memory state
         # machine: PLUGGED_IN, CHARGING, CHARGING_DONE all imply cable in.
@@ -195,6 +207,10 @@ async def dashboard_summary(
                 active_job_id=active_job_id,
                 location_name=location_name,
                 location_address=location_address,
+                electric_range_km=electric_range_km,
+                charging_power_kw=charging_power_kw,
+                target_soc=target_soc,
+                nominal_efficiency_mi_per_kwh=car.nominal_efficiency_mi_per_kwh,
             )
         )
 
