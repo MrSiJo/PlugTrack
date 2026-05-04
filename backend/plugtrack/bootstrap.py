@@ -14,7 +14,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_DB_PATH = _REPO_ROOT / "data" / "plugtrack.db"
+# In the dev tree this points at <repo>/data; in the container the
+# Dockerfile creates /app/data and we override DATA_DIR=/app/data via env.
+_DEFAULT_DATA_DIR = _REPO_ROOT / "data"
+_DEFAULT_DB_PATH = _DEFAULT_DATA_DIR / "plugtrack.db"
 _DEFAULT_DB_URL = f"sqlite+aiosqlite:///{_DEFAULT_DB_PATH.as_posix()}"
 
 _PLACEHOLDER_FRAGMENTS = (
@@ -35,6 +38,7 @@ class Settings(BaseSettings):
 
     app_secret_key: str = Field(..., alias="APP_SECRET_KEY")
     database_url: str = Field(default=_DEFAULT_DB_URL, alias="DATABASE_URL")
+    data_dir: str = Field(default=str(_DEFAULT_DATA_DIR), alias="DATA_DIR")
 
     session_cookie_name: str = Field(default="plugtrack_session")
     csrf_cookie_name: str = Field(default="plugtrack_csrf")
