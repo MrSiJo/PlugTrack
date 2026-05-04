@@ -411,6 +411,11 @@ export const api = {
 
   getSyncStatus: (): Promise<SyncStatusResponse> =>
     fetchJSON<SyncStatusResponse>('/api/sync/status'),
+
+  // ----- Dashboard -----
+
+  getDashboard: (): Promise<DashboardSummary> =>
+    fetchJSON<DashboardSummary>('/api/dashboard'),
 }
 
 // ---------------------------------------------------------------------------
@@ -442,4 +447,56 @@ export interface CarSyncStatus {
 
 export interface SyncStatusResponse {
   cars: Record<string, CarSyncStatus>
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------------------
+
+export interface DashboardCarPanel {
+  id: number
+  make: string
+  model: string
+  battery_level: number | null
+  charging_cable_connected: boolean
+  last_connected: string | null
+  next_poll_at: string | null
+  last_state: string | null
+  last_soc: number | null
+  active_job_id: string | null
+}
+
+export interface DashboardSessionRow {
+  id: number
+  car_id: number
+  date: string
+  kwh_added: number
+  cost_pence: number | null
+  cost_basis: CostBasis
+  location_id: number | null
+  location_name: string | null
+  charge_network: string | null
+  source: string
+}
+
+export interface DashboardLifetimeTotals {
+  kwh: number
+  cost_pence: number
+  distance_km: number
+  sessions_count: number
+}
+
+export interface DashboardLocationStat {
+  id: number
+  name: string | null
+  visit_count: number
+  total_kwh: number
+  total_cost_pence: number
+}
+
+export interface DashboardSummary {
+  cars: DashboardCarPanel[]
+  recent_sessions: DashboardSessionRow[]
+  lifetime_totals: DashboardLifetimeTotals
+  top_locations: DashboardLocationStat[]
 }

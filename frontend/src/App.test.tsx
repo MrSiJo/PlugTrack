@@ -55,7 +55,7 @@ describe('App bootstrap routing', () => {
     ).toBeInTheDocument()
   })
 
-  it('redirects to /settings when authed', async () => {
+  it('redirects to /dashboard when authed', async () => {
     vi.spyOn(clientModule.api, 'setupStatus').mockResolvedValueOnce({
       setup_needed: false,
     })
@@ -70,11 +70,17 @@ describe('App bootstrap routing', () => {
         is_secret: false,
       },
     } as unknown as clientModule.SettingsMap)
+    vi.spyOn(clientModule.api, 'getDashboard').mockResolvedValue({
+      cars: [],
+      recent_sessions: [],
+      lifetime_totals: { kwh: 0, cost_pence: 0, distance_km: 0, sessions_count: 0 },
+      top_locations: [],
+    })
 
     render(<App />)
     await waitFor(() =>
       expect(
-        screen.getByRole('heading', { name: /^settings$/i }),
+        screen.getByRole('heading', { name: /^dashboard$/i }),
       ).toBeInTheDocument(),
     )
   })
