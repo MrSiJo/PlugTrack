@@ -126,6 +126,12 @@ def _pycupra_dir() -> Path:
 
 @router.post("/clear-pycupra-tokens")
 async def clear_pycupra_tokens(request: Request) -> dict[str, Any]:  # noqa: ARG001
+    # Drop any cached Cupra Connection objects so the next sync
+    # re-authenticates from disk + the (possibly freshly-saved) settings.
+    from ...services.sync_worker import clear_cached_connections
+
+    clear_cached_connections()
+
     target = _pycupra_dir()
     if not target.exists():
         return {"cleared": False, "count": 0}
