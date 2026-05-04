@@ -65,18 +65,25 @@ beforeEach(() => {
 })
 
 describe('SettingsPage', () => {
-  it('renders settings grouped by group_name', () => {
+  it('renders settings grouped into tabs by group_name', async () => {
     render(
       <MemoryRouter>
         <SettingsPage />
       </MemoryRouter>,
     )
     expect(screen.getByRole('heading', { name: /^settings$/i })).toBeInTheDocument()
-    expect(screen.getByText('Distance unit')).toBeInTheDocument()
-    expect(screen.getByText('Home rate')).toBeInTheDocument()
+
+    // Default tab is the first in groupOrder = cupra_connect.
     expect(screen.getByText('Cupra password')).toBeInTheDocument()
-    // Secret value is rendered as ***
     expect(screen.getByText(/\*\*\*/)).toBeInTheDocument()
+    // Other groups not visible until their tab is clicked.
+    expect(screen.queryByText('Distance unit')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByTestId('settings-tab-display'))
+    expect(screen.getByText('Distance unit')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByTestId('settings-tab-cost'))
+    expect(screen.getByText('Home rate')).toBeInTheDocument()
   })
 
   describe('Clear cached Cupra tokens button', () => {
@@ -140,6 +147,9 @@ describe('SettingsPage', () => {
         <SettingsPage />
       </MemoryRouter>,
     )
+
+    // Switch to the display tab to expose the distance_unit control.
+    await userEvent.click(screen.getByTestId('settings-tab-display'))
 
     const select = screen.getByLabelText(/^distance unit$/i)
     await userEvent.selectOptions(select, 'km')

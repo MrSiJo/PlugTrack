@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ApiError, api, type SettingPayload } from '@/api/client'
+import {
+  ApiError,
+  api,
+  type CarPayload,
+  type SettingPayload,
+} from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useTheme } from '@/theme'
@@ -54,10 +59,26 @@ export default function SettingsPage() {
 
   const groupOrder = ['cupra_connect', 'sync', 'cost', 'display', 'locations']
   const orderedGroups = groupOrder.filter((g) => grouped[g])
-  // Catch any catalogue group we don't know about.
   for (const g of Object.keys(grouped)) {
     if (!groupOrder.includes(g)) orderedGroups.push(g)
   }
+
+  const TAB_LABEL: Record<string, string> = {
+    cupra_connect: 'Cupra Connect',
+    sync: 'Sync',
+    cost: 'Cost',
+    display: 'Display',
+    locations: 'Locations',
+  }
+
+  const [activeTab, setActiveTab] = useState<string>(orderedGroups[0] ?? 'cupra_connect')
+
+  // If groups load after the first render, default to the first one.
+  useEffect(() => {
+    if (orderedGroups.length > 0 && !orderedGroups.includes(activeTab)) {
+      setActiveTab(orderedGroups[0]!)
+    }
+  }, [orderedGroups, activeTab])
 
   async function handleLogout() {
     await logout()
@@ -66,7 +87,7 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
-      <header className="mb-8 flex items-center justify-between">
+      <header className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Settings</h1>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-sm">
@@ -99,19 +120,46 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {orderedGroups.map((group) => (
-        <section key={group} className="mb-8">
-          <h2 className="mb-3 text-lg font-medium capitalize">
-            {group.replace(/_/g, ' ')}
-          </h2>
+      {/* Tab strip */}
+      <div
+        role="tablist"
+        aria-label="Settings sections"
+        className="mb-4 flex gap-1 overflow-x-auto border-b border-slate-200 dark:border-slate-700"
+      >
+        {orderedGroups.map((group) => {
+          const isActive = group === activeTab
+          return (
+            <button
+              key={group}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              data-testid={`settings-tab-${group}`}
+              onClick={() => setActiveTab(group)}
+              className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm transition ${
+                isActive
+                  ? 'border-indigo-600 font-medium text-indigo-700 dark:text-indigo-300'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
+              }`}
+            >
+              {TAB_LABEL[group] ?? group.replace(/_/g, ' ')}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Tab body — only the active group renders */}
+      {orderedGroups.includes(activeTab) && grouped[activeTab] && (
+        <section role="tabpanel" data-testid={`settings-panel-${activeTab}`}>
           <div className="space-y-4 rounded border border-slate-200 p-4 dark:border-slate-700">
-            {grouped[group]!.map((entry) => (
+            {grouped[activeTab]!.map((entry) => (
               <SettingRow key={entry.key} entry={entry} />
             ))}
-            {group === 'cupra_connect' && <ClearTokensButton />}
+            {activeTab === 'cupra_connect' && <ClearTokensButton />}
+            {activeTab === 'sync' && <SyncControlsPanel />}
           </div>
         </section>
-      ))}
+      )}
     </div>
   )
 }
@@ -185,6 +233,167 @@ function ClearTokensButton() {
           {toast.message}
         </p>
       )}
+    </div>
+  )
+}
+
+function SyncControlsPanel() {
+  const [cars, setCars] = useState<CarPayload[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [busyCarId, setBusyCarId] = useState<number | null>(null)
+  const [toasts, setToasts] = useState<Record<number, { kind: 'success' | 'error' | 'cooldown'; message: string }>>({})
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const list = await api.getCars()
+        if (!cancelled) setCars(list)
+      } catch (err) {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : String(err))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  function setToast(carId: number, t: { kind: 'success' | 'error' | 'cooldown'; message: string }) {
+    setToasts((prev) => ({ ...prev, [carId]: t }))
+    window.setTimeout(() => {
+      setToasts((prev) => {
+        const next = { ...prev }
+        delete next[carId]
+        return next
+      })
+    }, 5000)
+  }
+
+  async function handleForceSync(carId: number) {
+    setBusyCarId(carId)
+    try {
+      const res = await api.syncCar(carId)
+      setToast(carId, {
+        kind: 'success',
+        message: `Sync queued (job ${res.job_id.slice(0, 8)}…). Check the dashboard in a few seconds.`,
+      })
+    } catch (err) {
+      setToast(carId, {
+        kind: 'error',
+        message: err instanceof ApiError ? err.message : 'Sync failed',
+      })
+    } finally {
+      setBusyCarId(null)
+    }
+  }
+
+  async function handleWake(carId: number) {
+    setBusyCarId(carId)
+    try {
+      const res = await api.wakeCar(carId)
+      setToast(carId, {
+        kind: 'success',
+        message: res.woken
+          ? 'Wake-up sent to the car. The next sync will see fresh data.'
+          : 'Wake call accepted (no provider configured).',
+      })
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 429) {
+        const body = err.body as { retry_after?: number } | null
+        const wait = body?.retry_after ?? 60
+        setToast(carId, {
+          kind: 'cooldown',
+          message: `Rate-limited (12V battery protection). Try again in ${Math.ceil(wait / 60)}m.`,
+        })
+      } else {
+        setToast(carId, {
+          kind: 'error',
+          message: err instanceof ApiError ? err.message : 'Wake failed',
+        })
+      }
+    } finally {
+      setBusyCarId(null)
+    }
+  }
+
+  return (
+    <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+      <h3 className="mb-2 text-sm font-medium">Manual sync controls</h3>
+      <p className="mb-3 text-xs text-slate-500">
+        <strong>Force sync</strong> re-runs the state poll immediately using cached cloud data — cheap, fast.{' '}
+        <strong>Wake car</strong> sends a TCU wake-up command and is rate-limited to 1× per 30 minutes per car
+        to protect the 12V battery.
+      </p>
+      {loading && <p className="text-sm text-slate-500">Loading cars…</p>}
+      {error && (
+        <div role="alert" className="mb-3 text-sm text-red-600">
+          {error}
+        </div>
+      )}
+      {!loading && cars.length === 0 && (
+        <p className="text-sm text-slate-500">No cars yet.</p>
+      )}
+      <ul className="space-y-2">
+        {cars.map((car) => {
+          const toast = toasts[car.id]
+          return (
+            <li
+              key={car.id}
+              className="rounded border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm">
+                  <span className="font-medium">
+                    {car.make} {car.model}
+                  </span>
+                  {car.provider_vehicle_id && (
+                    <span className="ml-2 font-mono text-xs text-slate-500">
+                      {car.provider_vehicle_id}
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleForceSync(car.id)}
+                    disabled={busyCarId === car.id}
+                    className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-600 dark:bg-indigo-950 dark:text-indigo-200"
+                    data-testid={`settings-force-sync-${car.id}`}
+                  >
+                    Force sync
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleWake(car.id)}
+                    disabled={busyCarId === car.id}
+                    className="rounded border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+                    data-testid={`settings-wake-${car.id}`}
+                  >
+                    Wake car
+                  </button>
+                </div>
+              </div>
+              {toast && (
+                <p
+                  className={`mt-2 text-xs ${
+                    toast.kind === 'success'
+                      ? 'text-emerald-600'
+                      : toast.kind === 'cooldown'
+                        ? 'text-amber-600'
+                        : 'text-red-600'
+                  }`}
+                  role="status"
+                >
+                  {toast.message}
+                </p>
+              )}
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }

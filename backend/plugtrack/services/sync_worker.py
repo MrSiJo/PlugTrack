@@ -341,6 +341,31 @@ class ProductionPollWorker:
         state.last_charging_power_kw = telemetry.charging_power
         state.last_target_soc = telemetry.target_soc
 
+        # Persist the snapshot so a container restart doesn't reset the
+        # dashboard to "no state" until the next sync. One row per car;
+        # upsert via merge.
+        try:
+            from ..models import CarStateSnapshot
+            async with self._db_sessionmaker() as snap_session:
+                existing = await snap_session.get(CarStateSnapshot, car.id)
+                if existing is None:
+                    existing = CarStateSnapshot(car_id=car.id)
+                    snap_session.add(existing)
+                existing.last_state = state.last_state
+                existing.last_soc = state.last_soc
+                existing.last_target_soc = state.last_target_soc
+                existing.last_electric_range_km = state.last_electric_range_km
+                existing.last_charging_power_kw = state.last_charging_power_kw
+                existing.last_position_lat = state.last_position_lat
+                existing.last_position_lng = state.last_position_lng
+                existing.last_location_id = state.last_location_id
+                existing.last_car_captured_timestamp = (
+                    state.last_car_captured_timestamp
+                )
+                await snap_session.commit()
+        except Exception:  # noqa: BLE001 — never let snapshot persistence kill the sync
+            pass
+
         # Track current GPS + cluster regardless of plug-in state so the
         # dashboard can show "where the car is right now".
         if telemetry.position is not None:
