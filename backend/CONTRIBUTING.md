@@ -32,3 +32,22 @@ pre-commit run --hook-stage manual security-invariants
 cd backend
 pytest tests -v
 ```
+
+### Integration tests (real Cupra account)
+
+`backend/tests/integration/` contains tests that hit the real Cupra
+Connect cloud via pycupra. They are **gated** — skipped unless both:
+
+- `INTEGRATION=1` is set in the environment, AND
+- `.env.probe` exists at the repo root with valid Cupra credentials
+  (`CUPRA_USERNAME` + `CUPRA_PASSWORD`; `CUPRA_SPIN` optional).
+
+`.env.probe` is gitignored. **Never commit it.**
+
+Run integration tests after pycupra version bumps:
+
+```bash
+INTEGRATION=1 pytest backend/tests/integration -v
+```
+
+The default `pytest backend/tests` invocation skips them.
