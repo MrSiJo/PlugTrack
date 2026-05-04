@@ -10,6 +10,7 @@ import { ApiError, api } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { applyThemeToDocument } from '@/theme'
+import Locations from '@/pages/Locations'
 import LoginPage from '@/pages/LoginPage'
 import SessionDetail from '@/pages/SessionDetail'
 import Sessions from '@/pages/Sessions'
@@ -112,6 +113,18 @@ function AppRoutes({ result }: { result: BootstrapResult }) {
             <Navigate to="/login" replace state={{ from: location }} />
           ) : (
             <SessionDetail />
+          )
+        }
+      />
+      <Route
+        path="/locations"
+        element={
+          result.setupNeeded ? (
+            <Navigate to="/setup" replace />
+          ) : !authed ? (
+            <Navigate to="/login" replace state={{ from: location }} />
+          ) : (
+            <Locations />
           )
         }
       />

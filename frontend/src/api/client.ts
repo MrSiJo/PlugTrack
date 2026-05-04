@@ -253,6 +253,13 @@ export interface LocationPayload {
   address: string | null
 }
 
+export interface LocationListPayload extends LocationPayload {
+  visit_count: number
+  total_kwh: number
+  total_cost_pence: number
+  last_visited_at: string | null
+}
+
 export interface LocationLabelRequest {
   name: string
   is_home: boolean
@@ -262,6 +269,24 @@ export interface LocationLabelRequest {
 
 export interface LocationLabelResponse {
   location: LocationPayload
+  sessions_recomputed_count: number
+}
+
+export interface LocationUpdateRequest {
+  name?: string | null
+  is_home?: boolean
+  is_free?: boolean
+  default_cost_per_kwh_p?: number | null
+  radius_m?: number
+}
+
+export interface RecalculateLocationResponse {
+  sessions_recomputed_count: number
+}
+
+export interface MergeLocationResponse {
+  sessions_redirected: number
+  plug_ins_redirected: number
   sessions_recomputed_count: number
 }
 
@@ -343,6 +368,38 @@ export const api = {
       method: 'PATCH',
       body: req,
     }),
+
+  getLocations: (): Promise<LocationListPayload[]> =>
+    fetchJSON<LocationListPayload[]>('/api/locations'),
+
+  updateLocation: (
+    id: number,
+    req: LocationUpdateRequest,
+  ): Promise<LocationPayload> =>
+    fetchJSON<LocationPayload>(`/api/locations/${id}`, {
+      method: 'PUT',
+      body: req,
+    }),
+
+  recalculateLocationPastCosts: (
+    id: number,
+  ): Promise<RecalculateLocationResponse> =>
+    fetchJSON<RecalculateLocationResponse>(
+      `/api/locations/${id}/recalculate-past-costs`,
+      { method: 'POST' },
+    ),
+
+  mergeLocations: (
+    id: number,
+    target_id: number,
+  ): Promise<MergeLocationResponse> =>
+    fetchJSON<MergeLocationResponse>(`/api/locations/${id}/merge`, {
+      method: 'POST',
+      body: { target_id },
+    }),
+
+  deleteLocation: (id: number): Promise<void> =>
+    fetchJSON<void>(`/api/locations/${id}`, { method: 'DELETE' }),
 
   // ----- Sync -----
 
