@@ -77,6 +77,95 @@ def _user_id(request: Request) -> int:
     return user_id
 
 
+class DiscoveredVehicle(BaseModel):
+    vin: str
+    model: Optional[str] = None
+    year: Optional[str] = None
+
+
+@router.get("/discover", response_model=list[DiscoveredVehicle])
+async def discover_vehicles(
+    request: Request,
+    session: AsyncSession = Depends(get_db),  # noqa: ARG001 — needed for auth
+) -> list[DiscoveredVehicle]:
+    """Authenticate against Cupra Connect with saved creds and list VINs.
+
+    Reads `cupra_username` / `cupra_password` / `cupra_spin` from the
+    settings catalogue, authenticates via the pycupra adapter, and
+    returns each vehicle's VIN + model. Use this to populate the
+    "Provider vehicle ID" picker on the Cars page so users don't need
+    to look up the VIN manually.
+
+    Auth required (handled by AuthMiddleware). No CSRF (GET).
+    """
+    _user_id(request)
+
+    from pathlib import Path
+    from sqlalchemy import select as _select
+    from ...bootstrap import get_settings as _get_settings
+    from ...models import Setting
+    from ...plugins.pycupra.adapter import authenticate
+    from ...plugins.pycupra.models import Credentials
+    from ...security.crypto import decrypt_secret
+
+    async def _read(key: str) -> Optional[str]:
+        row = (await session.execute(
+            _select(Setting).where(Setting.key == key)
+        )).scalar_one_or_none()
+        return row.value if row else None
+
+    u_raw = await _read("cupra_username")
+    p_raw = await _read("cupra_password")
+    s_raw = await _read("cupra_spin")
+    if not u_raw or not p_raw:
+        raise HTTPException(
+            status_code=400,
+            detail="Save Cupra credentials in Settings before discovering vehicles.",
+        )
+
+    try:
+        secret = _get_settings().app_secret_key
+        username = decrypt_secret(u_raw, secret)
+        password = decrypt_secret(p_raw, secret)
+        spin = decrypt_secret(s_raw, secret) if s_raw else None
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed to decrypt credentials: {exc}") from exc
+
+    token_dir = Path(_get_settings().data_dir) / "pycupra"
+    try:
+        connection = await authenticate(
+            Credentials(username=username, password=password, spin=spin),
+            token_dir=token_dir,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Cupra auth failed: {exc}") from exc
+
+    if not getattr(connection, "_user_id", None):
+        raise HTTPException(
+            status_code=502,
+            detail="Cupra login returned no user_id — credentials likely invalid.",
+        )
+
+    try:
+        await connection.get_vehicles()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"get_vehicles failed: {exc}") from exc
+
+    out: list[DiscoveredVehicle] = []
+    raw = getattr(connection, "_vehicles", None)
+    iterable = raw if isinstance(raw, list) else (list(raw.values()) if isinstance(raw, dict) else [])
+    for v in iterable:
+        vin = getattr(v, "vin", None) or getattr(v, "_vin", None)
+        if not vin:
+            continue
+        out.append(DiscoveredVehicle(
+            vin=str(vin),
+            model=getattr(v, "model", None),
+            year=str(getattr(v, "modelYear", "") or "") or None,
+        ))
+    return out
+
+
 @router.get("", response_model=list[CarPayload])
 async def list_cars(
     request: Request,

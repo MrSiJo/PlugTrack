@@ -181,6 +181,12 @@ export interface CarCreateRequest {
 
 export type CarUpdateRequest = Partial<CarCreateRequest>
 
+export interface DiscoveredVehicle {
+  vin: string
+  model: string | null
+  year: string | null
+}
+
 // ---------------------------------------------------------------------------
 // Sessions + Locations
 // ---------------------------------------------------------------------------
@@ -319,6 +325,9 @@ export const api = {
     }),
 
   // ----- Cars -----
+
+  discoverVehicles: (): Promise<DiscoveredVehicle[]> =>
+    fetchJSON<DiscoveredVehicle[]>('/api/cars/discover'),
 
   getCars: (): Promise<CarPayload[]> => fetchJSON<CarPayload[]>('/api/cars'),
 

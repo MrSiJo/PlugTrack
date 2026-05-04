@@ -851,14 +851,17 @@ def make_pycupra_adapter_provider(
             if cached is not None:
                 return cached
             settings_map = await make_settings_provider(db_sessionmaker)(car.user_id)
-            username = settings_map.get("cupra_username")
+            username_raw = settings_map.get("cupra_username")
             password_raw = settings_map.get("cupra_password")
             spin_raw = settings_map.get("cupra_spin")
-            if not username or not password_raw:
+            if not username_raw or not password_raw:
                 raise _AuthError("cupra credentials not configured")
 
             app_secret = get_app_settings().app_secret_key
             try:
+                # All three settings carry is_secret=True and are
+                # Fernet-encrypted on PUT — decrypt all of them here.
+                username = decrypt_secret(username_raw, app_secret)
                 password = decrypt_secret(password_raw, app_secret)
                 spin = (
                     decrypt_secret(spin_raw, app_secret) if spin_raw else None
@@ -875,6 +878,15 @@ def make_pycupra_adapter_provider(
                 # Auth failures should not retain a half-open Connection.
                 _connections.pop(car.user_id, None)
                 raise _AuthError(str(exc)) from exc
+
+            # Pycupra's doLogin logs errors but doesn't raise on a failed
+            # OAuth flow — detect by checking _user_id presence.
+            if not getattr(connection, "_user_id", None):
+                _connections.pop(car.user_id, None)
+                raise _AuthError(
+                    "pycupra authenticated but returned no user_id — "
+                    "credentials may be invalid or the Cupra OAuth flow changed"
+                )
 
             _connections[car.user_id] = connection
             return connection
