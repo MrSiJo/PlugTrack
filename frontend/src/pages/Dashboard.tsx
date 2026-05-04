@@ -1,0 +1,418 @@
+/**
+ * Dashboard — the post-login landing page.
+ *
+ * v1 ships four numeric panels (no charts):
+ *   1. Per-car current state (battery level, cable, last sync, force-sync).
+ *   2. Recent sessions table (last 10).
+ *   3. Lifetime totals (kWh, cost, distance, session count).
+ *   4. Top 5 locations by visit count.
+ *
+ * Distance values flow through `formatDistance(km)` from settingsStore so
+ * the user's chosen unit (mi/km) wins on display. Cost values flow
+ * through `formatCurrency(pence, currencyCode)` against the `currency`
+ * setting (defaults to GBP).
+ */
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import {
+  ApiError,
+  api,
+  type DashboardCarPanel,
+  type DashboardLocationStat,
+  type DashboardSessionRow,
+  type DashboardSummary,
+} from '@/api/client'
+import {
+  formatDistance,
+  useDistanceUnit,
+  useSetting,
+} from '@/stores/settingsStore'
+import { formatCurrency } from '@/utils/currency'
+
+const SOURCE_BADGE_CLASS: Record<string, string> = {
+  manual: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
+  synthesis: 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200',
+  cariad:
+    'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
+}
+
+function formatRelative(iso: string | null): string {
+  if (!iso) return 'never'
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return 'never'
+  const delta = Date.now() - t
+  if (delta < 0) {
+    const ahead = Math.round(-delta / 1000)
+    if (ahead < 60) return `in ${ahead}s`
+    if (ahead < 3600) return `in ${Math.round(ahead / 60)}m`
+    return `in ${Math.round(ahead / 3600)}h`
+  }
+  const seconds = Math.round(delta / 1000)
+  if (seconds < 60) return `${seconds}s ago`
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`
+  if (seconds < 86_400) return `${Math.round(seconds / 3600)}h ago`
+  return `${Math.round(seconds / 86_400)}d ago`
+}
+
+interface CarPanelCardProps {
+  car: DashboardCarPanel
+  onForceSync: (carId: number) => void | Promise<void>
+  busy: boolean
+}
+
+function CarPanelCard({ car, onForceSync, busy }: CarPanelCardProps) {
+  return (
+    <li
+      className="rounded border border-slate-200 bg-white p-4 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900"
+      data-testid={`car-panel-${car.id}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold">
+            {car.make} {car.model}
+          </h3>
+          <div className="mt-1 text-xs text-slate-500" data-testid="car-soc">
+            Battery:{' '}
+            <span className="font-mono">
+              {car.battery_level ?? '—'}
+              {car.battery_level !== null ? '%' : ''}
+            </span>
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            Last seen: {formatRelative(car.last_connected)}
+          </div>
+          <div className="text-xs text-slate-500">
+            Next sync: {formatRelative(car.next_poll_at)}
+          </div>
+          {car.last_state && (
+            <div className="mt-1 text-xs text-slate-500">
+              State: <span className="font-mono">{car.last_state}</span>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          {car.charging_cable_connected ? (
+            <span
+              className="inline-flex items-center rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
+              data-testid="cable-badge"
+            >
+              Cable in
+            </span>
+          ) : (
+            <span
+              className="inline-flex items-center rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              data-testid="cable-badge"
+            >
+              Cable out
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => void onForceSync(car.id)}
+            disabled={busy}
+            className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-600 dark:bg-indigo-950 dark:text-indigo-200"
+            data-testid={`force-sync-${car.id}`}
+          >
+            Force sync
+          </button>
+        </div>
+      </div>
+    </li>
+  )
+}
+
+interface SessionRowDisplayProps {
+  row: DashboardSessionRow
+  unit: 'mi' | 'km'
+  currency: string
+}
+
+function SessionRowDisplay({ row, currency }: SessionRowDisplayProps) {
+  const locationLabel =
+    row.location_name ?? (row.location_id ? `loc#${row.location_id}` : '—')
+  return (
+    <tr
+      className="border-b border-slate-200 last:border-b-0 dark:border-slate-700"
+      data-testid={`recent-session-${row.id}`}
+    >
+      <td className="py-2 text-xs font-mono">{row.date}</td>
+      <td className="py-2 text-xs">car #{row.car_id}</td>
+      <td className="py-2 text-xs text-right">{row.kwh_added.toFixed(2)} kWh</td>
+      <td className="py-2 text-xs text-right">
+        {formatCurrency(row.cost_pence, currency)}
+      </td>
+      <td className="py-2 text-xs">
+        {row.location_id !== null ? (
+          <Link
+            to={`/locations/${row.location_id}`}
+            className="text-indigo-600 underline"
+          >
+            {locationLabel}
+          </Link>
+        ) : (
+          <span className="text-slate-500">—</span>
+        )}
+      </td>
+      <td className="py-2 text-xs">
+        <span
+          className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium ${
+            SOURCE_BADGE_CLASS[row.source] ?? SOURCE_BADGE_CLASS.manual
+          }`}
+        >
+          {row.source}
+        </span>
+      </td>
+      <td className="py-2 text-xs text-right">
+        <Link
+          to={`/sessions/${row.id}`}
+          className="text-indigo-600 underline"
+        >
+          Details
+        </Link>
+      </td>
+    </tr>
+  )
+}
+
+interface LocationStatRowProps {
+  loc: DashboardLocationStat
+  currency: string
+}
+
+function LocationStatRow({ loc, currency }: LocationStatRowProps) {
+  return (
+    <li
+      className="flex items-baseline justify-between border-b border-slate-200 py-1 last:border-b-0 dark:border-slate-700"
+      data-testid={`top-location-${loc.id}`}
+    >
+      <Link
+        to={`/locations/${loc.id}`}
+        className="text-sm font-medium text-indigo-600 hover:underline"
+      >
+        {loc.name ?? <span className="italic text-slate-500">Unlabelled</span>}
+      </Link>
+      <div className="flex items-baseline gap-3 text-xs text-slate-500">
+        <span>
+          {loc.visit_count} {loc.visit_count === 1 ? 'visit' : 'visits'}
+        </span>
+        <span>{loc.total_kwh.toFixed(1)} kWh</span>
+        <span>{formatCurrency(loc.total_cost_pence, currency)}</span>
+      </div>
+    </li>
+  )
+}
+
+export default function Dashboard() {
+  const [summary, setSummary] = useState<DashboardSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [busyCarId, setBusyCarId] = useState<number | null>(null)
+  const unit = useDistanceUnit()
+  const currencyCode = useSetting<string>('currency') ?? 'GBP'
+
+  const reload = async () => {
+    try {
+      const data = await api.getDashboard()
+      setSummary(data)
+      setError(null)
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to load dashboard',
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const data = await api.getDashboard()
+        if (!cancelled) {
+          setSummary(data)
+          setError(null)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof ApiError
+              ? err.message
+              : err instanceof Error
+                ? err.message
+                : 'Failed to load dashboard',
+          )
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const onForceSync = async (carId: number) => {
+    setBusyCarId(carId)
+    try {
+      await api.syncCar(carId)
+      // Re-pull dashboard so the panel refreshes.
+      await reload()
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Force-sync failed',
+      )
+    } finally {
+      setBusyCarId(null)
+    }
+  }
+
+  if (loading) {
+    return (
+      <main className="mx-auto max-w-6xl px-6 py-8">
+        <p className="text-sm text-slate-500">Loading dashboard…</p>
+      </main>
+    )
+  }
+
+  if (error) {
+    return (
+      <main className="mx-auto max-w-6xl px-6 py-8">
+        <div role="alert" className="text-sm text-red-600">
+          {error}
+        </div>
+      </main>
+    )
+  }
+
+  if (!summary) return null
+
+  const distance = formatDistance(summary.lifetime_totals.distance_km)
+
+  return (
+    <main className="mx-auto max-w-6xl px-6 py-8" data-testid="dashboard-root">
+      <h1 className="mb-6 text-2xl font-semibold">Dashboard</h1>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Panel 1 — current state per car */}
+        <section data-testid="panel-cars">
+          <h2 className="mb-3 text-lg font-semibold">Cars</h2>
+          {summary.cars.length === 0 ? (
+            <p className="text-sm text-slate-500">No cars yet.</p>
+          ) : (
+            <ul className="space-y-3">
+              {summary.cars.map((car) => (
+                <CarPanelCard
+                  key={car.id}
+                  car={car}
+                  onForceSync={onForceSync}
+                  busy={busyCarId === car.id}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* Panel 3 — lifetime totals */}
+        <section data-testid="panel-lifetime">
+          <h2 className="mb-3 text-lg font-semibold">Lifetime</h2>
+          <dl
+            className="grid grid-cols-2 gap-3 rounded border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
+            data-testid="lifetime-grid"
+          >
+            <div>
+              <dt className="text-xs text-slate-500">Total kWh</dt>
+              <dd className="text-2xl font-semibold" data-testid="lifetime-kwh">
+                {summary.lifetime_totals.kwh.toFixed(1)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">Total cost</dt>
+              <dd className="text-2xl font-semibold" data-testid="lifetime-cost">
+                {formatCurrency(summary.lifetime_totals.cost_pence, currencyCode)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">Distance</dt>
+              <dd
+                className="text-2xl font-semibold"
+                data-testid="lifetime-distance"
+              >
+                {Math.round(distance.value)} {distance.unit}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">Sessions</dt>
+              <dd
+                className="text-2xl font-semibold"
+                data-testid="lifetime-count"
+              >
+                {summary.lifetime_totals.sessions_count}
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        {/* Panel 2 — recent sessions */}
+        <section className="lg:col-span-2" data-testid="panel-recent">
+          <h2 className="mb-3 text-lg font-semibold">Recent sessions</h2>
+          {summary.recent_sessions.length === 0 ? (
+            <p className="text-sm text-slate-500">No sessions yet.</p>
+          ) : (
+            <div className="overflow-x-auto rounded border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+              <table className="w-full table-auto">
+                <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Date</th>
+                    <th className="px-3 py-2 text-left">Car</th>
+                    <th className="px-3 py-2 text-right">Energy</th>
+                    <th className="px-3 py-2 text-right">Cost</th>
+                    <th className="px-3 py-2 text-left">Location</th>
+                    <th className="px-3 py-2 text-left">Source</th>
+                    <th className="px-3 py-2 text-right" />
+                  </tr>
+                </thead>
+                <tbody className="px-3">
+                  {summary.recent_sessions.map((row) => (
+                    <SessionRowDisplay
+                      key={row.id}
+                      row={row}
+                      unit={unit}
+                      currency={currencyCode}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* Panel 4 — top locations */}
+        <section className="lg:col-span-2" data-testid="panel-locations">
+          <h2 className="mb-3 text-lg font-semibold">Top locations</h2>
+          {summary.top_locations.length === 0 ? (
+            <p className="text-sm text-slate-500">No locations yet.</p>
+          ) : (
+            <ul className="rounded border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+              {summary.top_locations.map((loc) => (
+                <LocationStatRow
+                  key={loc.id}
+                  loc={loc}
+                  currency={currencyCode}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </main>
+  )
+}

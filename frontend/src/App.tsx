@@ -10,6 +10,7 @@ import { ApiError, api } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { applyThemeToDocument } from '@/theme'
+import Dashboard from '@/pages/Dashboard'
 import Locations from '@/pages/Locations'
 import LoginPage from '@/pages/LoginPage'
 import SessionDetail from '@/pages/SessionDetail'
@@ -75,9 +76,21 @@ function AppRoutes({ result }: { result: BootstrapResult }) {
           result.setupNeeded ? (
             <Navigate to="/setup" replace />
           ) : authed ? (
-            <Navigate to="/settings" replace />
+            <Navigate to="/dashboard" replace />
           ) : (
             <LoginPage />
+          )
+        }
+      />
+      <Route
+        path="/dashboard"
+        element={
+          result.setupNeeded ? (
+            <Navigate to="/setup" replace />
+          ) : !authed ? (
+            <Navigate to="/login" replace state={{ from: location }} />
+          ) : (
+            <Dashboard />
           )
         }
       />
@@ -137,7 +150,7 @@ function AppRoutes({ result }: { result: BootstrapResult }) {
               result.setupNeeded
                 ? '/setup'
                 : authed
-                  ? '/settings'
+                  ? '/dashboard'
                   : '/login'
             }
             replace
