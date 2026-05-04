@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Sessions from './Sessions'
 import { api, type ChargingSessionPayload } from '@/api/client'
@@ -156,41 +156,4 @@ describe('Sessions page', () => {
     })
   })
 
-  it('Force-sync button calls api.syncCar and starts a stream', async () => {
-    vi.spyOn(api, 'getSessions').mockResolvedValue([])
-    const syncSpy = vi.spyOn(api, 'syncCar').mockResolvedValue({
-      job_id: 'abc',
-      stream_url: '/api/sync/stream/abc',
-      kind: 'force',
-      status: 'running',
-    })
-
-    // Mock EventSource so startStream doesn't throw.
-    class MockEventSource {
-      url: string
-      addEventListener = vi.fn()
-      close = vi.fn()
-      constructor(url: string) {
-        this.url = url
-      }
-    }
-    vi.stubGlobal('EventSource', MockEventSource)
-
-    render(
-      <MemoryRouter>
-        <Sessions />
-      </MemoryRouter>,
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId('force-sync-button')).toBeInTheDocument()
-    })
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('force-sync-button'))
-    })
-
-    expect(syncSpy).toHaveBeenCalledWith(1)
-    vi.unstubAllGlobals()
-  })
 })

@@ -114,6 +114,27 @@ async def _lifespan(app: FastAPI):
     )
     app.state.sync_orchestrator = SyncOrchestrator(poll_worker=poll_worker)
 
+    # Rehydrate per-car state from the persisted snapshots so the
+    # dashboard shows last-known battery/range/state immediately on
+    # cold start (before the first periodic sync fires).
+    from sqlalchemy import select as _select
+    from .models import CarStateSnapshot
+    async with db_module.SessionLocal() as session:
+        snaps = (
+            await session.execute(_select(CarStateSnapshot))
+        ).scalars().all()
+        for snap in snaps:
+            st = app.state.sync_orchestrator.ensure_state(snap.car_id)
+            st.last_state = snap.last_state or "IDLE"
+            st.last_soc = snap.last_soc
+            st.last_target_soc = snap.last_target_soc
+            st.last_electric_range_km = snap.last_electric_range_km
+            st.last_charging_power_kw = snap.last_charging_power_kw
+            st.last_position_lat = snap.last_position_lat
+            st.last_position_lng = snap.last_position_lng
+            st.last_location_id = snap.last_location_id
+            st.last_car_captured_timestamp = snap.last_car_captured_timestamp
+
     async def _scheduled_sync(car_id: int) -> None:
         await app.state.sync_orchestrator.sync_car(car_id, kind="periodic")
 
