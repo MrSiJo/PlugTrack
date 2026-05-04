@@ -135,10 +135,25 @@ export default function SessionDetail() {
         <h2 className="mb-2 text-lg font-medium">Location</h2>
         {session.location_id === null ? (
           <p className="text-sm text-slate-500">No location attached.</p>
+        ) : session.location_name ? (
+          <div className="space-y-1" data-testid="location-summary">
+            <p className="text-sm font-medium">{session.location_name}</p>
+            {session.location_address && (
+              <p className="text-xs text-slate-500">{session.location_address}</p>
+            )}
+            <p className="text-xs text-slate-500">
+              <a
+                href="/locations"
+                className="text-indigo-600 underline"
+              >
+                Edit on the Locations page
+              </a>
+            </p>
+          </div>
         ) : (
           <div className="space-y-2">
             <p className="text-sm" data-testid="location-summary">
-              Location #{session.location_id}
+              Unlabelled location #{session.location_id} — name it below.
             </p>
             <LocationLabelForm
               locationId={session.location_id}

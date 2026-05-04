@@ -28,6 +28,8 @@ function makeSession(over: Partial<ChargingSessionPayload> = {}): ChargingSessio
     cost_per_kwh_override_p: null,
     total_cost_pence_override: null,
     location_id: null,
+    location_name: null,
+    location_address: null,
     user_label: null,
     charge_network: null,
     notes: null,

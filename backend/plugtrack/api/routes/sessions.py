@@ -58,6 +58,8 @@ class SessionPayload(BaseModel):
     cost_per_kwh_override_p: Optional[float]
     total_cost_pence_override: Optional[int]
     location_id: Optional[int]
+    location_name: Optional[str] = None
+    location_address: Optional[str] = None
     user_label: Optional[str]
     charge_network: Optional[str]
     notes: Optional[str]
@@ -107,7 +109,12 @@ def _user_id(request: Request) -> int:
     return user_id
 
 
-def _to_payload(cs: ChargingSession) -> SessionPayload:
+def _to_payload(
+    cs: ChargingSession,
+    *,
+    location_name: Optional[str] = None,
+    location_address: Optional[str] = None,
+) -> SessionPayload:
     return SessionPayload(
         id=cs.id,
         user_id=cs.user_id,
@@ -129,6 +136,8 @@ def _to_payload(cs: ChargingSession) -> SessionPayload:
         cost_per_kwh_override_p=cs.cost_per_kwh_override_p,
         total_cost_pence_override=cs.total_cost_pence_override,
         location_id=cs.location_id,
+        location_name=location_name,
+        location_address=location_address,
         user_label=cs.user_label,
         charge_network=cs.charge_network,
         notes=cs.notes,
@@ -207,12 +216,32 @@ async def list_sessions(
     session: AsyncSession = Depends(get_db),
 ) -> list[SessionPayload]:
     user_id = _user_id(request)
-    stmt = select(ChargingSession).where(ChargingSession.user_id == user_id)
+    stmt = (
+        select(ChargingSession, Location.name, Location.address)
+        .join(Location, ChargingSession.location_id == Location.id, isouter=True)
+        .where(ChargingSession.user_id == user_id)
+    )
     if car_id is not None:
         stmt = stmt.where(ChargingSession.car_id == car_id)
     stmt = stmt.order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
     result = await session.execute(stmt)
-    return [_to_payload(s) for s in result.scalars().all()]
+    return [
+        _to_payload(cs, location_name=name, location_address=address)
+        for cs, name, address in result.all()
+    ]
+
+
+async def _to_payload_with_location(
+    session: AsyncSession, cs: ChargingSession
+) -> SessionPayload:
+    if cs.location_id is None:
+        return _to_payload(cs)
+    loc = await session.get(Location, cs.location_id)
+    return _to_payload(
+        cs,
+        location_name=loc.name if loc else None,
+        location_address=loc.address if loc else None,
+    )
 
 
 @router.post("", response_model=SessionPayload, status_code=201)
@@ -249,7 +278,7 @@ async def create_session(
     session.add(cs)
     await session.commit()
     await session.refresh(cs)
-    return _to_payload(cs)
+    return await _to_payload_with_location(session, cs)
 
 
 @router.get("/{session_id}", response_model=SessionPayload)
@@ -260,7 +289,7 @@ async def get_session(
 ) -> SessionPayload:
     user_id = _user_id(request)
     cs = await _get_owned(session, session_id, user_id)
-    return _to_payload(cs)
+    return await _to_payload_with_location(session, cs)
 
 
 @router.put("/{session_id}", response_model=SessionPayload)
@@ -283,7 +312,7 @@ async def update_session(
 
     await session.commit()
     await session.refresh(cs)
-    return _to_payload(cs)
+    return await _to_payload_with_location(session, cs)
 
 
 @router.delete("/{session_id}", status_code=204)
