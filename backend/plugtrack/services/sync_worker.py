@@ -337,6 +337,9 @@ class ProductionPollWorker:
         state.last_car_captured_timestamp = telemetry.car_captured_timestamp
         state.consecutive_failures = 0
         state.last_error = None
+        state.last_electric_range_km = telemetry.electric_range_km
+        state.last_charging_power_kw = telemetry.charging_power
+        state.last_target_soc = telemetry.target_soc
 
         # Track current GPS + cluster regardless of plug-in state so the
         # dashboard can show "where the car is right now".

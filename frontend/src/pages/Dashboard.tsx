@@ -27,6 +27,7 @@ import {
   useDistanceUnit,
   useSetting,
 } from '@/stores/settingsStore'
+import { kmToMi } from '@/utils/distance'
 import { formatCurrency } from '@/utils/currency'
 
 const SOURCE_BADGE_CLASS: Record<string, string> = {
@@ -87,6 +88,31 @@ function CarPanelCard({ car, onForceSync, busy }: CarPanelCardProps) {
       ? `${car.location_name} · ${car.location_address}`
       : car.location_address
     : car.location_name
+  const unit = useDistanceUnit()
+  const isCharging = car.last_state === 'CHARGING'
+  // Range: prefer the user's display unit. Round to int.
+  const rangeDisplay =
+    car.electric_range_km !== null && car.electric_range_km !== undefined
+      ? unit === 'mi'
+        ? `${Math.round(kmToMi(car.electric_range_km))} mi`
+        : `${car.electric_range_km} km`
+      : null
+  // Charge rate (mi/h or km/h) = power_kW × nominal_efficiency_mi_per_kwh,
+  // then convert if user prefers km. Only meaningful while CHARGING.
+  let chargeRateDisplay: string | null = null
+  if (
+    isCharging &&
+    car.charging_power_kw !== null &&
+    car.charging_power_kw !== undefined &&
+    car.charging_power_kw > 0 &&
+    car.nominal_efficiency_mi_per_kwh
+  ) {
+    const miPerHour = car.charging_power_kw * car.nominal_efficiency_mi_per_kwh
+    chargeRateDisplay =
+      unit === 'mi'
+        ? `${miPerHour.toFixed(1)} mi/h`
+        : `${(miPerHour / 0.621371).toFixed(1)} km/h`
+  }
   return (
     <li
       className="rounded border border-slate-200 bg-white p-4 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900"
@@ -113,7 +139,26 @@ function CarPanelCard({ car, onForceSync, busy }: CarPanelCardProps) {
               {car.battery_level ?? '—'}
               {car.battery_level !== null ? '%' : ''}
             </span>
+            {car.target_soc !== null && car.target_soc !== undefined && (
+              <span className="ml-1 text-slate-400">
+                (target {car.target_soc}%)
+              </span>
+            )}
           </div>
+          {rangeDisplay && (
+            <div className="mt-1 text-xs text-slate-500" data-testid="car-range">
+              Range: <span className="font-mono">{rangeDisplay}</span>
+            </div>
+          )}
+          {isCharging && car.charging_power_kw !== null && car.charging_power_kw !== undefined && car.charging_power_kw > 0 && (
+            <div className="mt-1 text-xs text-emerald-600 dark:text-emerald-400" data-testid="car-charging">
+              Charging at{' '}
+              <span className="font-mono">{car.charging_power_kw.toFixed(1)} kW</span>
+              {chargeRateDisplay && (
+                <span className="ml-1 text-slate-500">({chargeRateDisplay})</span>
+              )}
+            </div>
+          )}
           {locationDisplay && (
             <div className="mt-1 truncate text-xs text-slate-500" data-testid="car-location">
               Location: {locationDisplay}

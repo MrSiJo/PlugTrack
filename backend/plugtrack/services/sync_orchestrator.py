@@ -39,6 +39,11 @@ class CarSyncState:
     last_position_lat: Optional[float] = None
     last_position_lng: Optional[float] = None
     last_location_id: Optional[int] = None
+    # Live telemetry surfaced on the dashboard panel: electric range (km),
+    # active charging power (kW), and target SoC. Updated every poll.
+    last_electric_range_km: Optional[int] = None
+    last_charging_power_kw: Optional[float] = None
+    last_target_soc: Optional[int] = None
     # Phase 5.4: when auth fails (`reason="credentials_invalid"`), the
     # worker flips this to True. The scheduler skips further syncs for
     # the car until the user re-saves cupra_* settings, which clears

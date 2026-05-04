@@ -21,6 +21,10 @@ function fixtureSummary(): DashboardSummary {
         active_job_id: null,
         location_name: null,
         location_address: null,
+        electric_range_km: null,
+        charging_power_kw: null,
+        target_soc: null,
+        nominal_efficiency_mi_per_kwh: null,
       },
       {
         id: 2,
@@ -35,6 +39,10 @@ function fixtureSummary(): DashboardSummary {
         active_job_id: null,
         location_name: null,
         location_address: null,
+        electric_range_km: null,
+        charging_power_kw: null,
+        target_soc: null,
+        nominal_efficiency_mi_per_kwh: null,
       },
     ],
     recent_sessions: [
