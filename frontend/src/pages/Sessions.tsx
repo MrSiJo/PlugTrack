@@ -8,6 +8,12 @@
  *   "Unlabelled · 51.0, -2.6"
  * - Cost pill colour-coded by `cost_basis`:
  *   green=`location_free`, blue=`override_*`, neutral otherwise.
+ *
+ * Phase 4 additions:
+ * - Rows in `syncStore.recentlyImportedSessionIds` get a
+ *   `data-highlighted="true"` attribute and a fade-in tailwind class.
+ * - Header has a Force-sync + Wake button per active car. (Defaults to
+ *   car_id=1 since multi-car selection lives in Phase 5.)
  */
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -18,6 +24,7 @@ import {
   type CostBasis,
 } from '@/api/client'
 import { useDistanceUnit } from '@/stores/settingsStore'
+import { useSyncStore } from '@/stores/syncStore'
 import { formatDistance } from '@/utils/distance'
 
 const SOURCE_BADGE_CLASS: Record<string, string> = {
@@ -52,14 +59,21 @@ function locationLabel(s: ChargingSessionPayload): string {
 interface SessionRowProps {
   session: ChargingSessionPayload
   unit: 'mi' | 'km'
+  highlighted: boolean
 }
 
-function SessionRow({ session, unit }: SessionRowProps) {
+function SessionRow({ session, unit, highlighted }: SessionRowProps) {
   const distanceKm = session.odometer_at_session_km
   return (
     <li
-      className="grid grid-cols-1 gap-2 rounded border border-slate-200 p-3 text-sm dark:border-slate-700 md:grid-cols-[120px_120px_1fr_120px_120px_80px]"
+      className={
+        'grid grid-cols-1 gap-2 rounded border p-3 text-sm md:grid-cols-[120px_120px_1fr_120px_120px_80px] ' +
+        (highlighted
+          ? 'animate-pulse border-emerald-400 bg-emerald-50 transition dark:border-emerald-600 dark:bg-emerald-950'
+          : 'border-slate-200 dark:border-slate-700')
+      }
       data-testid="session-row"
+      data-highlighted={highlighted ? 'true' : 'false'}
     >
       <span className="font-mono text-xs text-slate-500">{session.date}</span>
       <span
@@ -90,11 +104,90 @@ function SessionRow({ session, unit }: SessionRowProps) {
   )
 }
 
+interface SyncControlsProps {
+  carId: number
+}
+
+function SyncControls({ carId }: SyncControlsProps) {
+  const startStream = useSyncStore((s) => s.startStream)
+  const [busy, setBusy] = useState(false)
+  const [wakeCooldown, setWakeCooldown] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (wakeCooldown === null || wakeCooldown <= 0) return
+    const id = window.setInterval(() => {
+      setWakeCooldown((s) => (s === null ? null : s <= 1 ? null : s - 1))
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [wakeCooldown])
+
+  const onForce = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const job = await api.syncCar(carId)
+      startStream(carId, job.job_id, job.stream_url, job.kind)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Force-sync failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onWake = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await api.wakeCar(carId)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 429) {
+        const retry = (err.body as { retry_after?: number } | null)?.retry_after ?? 1800
+        setWakeCooldown(retry)
+        setError(`Wake rate-limited; retry in ${retry}s`)
+      } else {
+        setError(err instanceof ApiError ? err.message : 'Wake failed')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="sync-controls">
+      <button
+        type="button"
+        onClick={onForce}
+        disabled={busy}
+        className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-600 dark:bg-indigo-950 dark:text-indigo-200"
+        data-testid="force-sync-button"
+      >
+        Force sync
+      </button>
+      <button
+        type="button"
+        onClick={onWake}
+        disabled={busy || (wakeCooldown !== null && wakeCooldown > 0)}
+        className="rounded border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-200"
+        data-testid="wake-car-button"
+      >
+        {wakeCooldown && wakeCooldown > 0 ? `Wake (${wakeCooldown}s)` : 'Wake car'}
+      </button>
+      {error && (
+        <span className="text-xs text-red-600" data-testid="sync-error">
+          {error}
+        </span>
+      )}
+    </div>
+  )
+}
+
 export default function Sessions() {
   const [sessions, setSessions] = useState<ChargingSessionPayload[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const unit = useDistanceUnit()
+  const recentlyImported = useSyncStore((s) => s.recentlyImportedSessionIds)
 
   useEffect(() => {
     let cancelled = false
@@ -117,9 +210,16 @@ export default function Sessions() {
     }
   }, [])
 
+  // Derive a default car_id for the sync controls. In Phase 5 this comes
+  // from carsStore.activeCarId; for now use the first session's car.
+  const defaultCarId = sessions[0]?.car_id ?? 1
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-8">
-      <h1 className="mb-6 text-2xl font-semibold">Charging sessions</h1>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">Charging sessions</h1>
+        <SyncControls carId={defaultCarId} />
+      </div>
       {loading && <p className="text-sm text-slate-500">Loading…</p>}
       {error && (
         <div role="alert" className="text-sm text-red-600">
@@ -131,7 +231,12 @@ export default function Sessions() {
       )}
       <ul className="space-y-2">
         {sessions.map((s) => (
-          <SessionRow key={s.id} session={s} unit={unit} />
+          <SessionRow
+            key={s.id}
+            session={s}
+            unit={unit}
+            highlighted={recentlyImported.includes(s.id)}
+          />
         ))}
       </ul>
     </div>
