@@ -14,7 +14,13 @@ async def test_car_belongs_to_user(test_sessionmaker):
         await session.commit()
         await session.refresh(user)
 
-        car = Car(user_id=user.id, make="Cupra", model="Born")
+        car = Car(
+            user_id=user.id,
+            make="Cupra",
+            model="Born",
+            battery_kwh=77.0,
+            nominal_efficiency_mi_per_kwh=3.6,
+        )
         session.add(car)
         await session.commit()
         await session.refresh(car)
@@ -34,13 +40,25 @@ async def test_charging_session_belongs_to_car(test_sessionmaker):
         await session.commit()
         await session.refresh(user)
 
-        car = Car(user_id=user.id, make="Cupra", model="Born")
+        car = Car(
+            user_id=user.id,
+            make="Cupra",
+            model="Born",
+            battery_kwh=77.0,
+            nominal_efficiency_mi_per_kwh=3.6,
+        )
         session.add(car)
         await session.commit()
         await session.refresh(car)
 
         cs = ChargingSession(
-            user_id=user.id, car_id=car.id, date=date.today(), source="manual"
+            user_id=user.id,
+            car_id=car.id,
+            date=date.today(),
+            source="manual",
+            start_soc=20,
+            end_soc=80,
+            kwh_added=46.2,
         )
         session.add(cs)
         await session.commit()
@@ -60,7 +78,13 @@ async def test_sync_run_skeleton(test_sessionmaker):
         await session.commit()
         await session.refresh(user)
 
-        car = Car(user_id=user.id, make="Cupra", model="Born")
+        car = Car(
+            user_id=user.id,
+            make="Cupra",
+            model="Born",
+            battery_kwh=77.0,
+            nominal_efficiency_mi_per_kwh=3.6,
+        )
         session.add(car)
         await session.commit()
         await session.refresh(car)
