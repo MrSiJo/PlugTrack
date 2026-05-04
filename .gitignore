@@ -65,10 +65,12 @@ plugtrack.db
 # ========================================
 # Environment / Secrets
 # ========================================
+# Keep the v1 legacy template and the v2 .env.example tracked.
 .env
 *.env.local
 .env.*
-!env_example.txt   # keep the template
+!env_example.txt
+!.env.example
 
 # ========================================
 # Node / Frontend (if added later)
