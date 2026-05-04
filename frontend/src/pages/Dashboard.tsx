@@ -12,7 +12,7 @@
  * through `formatCurrency(pence, currencyCode)` against the `currency`
  * setting (defaults to GBP).
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ApiError,
@@ -27,6 +27,7 @@ import {
   useDistanceUnit,
   useSetting,
 } from '@/stores/settingsStore'
+import { useSyncStore } from '@/stores/syncStore'
 import { kmToMi } from '@/utils/distance'
 import { formatCurrency } from '@/utils/currency'
 
@@ -57,8 +58,6 @@ function formatRelative(iso: string | null): string {
 
 interface CarPanelCardProps {
   car: DashboardCarPanel
-  onForceSync: (carId: number) => void | Promise<void>
-  busy: boolean
 }
 
 const STATE_LABEL: Record<string, string> = {
@@ -78,7 +77,7 @@ const STATE_PILL_CLASS: Record<string, string> = {
     'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200',
 }
 
-function CarPanelCard({ car, onForceSync, busy }: CarPanelCardProps) {
+function CarPanelCard({ car }: CarPanelCardProps) {
   const stateLabel = car.last_state ? STATE_LABEL[car.last_state] ?? car.last_state : null
   const statePillClass = car.last_state
     ? STATE_PILL_CLASS[car.last_state] ?? STATE_PILL_CLASS.IDLE
@@ -118,69 +117,56 @@ function CarPanelCard({ car, onForceSync, busy }: CarPanelCardProps) {
       className="rounded border border-slate-200 bg-white p-4 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900"
       data-testid={`car-panel-${car.id}`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <h3 className="font-semibold">
-            {car.make} {car.model}
-          </h3>
-          {stateLabel && (
-            <div className="mt-2">
-              <span
-                className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${statePillClass}`}
-                data-testid="state-pill"
-              >
-                {stateLabel}
-              </span>
-            </div>
-          )}
-          <div className="mt-2 text-xs text-slate-500" data-testid="car-soc">
-            Battery:{' '}
-            <span className="font-mono">
-              {car.battery_level ?? '—'}
-              {car.battery_level !== null ? '%' : ''}
+      <div className="min-w-0 flex-1">
+        <h3 className="font-semibold">
+          {car.make} {car.model}
+        </h3>
+        {stateLabel && (
+          <div className="mt-2">
+            <span
+              className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${statePillClass}`}
+              data-testid="state-pill"
+            >
+              {stateLabel}
             </span>
-            {car.target_soc !== null && car.target_soc !== undefined && (
-              <span className="ml-1 text-slate-400">
-                (target {car.target_soc}%)
-              </span>
+          </div>
+        )}
+        <div className="mt-2 text-xs text-slate-500" data-testid="car-soc">
+          Battery:{' '}
+          <span className="font-mono">
+            {car.battery_level ?? '—'}
+            {car.battery_level !== null ? '%' : ''}
+          </span>
+          {car.target_soc !== null && car.target_soc !== undefined && (
+            <span className="ml-1 text-slate-400">
+              (target {car.target_soc}%)
+            </span>
+          )}
+        </div>
+        {rangeDisplay && (
+          <div className="mt-1 text-xs text-slate-500" data-testid="car-range">
+            Range: <span className="font-mono">{rangeDisplay}</span>
+          </div>
+        )}
+        {isCharging && car.charging_power_kw !== null && car.charging_power_kw !== undefined && car.charging_power_kw > 0 && (
+          <div className="mt-1 text-xs text-emerald-600 dark:text-emerald-400" data-testid="car-charging">
+            Charging at{' '}
+            <span className="font-mono">{car.charging_power_kw.toFixed(1)} kW</span>
+            {chargeRateDisplay && (
+              <span className="ml-1 text-slate-500">({chargeRateDisplay})</span>
             )}
           </div>
-          {rangeDisplay && (
-            <div className="mt-1 text-xs text-slate-500" data-testid="car-range">
-              Range: <span className="font-mono">{rangeDisplay}</span>
-            </div>
-          )}
-          {isCharging && car.charging_power_kw !== null && car.charging_power_kw !== undefined && car.charging_power_kw > 0 && (
-            <div className="mt-1 text-xs text-emerald-600 dark:text-emerald-400" data-testid="car-charging">
-              Charging at{' '}
-              <span className="font-mono">{car.charging_power_kw.toFixed(1)} kW</span>
-              {chargeRateDisplay && (
-                <span className="ml-1 text-slate-500">({chargeRateDisplay})</span>
-              )}
-            </div>
-          )}
-          {locationDisplay && (
-            <div className="mt-1 truncate text-xs text-slate-500" data-testid="car-location">
-              Location: {locationDisplay}
-            </div>
-          )}
-          <div className="mt-1 text-xs text-slate-500">
-            Last seen: {formatRelative(car.last_connected)}
+        )}
+        {locationDisplay && (
+          <div className="mt-1 truncate text-xs text-slate-500" data-testid="car-location">
+            Location: {locationDisplay}
           </div>
-          <div className="text-xs text-slate-500">
-            Next sync: {formatRelative(car.next_poll_at)}
-          </div>
+        )}
+        <div className="mt-1 text-xs text-slate-500">
+          Last seen: {formatRelative(car.last_connected)}
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <button
-            type="button"
-            onClick={() => void onForceSync(car.id)}
-            disabled={busy}
-            className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-600 dark:bg-indigo-950 dark:text-indigo-200"
-            data-testid={`force-sync-${car.id}`}
-          >
-            Force sync
-          </button>
+        <div className="text-xs text-slate-500">
+          Next sync: {formatRelative(car.next_poll_at)}
         </div>
       </div>
     </li>
@@ -202,7 +188,7 @@ function SessionRowDisplay({ row, currency }: SessionRowDisplayProps) {
       data-testid={`recent-session-${row.id}`}
     >
       <td className="px-3 py-2 text-xs font-mono">{row.date}</td>
-      <td className="px-3 py-2 text-xs">car #{row.car_id}</td>
+      <td className="px-3 py-2 text-xs">{row.car_label}</td>
       <td className="px-3 py-2 text-xs text-right">{row.kwh_added.toFixed(2)} kWh</td>
       <td className="px-3 py-2 text-xs text-right">
         {formatCurrency(row.cost_pence, currency)}
@@ -272,9 +258,12 @@ export default function Dashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [busyCarId, setBusyCarId] = useState<number | null>(null)
   const unit = useDistanceUnit()
   const currencyCode = useSetting<string>('currency') ?? 'GBP'
+  const activeJobIds = useSyncStore((s) =>
+    Object.keys(s.currentJobsByCarId).sort().join(','),
+  )
+  const prevActiveJobIds = useRef(activeJobIds)
 
   const reload = async () => {
     try {
@@ -295,51 +284,19 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const data = await api.getDashboard()
-        if (!cancelled) {
-          setSummary(data)
-          setError(null)
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof ApiError
-              ? err.message
-              : err instanceof Error
-                ? err.message
-                : 'Failed to load dashboard',
-          )
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
+    void reload()
   }, [])
 
-  const onForceSync = async (carId: number) => {
-    setBusyCarId(carId)
-    try {
-      await api.syncCar(carId)
-      // Re-pull dashboard so the panel refreshes.
-      await reload()
-    } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : 'Force-sync failed',
-      )
-    } finally {
-      setBusyCarId(null)
+  // When any in-flight sync job clears, re-pull the dashboard so freshly
+  // observed state (battery / range / charging power / location) shows up
+  // without a manual refresh. SSE streams are owned by SyncStreamSubscriber.
+  useEffect(() => {
+    const prev = prevActiveJobIds.current
+    prevActiveJobIds.current = activeJobIds
+    if (prev && !activeJobIds) {
+      void reload()
     }
-  }
+  }, [activeJobIds])
 
   if (loading) {
     return (
@@ -376,12 +333,7 @@ export default function Dashboard() {
           ) : (
             <ul className="space-y-3">
               {summary.cars.map((car) => (
-                <CarPanelCard
-                  key={car.id}
-                  car={car}
-                  onForceSync={onForceSync}
-                  busy={busyCarId === car.id}
-                />
+                <CarPanelCard key={car.id} car={car} />
               ))}
             </ul>
           )}

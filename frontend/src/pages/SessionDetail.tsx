@@ -10,14 +10,16 @@
  * - Manual-overlay editor (charge_network, notes, user_label).
  */
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import {
   ApiError,
   api,
   type ChargingSessionPayload,
   type CostBasis,
+  type SessionMetricsPayload,
 } from '@/api/client'
 import LocationLabelForm from '@/components/LocationLabelForm'
+import { useDistanceUnit } from '@/stores/settingsStore'
 
 const COST_BASIS_LABEL: Record<CostBasis, string> = {
   override_total: 'Total cost overridden by user',
@@ -31,6 +33,146 @@ const COST_BASIS_LABEL: Record<CostBasis, string> = {
 function fmtPence(pence: number | null): string {
   if (pence === null) return '—'
   return `£${(pence / 100).toFixed(2)}`
+}
+
+function fmtPencePerMile(p: number | null): string {
+  if (p === null) return '—'
+  return `${p.toFixed(1)}p/mi`
+}
+
+interface PetrolComparisonProps {
+  metrics: SessionMetricsPayload
+  unit: 'mi' | 'km'
+  currentSessionId: number
+}
+
+function PetrolComparison({
+  metrics,
+  unit,
+  currentSessionId,
+}: PetrolComparisonProps) {
+  const settingsConfigured =
+    metrics.petrol_price_p_per_litre !== null && metrics.petrol_mpg !== null
+  const hasMiles =
+    metrics.miles_since_previous !== null && metrics.miles_since_previous > 0
+  const isChainFollowup = metrics.chain_anchor_id !== null
+  const chainPartners = metrics.chain_session_ids.filter(
+    (id) => id !== currentSessionId,
+  )
+  const distanceDisplay =
+    metrics.miles_since_previous === null
+      ? '—'
+      : unit === 'mi'
+        ? `${metrics.miles_since_previous.toFixed(1)} mi`
+        : `${(metrics.miles_since_previous * 1.609344).toFixed(1)} km`
+
+  const savings = metrics.savings_vs_petrol_p
+  const savingsClass =
+    savings === null
+      ? 'text-slate-500'
+      : savings > 0
+        ? 'text-emerald-700 dark:text-emerald-400'
+        : 'text-rose-700 dark:text-rose-400'
+
+  return (
+    <div
+      className="rounded border border-slate-200 p-3 text-sm dark:border-slate-700"
+      data-testid="petrol-comparison"
+    >
+      <p className="text-xs uppercase tracking-wide text-slate-500">
+        Petrol comparison
+      </p>
+      {!settingsConfigured ? (
+        <p className="mt-1 text-xs text-slate-500">
+          Set <strong>Petrol price (p/litre)</strong> and{' '}
+          <strong>Petrol MPG</strong> in Settings to enable this comparison.
+        </p>
+      ) : isChainFollowup ? (
+        <p className="mt-1 text-xs text-slate-500" data-testid="chain-followup">
+          No miles travelled since the last session — this charge is part of
+          an ongoing top-up chain. The combined comparison lives on{' '}
+          <Link
+            to={`/sessions/${metrics.chain_anchor_id}`}
+            className="text-indigo-600 underline"
+          >
+            session #{metrics.chain_anchor_id}
+          </Link>
+          .
+        </p>
+      ) : !hasMiles ? (
+        <p className="mt-1 text-xs text-slate-500">
+          Needs an odometer on this session and the previous one for the same
+          car. Add the previous odometer to start tracking miles per session.
+        </p>
+      ) : (
+        <>
+          <dl className="mt-2 grid grid-cols-2 gap-y-1 text-xs">
+            <dt className="text-slate-500">Miles since last session</dt>
+            <dd className="text-right font-mono" data-testid="metric-miles">
+              {distanceDisplay}
+            </dd>
+
+            <dt className="text-slate-500">Cost per mile (EV)</dt>
+            <dd
+              className="text-right font-mono"
+              data-testid="metric-cost-per-mile"
+            >
+              {fmtPencePerMile(metrics.cost_per_mile_p)}
+            </dd>
+
+            <dt className="text-slate-500">Petrol equivalent</dt>
+            <dd className="text-right font-mono" data-testid="metric-petrol-ppm">
+              {fmtPencePerMile(metrics.petrol_ppm)}
+            </dd>
+
+            <dt className="text-slate-500">Petrol equivalent cost</dt>
+            <dd
+              className="text-right font-mono"
+              data-testid="metric-petrol-cost"
+            >
+              {fmtPence(metrics.petrol_equivalent_cost_p)}
+            </dd>
+
+            <dt className="text-slate-500">Saving vs petrol</dt>
+            <dd
+              className={`text-right font-mono ${savingsClass}`}
+              data-testid="metric-savings"
+            >
+              {savings !== null && savings > 0 ? '+' : ''}
+              {fmtPence(savings)}
+            </dd>
+          </dl>
+          {chainPartners.length > 0 && (
+            <p
+              className="mt-2 text-[10px] text-slate-500"
+              data-testid="chain-anchor"
+            >
+              Includes top-up charges from{' '}
+              {chainPartners.map((id, i) => (
+                <span key={id}>
+                  {i > 0 && ', '}
+                  <Link
+                    to={`/sessions/${id}`}
+                    className="text-indigo-600 underline"
+                  >
+                    #{id}
+                  </Link>
+                </span>
+              ))}{' '}
+              · combined EV cost{' '}
+              <strong>{fmtPence(metrics.chain_total_cost_pence)}</strong>.
+            </p>
+          )}
+        </>
+      )}
+      {settingsConfigured && (
+        <p className="mt-2 text-[10px] text-slate-400">
+          Based on {metrics.petrol_price_p_per_litre}p/L petrol @{' '}
+          {metrics.petrol_mpg} MPG.
+        </p>
+      )}
+    </div>
+  )
 }
 
 interface CostBreakdownProps {
@@ -80,6 +222,7 @@ export function CostBreakdown({ session }: CostBreakdownProps) {
 export default function SessionDetail() {
   const params = useParams<{ id: string }>()
   const sessionId = params.id ? Number(params.id) : null
+  const unit = useDistanceUnit()
 
   const [session, setSession] = useState<ChargingSessionPayload | null>(null)
   const [loading, setLoading] = useState(true)
@@ -130,6 +273,16 @@ export default function SessionDetail() {
       <section className="mb-6">
         <CostBreakdown session={session} />
       </section>
+
+      {session.metrics && (
+        <section className="mb-6">
+          <PetrolComparison
+            metrics={session.metrics}
+            unit={unit}
+            currentSessionId={session.id}
+          />
+        </section>
+      )}
 
       <section className="mb-6">
         <h2 className="mb-2 text-lg font-medium">Location</h2>

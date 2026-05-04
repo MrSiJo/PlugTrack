@@ -119,6 +119,7 @@ async def _lifespan(app: FastAPI):
     # cold start (before the first periodic sync fires).
     from sqlalchemy import select as _select
     from .models import CarStateSnapshot
+    rehydrated_car_ids: list[int] = []
     async with db_module.SessionLocal() as session:
         snaps = (
             await session.execute(_select(CarStateSnapshot))
@@ -134,6 +135,7 @@ async def _lifespan(app: FastAPI):
             st.last_position_lng = snap.last_position_lng
             st.last_location_id = snap.last_location_id
             st.last_car_captured_timestamp = snap.last_car_captured_timestamp
+            rehydrated_car_ids.append(snap.car_id)
 
     async def _scheduled_sync(car_id: int) -> None:
         await app.state.sync_orchestrator.sync_car(car_id, kind="periodic")
@@ -181,6 +183,23 @@ async def _lifespan(app: FastAPI):
             pass
 
     app.state.sync_orchestrator.set_on_complete(_after_sync)
+
+    # Arm a periodic poll for every car we just rehydrated. Without this
+    # the scheduler stays idle until the user clicks Force sync, which
+    # leaves "Next sync: never" on the dashboard after every restart.
+    if app.state.sync_scheduler.is_enabled():
+        _bootstrap_settings = _settings_provider()
+        for car_id in rehydrated_car_ids:
+            state = app.state.sync_orchestrator.ensure_state(car_id)
+            try:
+                app.state.sync_scheduler.schedule_next(
+                    car_id=car_id,
+                    state=state,
+                    telemetry=None,
+                    settings=_bootstrap_settings,
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
     try:
         yield

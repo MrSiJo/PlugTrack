@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...db import get_db
 from ...models import ChargingSession, Location, Setting
 from ...services.cost import compute_session_cost
+from ...services.session_metrics import compute_session_metrics
 
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -35,6 +36,19 @@ _COST_AFFECTING = frozenset(
         "total_cost_pence_override",
     }
 )
+
+
+class SessionMetricsPayload(BaseModel):
+    miles_since_previous: Optional[float]
+    cost_per_mile_p: Optional[float]
+    petrol_ppm: Optional[float]
+    petrol_equivalent_cost_p: Optional[int]
+    savings_vs_petrol_p: Optional[int]
+    petrol_price_p_per_litre: Optional[float]
+    petrol_mpg: Optional[float]
+    chain_session_ids: list[int] = []
+    chain_total_cost_pence: Optional[int] = None
+    chain_anchor_id: Optional[int] = None
 
 
 class SessionPayload(BaseModel):
@@ -65,6 +79,7 @@ class SessionPayload(BaseModel):
     notes: Optional[str]
     source: str
     telematics_session_id: Optional[str]
+    metrics: Optional[SessionMetricsPayload] = None
 
 
 class SessionCreateRequest(BaseModel):
@@ -289,7 +304,21 @@ async def get_session(
 ) -> SessionPayload:
     user_id = _user_id(request)
     cs = await _get_owned(session, session_id, user_id)
-    return await _to_payload_with_location(session, cs)
+    payload = await _to_payload_with_location(session, cs)
+    metrics = await compute_session_metrics(session, cs)
+    payload.metrics = SessionMetricsPayload(
+        miles_since_previous=metrics.miles_since_previous,
+        cost_per_mile_p=metrics.cost_per_mile_p,
+        petrol_ppm=metrics.petrol_ppm,
+        petrol_equivalent_cost_p=metrics.petrol_equivalent_cost_p,
+        savings_vs_petrol_p=metrics.savings_vs_petrol_p,
+        petrol_price_p_per_litre=metrics.petrol_price_p_per_litre,
+        petrol_mpg=metrics.petrol_mpg,
+        chain_session_ids=metrics.chain_session_ids,
+        chain_total_cost_pence=metrics.chain_total_cost_pence,
+        chain_anchor_id=metrics.chain_anchor_id,
+    )
+    return payload
 
 
 @router.put("/{session_id}", response_model=SessionPayload)

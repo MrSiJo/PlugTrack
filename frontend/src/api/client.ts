@@ -248,6 +248,20 @@ export interface ChargingSessionPayload {
   notes: string | null
   source: string
   telematics_session_id: string | null
+  metrics?: SessionMetricsPayload | null
+}
+
+export interface SessionMetricsPayload {
+  miles_since_previous: number | null
+  cost_per_mile_p: number | null
+  petrol_ppm: number | null
+  petrol_equivalent_cost_p: number | null
+  savings_vs_petrol_p: number | null
+  petrol_price_p_per_litre: number | null
+  petrol_mpg: number | null
+  chain_session_ids: number[]
+  chain_total_cost_pence: number | null
+  chain_anchor_id: number | null
 }
 
 export interface SessionCreateRequest {
@@ -507,6 +521,7 @@ export interface DashboardCarPanel {
 export interface DashboardSessionRow {
   id: number
   car_id: number
+  car_label: string
   date: string
   kwh_added: number
   cost_pence: number | null

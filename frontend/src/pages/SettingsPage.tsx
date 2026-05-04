@@ -8,6 +8,7 @@ import {
 } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useSyncStore } from '@/stores/syncStore'
 import { useTheme } from '@/theme'
 
 // Hardcoded option lists for enum settings — kept local per YAGNI.
@@ -243,6 +244,7 @@ function SyncControlsPanel() {
   const [error, setError] = useState<string | null>(null)
   const [busyCarId, setBusyCarId] = useState<number | null>(null)
   const [toasts, setToasts] = useState<Record<number, { kind: 'success' | 'error' | 'cooldown'; message: string }>>({})
+  const startStream = useSyncStore((s) => s.startStream)
 
   useEffect(() => {
     let cancelled = false
@@ -276,9 +278,13 @@ function SyncControlsPanel() {
     setBusyCarId(carId)
     try {
       const res = await api.syncCar(carId)
+      // Open the SSE stream so the dashboard's syncStore subscription
+      // sees the job appear and disappear → triggers an auto-refresh
+      // of the dashboard panels when the sync completes.
+      startStream(carId, res.job_id, `/api/sync/stream/${res.job_id}`, 'force')
       setToast(carId, {
         kind: 'success',
-        message: `Sync queued (job ${res.job_id.slice(0, 8)}…). Check the dashboard in a few seconds.`,
+        message: `Sync queued (job ${res.job_id.slice(0, 8)}…). Dashboard will update when it finishes.`,
       })
     } catch (err) {
       setToast(carId, {

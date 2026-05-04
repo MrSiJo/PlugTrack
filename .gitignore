@@ -117,6 +117,9 @@ legacy/
 # pycupra discovery harness output (Phase 0)
 scripts/probe_output/
 
+# pycupra runtime cache (token + per-VIN car images) — local only, contains VIN/PII.
+www/
+
 # Python (additional)
 .ruff_cache/
 .mypy_cache/
