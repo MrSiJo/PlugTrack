@@ -3,9 +3,10 @@
 `create_app()` is the single entry point for both production and tests.
 The lifespan handler:
 
-1. Asserts the `WEB_CONCURRENCY` env var is unset or `1`. SQLite +
-   APScheduler in-process scheduler are not multi-process safe, so we
-   refuse to start a second worker. (Multi-worker tripwire.)
+1. Asserts single-worker exclusivity. SQLite + APScheduler in-process
+   scheduler are not multi-process safe, so we refuse to start a second
+   worker. We use both an env-var check (WEB_CONCURRENCY) and a
+   filesystem lock (so direct `--workers N` invocations also fail).
 2. Runs `Base.metadata.create_all` to ensure the schema exists in dev.
 3. Calls `seed_defaults` to insert any catalogue rows missing from the
    `setting` table.
@@ -13,7 +14,10 @@ The lifespan handler:
 from __future__ import annotations
 
 import os
+import sys
+import tempfile
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from slowapi import _rate_limit_exceeded_handler
@@ -28,7 +32,19 @@ from .security.csrf import CsrfMiddleware
 from .settings.seeds import seed_defaults
 
 
+_LOCK_HANDLE = None  # module-level so the lock survives lifespan scope
+
+
 def _assert_single_worker() -> None:
+    """Two-layer multi-worker tripwire.
+
+    1. Reject if WEB_CONCURRENCY is set to anything other than "1".
+    2. Acquire an exclusive filesystem lock so `uvicorn --workers N` /
+       `gunicorn -w N` (which fork without setting WEB_CONCURRENCY) also
+       fail — only the first worker gets the lock.
+
+    The lock is released when the process exits.
+    """
     web_concurrency = os.getenv("WEB_CONCURRENCY")
     if web_concurrency is not None and web_concurrency != "1":
         raise RuntimeError(
@@ -36,6 +52,32 @@ def _assert_single_worker() -> None:
             "APScheduler are not safe across multiple workers. "
             f"Got WEB_CONCURRENCY={web_concurrency!r}."
         )
+
+    # Skip the file lock during pytest — fixtures repeatedly create_app()
+    # within the same process and would self-deadlock.
+    if "pytest" in sys.modules:
+        return
+
+    global _LOCK_HANDLE
+    if _LOCK_HANDLE is not None:
+        return  # already locked in this process
+
+    lock_path = Path(tempfile.gettempdir()) / "plugtrack.lock"
+    handle = open(lock_path, "w")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (OSError, BlockingIOError) as exc:
+        handle.close()
+        raise RuntimeError(
+            f"Another PlugTrack worker already holds {lock_path}. "
+            "Run with a single worker only."
+        ) from exc
+    _LOCK_HANDLE = handle
 
 
 @asynccontextmanager

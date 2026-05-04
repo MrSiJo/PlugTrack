@@ -28,8 +28,6 @@ def verify_password(plain: str, hashed: str) -> bool:
         return _HASHER.verify(hashed, plain)
     except (VerifyMismatchError, VerificationError, InvalidHashError):
         return False
-    except Exception:
-        return False
 
 
 def fernet_from_secret(app_secret: str) -> Fernet:
