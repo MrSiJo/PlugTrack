@@ -109,6 +109,7 @@ def create_app() -> FastAPI:
     # Routers — registered here so `app.routes` exposes everything to
     # the security-invariants test.
     from .api.routes import auth as auth_routes
+    from .api.routes import cars as cars_routes
     from .api.routes import health as health_routes
     from .api.routes import settings as settings_routes
     from .api.routes import setup as setup_routes
@@ -117,5 +118,6 @@ def create_app() -> FastAPI:
     app.include_router(setup_routes.router)
     app.include_router(auth_routes.router)
     app.include_router(settings_routes.router)
+    app.include_router(cars_routes.router)
 
     return app
