@@ -155,15 +155,34 @@ async def fetch_vehicle_state(connection: Connection, vehicle_id: str) -> Vehicl
     `attrs` cache is populated, then reads via the property API and
     coerces into our `VehicleState` dataclass.
     """
-    vehicles = await connection.get_vehicles()
+    # `get_vehicles()` populates `connection._vehicles` and returns a bool.
+    # The actual Vehicle objects live on `_vehicles` (list in pycupra v0.2.x).
+    await connection.get_vehicles()
+    raw = getattr(connection, "_vehicles", None)
+    if isinstance(raw, dict):
+        candidates = list(raw.values())
+    elif isinstance(raw, list):
+        candidates = raw
+    else:
+        candidates = []
     vehicle = None
-    for candidate in vehicles or []:
-        candidate_id = getattr(candidate, "vin", None) or getattr(candidate, "unique_id", None)
+    for candidate in candidates:
+        candidate_id = (
+            getattr(candidate, "vin", None)
+            or getattr(candidate, "_vin", None)
+            or getattr(candidate, "unique_id", None)
+        )
         if candidate_id == vehicle_id:
             vehicle = candidate
             break
     if vehicle is None:
-        raise ValueError(f"vehicle {vehicle_id!r} not found in pycupra response")
+        known = [
+            getattr(c, "vin", None) or getattr(c, "_vin", None) for c in candidates
+        ]
+        raise ValueError(
+            f"vehicle {vehicle_id!r} not found in pycupra response; "
+            f"available VINs: {known!r}"
+        )
 
     # Populate the underlying attrs cache. Each call is best-effort —
     # cars may not support every endpoint.

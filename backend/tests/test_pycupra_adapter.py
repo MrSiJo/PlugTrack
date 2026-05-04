@@ -76,7 +76,9 @@ def _build_vehicle_stub(payload: dict[str, Any]) -> MagicMock:
 
 def _build_connection_stub(vehicle: MagicMock) -> MagicMock:
     connection = MagicMock()
-    connection.get_vehicles = AsyncMock(return_value=[vehicle])
+    # pycupra's get_vehicles() returns a bool and populates _vehicles.
+    connection.get_vehicles = AsyncMock(return_value=True)
+    connection._vehicles = [vehicle]
     connection.setRefresh = AsyncMock(return_value=True)
     return connection
 
