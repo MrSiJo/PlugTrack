@@ -1,0 +1,392 @@
+"""Tests for /api/sessions and /api/locations/{id}/label."""
+from __future__ import annotations
+
+from datetime import date
+
+import pytest
+
+from tests.api.conftest import csrf_headers
+
+
+async def _create_car(client) -> int:
+    r = await client.post(
+        "/api/cars",
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 77.0,
+            "nominal_efficiency_mi_per_kwh": 3.6,
+        },
+        headers=csrf_headers(client),
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_list_sessions_requires_auth(seeded_client):
+    r = await seeded_client.get("/api/sessions")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_create_session_round_trip(authed_client):
+    car_id = await _create_car(authed_client)
+
+    r = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 46.2,
+            "notes": "manual log",
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    sid = body["id"]
+    assert body["source"] == "manual"
+    assert body["start_soc"] == 20
+    assert body["end_soc"] == 80
+    # Default home rate from catalogue is 7.5 p/kWh.
+    assert body["cost_basis"] == "home_rate"
+    assert body["tariff_p_per_kwh"] == 7.5
+    assert body["cost_pence"] == round(46.2 * 7.5)
+    assert body["notes"] == "manual log"
+
+    # GET single
+    r = await authed_client.get(f"/api/sessions/{sid}")
+    assert r.status_code == 200
+    assert r.json()["id"] == sid
+
+    # LIST
+    r = await authed_client.get("/api/sessions")
+    assert r.status_code == 200
+    assert any(s["id"] == sid for s in r.json())
+
+    # filter by car
+    r = await authed_client.get(f"/api/sessions?car_id={car_id}")
+    assert r.status_code == 200
+    assert all(s["car_id"] == car_id for s in r.json())
+
+
+@pytest.mark.asyncio
+async def test_create_session_with_per_kwh_override(authed_client):
+    car_id = await _create_car(authed_client)
+    r = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 46.2,
+            "cost_per_kwh_override_p": 79.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["cost_basis"] == "override_per_kwh"
+    assert body["tariff_p_per_kwh"] == 79.0
+    assert body["cost_pence"] == round(46.2 * 79.0)
+
+
+@pytest.mark.asyncio
+async def test_create_session_with_total_override(authed_client):
+    car_id = await _create_car(authed_client)
+    r = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 21.5,
+            "cost_per_kwh_override_p": 79.0,
+            "total_cost_pence_override": 1840,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    # Mixed override: total wins, per-kwh preserved as tariff for breakdown.
+    assert body["cost_pence"] == 1840
+    assert body["cost_basis"] == "override_total"
+    assert body["tariff_p_per_kwh"] == 79.0
+
+
+@pytest.mark.asyncio
+async def test_update_recomputes_cost_when_kwh_changes(authed_client):
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    sid = create.json()["id"]
+    assert create.json()["cost_pence"] == round(10.0 * 7.5)
+
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"kwh_added": 20.0},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200
+    assert upd.json()["cost_pence"] == round(20.0 * 7.5)
+
+
+@pytest.mark.asyncio
+async def test_update_does_not_recompute_when_only_notes_change(authed_client):
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+            "cost_per_kwh_override_p": 50.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    sid = create.json()["id"]
+    original_cost = create.json()["cost_pence"]
+
+    # Notes-only change. Cost stays put (no recompute even if a global
+    # rate changed elsewhere).
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"notes": "still 50p override"},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200
+    assert upd.json()["cost_pence"] == original_cost
+    assert upd.json()["notes"] == "still 50p override"
+
+
+@pytest.mark.asyncio
+async def test_delete_session(authed_client):
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    sid = create.json()["id"]
+
+    r = await authed_client.delete(
+        f"/api/sessions/{sid}", headers=csrf_headers(authed_client)
+    )
+    assert r.status_code == 204
+
+    r = await authed_client.get(f"/api/sessions/{sid}")
+    assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Location label endpoint
+# ---------------------------------------------------------------------------
+
+
+async def _create_location_for(test_sessionmaker, user_id: int) -> int:
+    """Helper: insert an unlabelled location directly into the DB."""
+    from plugtrack.models import Location
+
+    async with test_sessionmaker() as session:
+        loc = Location(
+            user_id=user_id,
+            centroid_lat=50.85,
+            centroid_lng=-0.13,
+            radius_m=100,
+        )
+        session.add(loc)
+        await session.commit()
+        await session.refresh(loc)
+        return loc.id
+
+
+async def _bootstrap_user_id(test_sessionmaker) -> int:
+    from sqlalchemy import select
+
+    from plugtrack.models import User
+
+    async with test_sessionmaker() as session:
+        result = await session.execute(select(User).where(User.username == "admin"))
+        return result.scalar_one().id
+
+
+@pytest.mark.asyncio
+async def test_label_location_first_label_succeeds(authed_client, test_sessionmaker):
+    user_id = await _bootstrap_user_id(test_sessionmaker)
+    loc_id = await _create_location_for(test_sessionmaker, user_id)
+
+    r = await authed_client.patch(
+        f"/api/locations/{loc_id}/label",
+        json={
+            "name": "Home",
+            "is_home": True,
+            "is_free": False,
+            "default_cost_per_kwh_p": 7.5,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["location"]["name"] == "Home"
+    assert body["location"]["is_home"] is True
+    assert body["sessions_recomputed_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_label_location_second_label_refused_409(authed_client, test_sessionmaker):
+    user_id = await _bootstrap_user_id(test_sessionmaker)
+    loc_id = await _create_location_for(test_sessionmaker, user_id)
+
+    # First label.
+    r1 = await authed_client.patch(
+        f"/api/locations/{loc_id}/label",
+        json={"name": "Home", "is_home": True, "is_free": False},
+        headers=csrf_headers(authed_client),
+    )
+    assert r1.status_code == 200
+
+    # Second attempt is refused.
+    r2 = await authed_client.patch(
+        f"/api/locations/{loc_id}/label",
+        json={"name": "Different name"},
+        headers=csrf_headers(authed_client),
+    )
+    assert r2.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_label_location_recomputes_only_home_rate_sessions(
+    authed_client, test_sessionmaker
+):
+    """Only sessions with cost_basis='home_rate' get retro-recomputed.
+
+    Override-cost sessions are sacred. Sessions on a different
+    `cost_basis` are left alone.
+    """
+    from sqlalchemy import select
+
+    from plugtrack.models import ChargingSession
+
+    user_id = await _bootstrap_user_id(test_sessionmaker)
+    car_id = await _create_car(authed_client)
+    loc_id = await _create_location_for(test_sessionmaker, user_id)
+
+    # Three sessions, all linked to this unlabelled location:
+    # 1. plain (will land on home_rate)
+    # 2. cost_per_kwh_override (override_per_kwh)
+    # 3. total_cost_override (override_total)
+    payloads = [
+        {"kwh_added": 10.0},  # → home_rate
+        {"kwh_added": 10.0, "cost_per_kwh_override_p": 50.0},  # → override_per_kwh
+        {"kwh_added": 10.0, "total_cost_pence_override": 999},  # → override_total
+    ]
+    session_ids = []
+    for extra in payloads:
+        r = await authed_client.post(
+            "/api/sessions",
+            json={
+                "car_id": car_id,
+                "date": date.today().isoformat(),
+                "start_soc": 20,
+                "end_soc": 80,
+                "location_id": loc_id,
+                **extra,
+            },
+            headers=csrf_headers(authed_client),
+        )
+        assert r.status_code == 201, r.text
+        session_ids.append(r.json()["id"])
+
+    # Snapshot the override-cost session values pre-label.
+    pre_override_per_kwh = (
+        await authed_client.get(f"/api/sessions/{session_ids[1]}")
+    ).json()
+    pre_override_total = (
+        await authed_client.get(f"/api/sessions/{session_ids[2]}")
+    ).json()
+
+    # Label the location with a new per-kWh default.
+    label = await authed_client.patch(
+        f"/api/locations/{loc_id}/label",
+        json={
+            "name": "Public ChargePoint",
+            "is_home": False,
+            "is_free": False,
+            "default_cost_per_kwh_p": 35.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert label.status_code == 200, label.text
+    assert label.json()["sessions_recomputed_count"] == 1
+
+    # Session 0 (was home_rate) is now location_rate at 35p.
+    s0 = (await authed_client.get(f"/api/sessions/{session_ids[0]}")).json()
+    assert s0["cost_basis"] == "location_rate"
+    assert s0["tariff_p_per_kwh"] == 35.0
+    assert s0["cost_pence"] == round(10.0 * 35.0)
+
+    # Session 1 (override_per_kwh) is unchanged.
+    s1 = (await authed_client.get(f"/api/sessions/{session_ids[1]}")).json()
+    assert s1["cost_basis"] == pre_override_per_kwh["cost_basis"]
+    assert s1["cost_pence"] == pre_override_per_kwh["cost_pence"]
+    assert s1["tariff_p_per_kwh"] == pre_override_per_kwh["tariff_p_per_kwh"]
+
+    # Session 2 (override_total) is unchanged.
+    s2 = (await authed_client.get(f"/api/sessions/{session_ids[2]}")).json()
+    assert s2["cost_basis"] == pre_override_total["cost_basis"]
+    assert s2["cost_pence"] == pre_override_total["cost_pence"]
+
+
+@pytest.mark.asyncio
+async def test_override_columns_survive_unrelated_updates(authed_client):
+    """Updating non-cost fields must not clobber the override columns."""
+    from sqlalchemy import select
+
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+            "cost_per_kwh_override_p": 50.0,
+            "total_cost_pence_override": 700,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    sid = create.json()["id"]
+
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"charge_network": "BP Pulse"},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200
+    body = upd.json()
+    assert body["cost_per_kwh_override_p"] == 50.0
+    assert body["total_cost_pence_override"] == 700
+    assert body["charge_network"] == "BP Pulse"
