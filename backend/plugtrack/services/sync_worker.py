@@ -338,6 +338,36 @@ class ProductionPollWorker:
         state.consecutive_failures = 0
         state.last_error = None
 
+        # Track current GPS + cluster regardless of plug-in state so the
+        # dashboard can show "where the car is right now".
+        if telemetry.position is not None:
+            state.last_position_lat = telemetry.position.lat
+            state.last_position_lng = telemetry.position.lng
+            try:
+                async with self._db_sessionmaker() as loc_session:
+                    loc, was_created = await find_or_create_location(
+                        loc_session,
+                        user_id=car.user_id,
+                        lat=telemetry.position.lat,
+                        lng=telemetry.position.lng,
+                    )
+                    await loc_session.commit()
+                    state.last_location_id = loc.id
+                    if was_created:
+                        # Fire-and-forget reverse geocode for the new
+                        # cluster — populates `address` over the next
+                        # few seconds without blocking the sync.
+                        asyncio.create_task(
+                            asyncio.shield(
+                                self._geocode_async(
+                                    car.user_id, loc.id,
+                                    telemetry.position.lat, telemetry.position.lng,
+                                )
+                            )
+                        )
+            except Exception:  # noqa: BLE001 — never let location work fail a sync
+                pass
+
         duration_ms = int((time.perf_counter() - run_started_perf) * 1000)
         await self._publish(
             job, "sync.completed",
