@@ -95,17 +95,50 @@ async def _lifespan(app: FastAPI):
     from .services.event_bus import get_event_bus
     from .services.sync_orchestrator import SyncOrchestrator
     from .services.sync_scheduler import SyncScheduler
+    from .services.sync_worker import (
+        get_user_sync_settings,
+        make_pycupra_adapter_provider,
+        make_settings_provider,
+        make_worker,
+    )
 
-    app.state.event_bus = get_event_bus()
-    app.state.sync_orchestrator = SyncOrchestrator()
+    bus = get_event_bus()
+    app.state.event_bus = bus
+    # Phase 4.6: wire the production poll worker (StateMachine + DB
+    # writes + cost + clustering + event emission).
+    poll_worker = make_worker(
+        db_sessionmaker=db_module.SessionLocal,
+        settings_provider=make_settings_provider(db_module.SessionLocal),
+        adapter_provider=make_pycupra_adapter_provider(db_module.SessionLocal),
+        bus=bus,
+    )
+    app.state.sync_orchestrator = SyncOrchestrator(poll_worker=poll_worker)
 
     async def _scheduled_sync(car_id: int) -> None:
         await app.state.sync_orchestrator.sync_car(car_id, kind="periodic")
 
     def _settings_provider() -> dict:
-        # Lazy fetch — settings aren't fully wired here yet for live
-        # reads. Default cadence band kicks in if missing.
-        return {}
+        # Synchronous read used by SyncScheduler.start()/schedule_next.
+        # We block on a fresh session — startup is short-lived; per-tick
+        # reads also pay this cost but APScheduler's loop tolerates it.
+        import asyncio as _asyncio
+
+        async def _read() -> dict:
+            async with db_module.SessionLocal() as session:
+                # user_id is unused inside; we pass 0 deliberately.
+                return await get_user_sync_settings(session, 0)
+
+        try:
+            loop = _asyncio.get_event_loop()
+            if loop.is_running():
+                # Defensive: should only be hit if called during the
+                # active loop. APScheduler uses the same loop and will
+                # await `_scheduled_sync` rather than calling this; this
+                # branch is the fallback for tests.
+                return {}
+        except RuntimeError:
+            pass
+        return _asyncio.run(_read())
 
     app.state.sync_scheduler = SyncScheduler(
         sync_callback=_scheduled_sync,
