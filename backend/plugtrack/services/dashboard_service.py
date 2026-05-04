@@ -55,6 +55,7 @@ class CarPanel:
 class SessionRow:
     id: int
     car_id: int
+    car_label: str
     date: date_cls
     kwh_added: float
     cost_pence: Optional[int]
@@ -215,6 +216,7 @@ async def dashboard_summary(
         )
 
     # ---- Recent sessions (last 10 across all cars) ----
+    car_label_by_id = {c.id: f"{c.make} {c.model}".strip() for c in cars}
     recent_stmt = (
         select(ChargingSession, Location.name)
         .join(Location, ChargingSession.location_id == Location.id, isouter=True)
@@ -228,6 +230,7 @@ async def dashboard_summary(
             SessionRow(
                 id=cs.id,
                 car_id=cs.car_id,
+                car_label=car_label_by_id.get(cs.car_id, f"car #{cs.car_id}"),
                 date=cs.date,
                 kwh_added=cs.kwh_added,
                 cost_pence=cs.cost_pence,

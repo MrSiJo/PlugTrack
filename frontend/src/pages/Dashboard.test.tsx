@@ -49,6 +49,7 @@ function fixtureSummary(): DashboardSummary {
       {
         id: 100,
         car_id: 1,
+        car_label: 'Cupra Born',
         date: '2026-05-01',
         kwh_added: 12.5,
         cost_pence: 240,
@@ -61,6 +62,7 @@ function fixtureSummary(): DashboardSummary {
       {
         id: 101,
         car_id: 2,
+        car_label: 'VW ID.4',
         date: '2026-04-30',
         kwh_added: 42.0,
         cost_pence: 3500,
