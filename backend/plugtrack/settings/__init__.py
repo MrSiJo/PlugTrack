@@ -1,0 +1,1 @@
+"""Settings catalogue and seeding."""
