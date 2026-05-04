@@ -1,0 +1,50 @@
+# Pre-commit hooks for PlugTrack v2.
+#
+# Run `pre-commit install` once after cloning to enable the git hooks.
+# The `security-invariants` hook is manual-stage and does not run on
+# every commit. Trigger it explicitly with:
+#
+#   pre-commit run --hook-stage manual security-invariants
+
+repos:
+  - repo: https://github.com/zricethezav/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.10
+    hooks:
+      - id: bandit
+        args: ["-ll"]
+        files: ^backend/
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+        args: ["--check"]
+
+  - repo: local
+    hooks:
+      - id: forbid-environment-ips
+        name: Forbid RFC 1918 IP literals
+        description: >
+          Block `10.x.x.x`, `172.16-31.x.x`, `192.168.x.x` from creeping
+          into the repo (exempts legacy/ and docs/).
+        entry: python scripts/forbid_environment_ips.py
+        language: system
+        types: [text]
+
+      - id: security-invariants
+        name: Security invariants (manual)
+        description: >
+          Pinned EXEMPT_PATHS hash + CSRF coverage + setup one-shot +
+          APP_SECRET_KEY validator. Run before merging anything that
+          touches auth, CSRF, or settings.
+        entry: pytest backend/tests/api/test_security_invariants.py -v
+        language: system
+        pass_filenames: false
+        stages: [manual]
