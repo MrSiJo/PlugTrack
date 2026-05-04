@@ -111,6 +111,8 @@ def create_app() -> FastAPI:
     from .api.routes import auth as auth_routes
     from .api.routes import cars as cars_routes
     from .api.routes import health as health_routes
+    from .api.routes import locations as locations_routes
+    from .api.routes import sessions as sessions_routes
     from .api.routes import settings as settings_routes
     from .api.routes import setup as setup_routes
 
@@ -119,5 +121,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_routes.router)
     app.include_router(settings_routes.router)
     app.include_router(cars_routes.router)
+    app.include_router(sessions_routes.router)
+    app.include_router(locations_routes.router)
 
     return app

@@ -11,6 +11,8 @@ import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { applyThemeToDocument } from '@/theme'
 import LoginPage from '@/pages/LoginPage'
+import SessionDetail from '@/pages/SessionDetail'
+import Sessions from '@/pages/Sessions'
 import SettingsPage from '@/pages/SettingsPage'
 import SetupPage from '@/pages/SetupPage'
 
@@ -85,6 +87,30 @@ function AppRoutes({ result }: { result: BootstrapResult }) {
             <Navigate to="/login" replace state={{ from: location }} />
           ) : (
             <SettingsPage />
+          )
+        }
+      />
+      <Route
+        path="/sessions"
+        element={
+          result.setupNeeded ? (
+            <Navigate to="/setup" replace />
+          ) : !authed ? (
+            <Navigate to="/login" replace state={{ from: location }} />
+          ) : (
+            <Sessions />
+          )
+        }
+      />
+      <Route
+        path="/sessions/:id"
+        element={
+          result.setupNeeded ? (
+            <Navigate to="/setup" replace />
+          ) : !authed ? (
+            <Navigate to="/login" replace state={{ from: location }} />
+          ) : (
+            <SessionDetail />
           )
         }
       />

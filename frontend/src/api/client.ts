@@ -152,6 +152,119 @@ export interface ClearTokensResponse {
   count: number
 }
 
+// ---------------------------------------------------------------------------
+// Cars
+// ---------------------------------------------------------------------------
+
+export interface CarPayload {
+  id: number
+  make: string
+  model: string
+  vin: string | null
+  battery_kwh: number
+  nominal_efficiency_mi_per_kwh: number
+  provider: string
+  provider_vehicle_id: string | null
+  active: boolean
+}
+
+export interface CarCreateRequest {
+  make: string
+  model: string
+  vin?: string | null
+  battery_kwh: number
+  nominal_efficiency_mi_per_kwh: number
+  provider?: string
+  provider_vehicle_id?: string | null
+  active?: boolean
+}
+
+export type CarUpdateRequest = Partial<CarCreateRequest>
+
+// ---------------------------------------------------------------------------
+// Sessions + Locations
+// ---------------------------------------------------------------------------
+
+export type CostBasis =
+  | 'override_total'
+  | 'override_per_kwh'
+  | 'location_free'
+  | 'location_rate'
+  | 'home_rate'
+  | 'unknown'
+
+export interface ChargingSessionPayload {
+  id: number
+  user_id: number
+  car_id: number
+  plug_in_record_id: number | null
+  date: string
+  charge_start_at: string | null
+  charge_end_at: string | null
+  start_soc: number
+  end_soc: number
+  kwh_added: number
+  odometer_at_session_km: number | null
+  charging_type: string
+  charging_mode: string
+  interrupted: boolean
+  cost_pence: number | null
+  cost_basis: CostBasis
+  tariff_p_per_kwh: number | null
+  cost_per_kwh_override_p: number | null
+  total_cost_pence_override: number | null
+  location_id: number | null
+  user_label: string | null
+  charge_network: string | null
+  notes: string | null
+  source: string
+  telematics_session_id: string | null
+}
+
+export interface SessionCreateRequest {
+  car_id: number
+  date: string
+  start_soc: number
+  end_soc: number
+  kwh_added: number
+  charge_start_at?: string | null
+  charge_end_at?: string | null
+  location_id?: number | null
+  charging_type?: string
+  charging_mode?: string
+  cost_per_kwh_override_p?: number | null
+  total_cost_pence_override?: number | null
+  charge_network?: string | null
+  notes?: string | null
+  user_label?: string | null
+}
+
+export type SessionUpdateRequest = Partial<SessionCreateRequest>
+
+export interface LocationPayload {
+  id: number
+  name: string | null
+  centroid_lat: number
+  centroid_lng: number
+  radius_m: number
+  is_home: boolean
+  is_free: boolean
+  default_cost_per_kwh_p: number | null
+  address: string | null
+}
+
+export interface LocationLabelRequest {
+  name: string
+  is_home: boolean
+  is_free: boolean
+  default_cost_per_kwh_p: number | null
+}
+
+export interface LocationLabelResponse {
+  location: LocationPayload
+  sessions_recomputed_count: number
+}
+
 export const api = {
   health: (): Promise<HealthResponse> => fetchJSON<HealthResponse>('/api/health'),
 
@@ -178,5 +291,56 @@ export const api = {
   clearPycupraTokens: (): Promise<ClearTokensResponse> =>
     fetchJSON<ClearTokensResponse>('/api/settings/clear-pycupra-tokens', {
       method: 'POST',
+    }),
+
+  // ----- Cars -----
+
+  getCars: (): Promise<CarPayload[]> => fetchJSON<CarPayload[]>('/api/cars'),
+
+  getCar: (id: number): Promise<CarPayload> => fetchJSON<CarPayload>(`/api/cars/${id}`),
+
+  createCar: (req: CarCreateRequest): Promise<CarPayload> =>
+    fetchJSON<CarPayload>('/api/cars', { method: 'POST', body: req }),
+
+  updateCar: (id: number, req: CarUpdateRequest): Promise<CarPayload> =>
+    fetchJSON<CarPayload>(`/api/cars/${id}`, { method: 'PUT', body: req }),
+
+  deleteCar: (id: number): Promise<void> =>
+    fetchJSON<void>(`/api/cars/${id}`, { method: 'DELETE' }),
+
+  // ----- Sessions -----
+
+  getSessions: (carId?: number): Promise<ChargingSessionPayload[]> => {
+    const path = carId !== undefined ? `/api/sessions?car_id=${carId}` : '/api/sessions'
+    return fetchJSON<ChargingSessionPayload[]>(path)
+  },
+
+  getSession: (id: number): Promise<ChargingSessionPayload> =>
+    fetchJSON<ChargingSessionPayload>(`/api/sessions/${id}`),
+
+  createSession: (req: SessionCreateRequest): Promise<ChargingSessionPayload> =>
+    fetchJSON<ChargingSessionPayload>('/api/sessions', { method: 'POST', body: req }),
+
+  updateSession: (
+    id: number,
+    req: SessionUpdateRequest,
+  ): Promise<ChargingSessionPayload> =>
+    fetchJSON<ChargingSessionPayload>(`/api/sessions/${id}`, {
+      method: 'PUT',
+      body: req,
+    }),
+
+  deleteSession: (id: number): Promise<void> =>
+    fetchJSON<void>(`/api/sessions/${id}`, { method: 'DELETE' }),
+
+  // ----- Locations -----
+
+  labelLocation: (
+    id: number,
+    req: LocationLabelRequest,
+  ): Promise<LocationLabelResponse> =>
+    fetchJSON<LocationLabelResponse>(`/api/locations/${id}/label`, {
+      method: 'PATCH',
+      body: req,
     }),
 }
