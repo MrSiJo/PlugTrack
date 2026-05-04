@@ -836,11 +836,10 @@ def make_pycupra_adapter_provider(
     from ..plugins.pycupra.models import Credentials
     from ..security.crypto import decrypt_secret
 
-    resolved_token_dir = (
-        Path(token_dir)
-        if token_dir is not None
-        else Path(__file__).resolve().parents[3] / "data" / "pycupra"
-    )
+    if token_dir is not None:
+        resolved_token_dir = Path(token_dir)
+    else:
+        resolved_token_dir = Path(get_app_settings().data_dir) / "pycupra"
     auth_lock = asyncio.Lock()
 
     async def _provider(car: Car) -> Any:

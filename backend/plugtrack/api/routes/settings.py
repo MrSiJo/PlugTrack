@@ -178,12 +178,12 @@ async def _maybe_recover_from_auth_failure(request: Request) -> None:
 def _pycupra_dir() -> Path:
     """Resolve the pycupra token directory.
 
-    In the deployed container the Dockerfile creates `/app/data/pycupra`.
-    For dev we resolve `data/pycupra` relative to the repo root so the
-    test suite can target a tmp_path-backed copy if needed.
+    Reads `data_dir` from app settings (defaults to `<repo>/data` in dev,
+    overridden to `/app/data` in container via DATA_DIR env var). Token
+    cache lives at `{data_dir}/pycupra`.
     """
-    repo_root = Path(__file__).resolve().parents[4]
-    return repo_root / "data" / "pycupra"
+    from ...bootstrap import get_settings
+    return Path(get_settings().data_dir) / "pycupra"
 
 
 @router.post("/clear-pycupra-tokens")
