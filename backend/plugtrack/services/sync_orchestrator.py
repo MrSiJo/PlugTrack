@@ -33,6 +33,11 @@ class CarSyncState:
     consecutive_failures: int = 0
     last_error: Optional[str] = None
     active_job_id: Optional[str] = None
+    # Phase 5.4: when auth fails (`reason="credentials_invalid"`), the
+    # worker flips this to True. The scheduler skips further syncs for
+    # the car until the user re-saves cupra_* settings, which clears
+    # the flag and triggers an immediate sync.
+    auth_invalid: bool = False
 
 
 @dataclass
@@ -126,8 +131,32 @@ class SyncOrchestrator:
                 "last_error": st.last_error,
                 "active_job_id": st.active_job_id,
                 "consecutive_failures": st.consecutive_failures,
+                "auth_invalid": st.auth_invalid,
             }
         return out
+
+    def clear_auth_invalid(self, car_ids: list[int]) -> list[int]:
+        """Clear the auth_invalid flag (and any cached auth error) for
+        the supplied car ids. Returns the list of car ids that actually
+        had the flag set.
+
+        Called by the settings route when the user re-saves cupra_*
+        credentials so the scheduler resumes polling.
+        """
+        cleared: list[int] = []
+        for car_id in car_ids:
+            st = self._state.get(car_id)
+            if st is None:
+                continue
+            if st.auth_invalid:
+                st.auth_invalid = False
+                # Also reset the failure counter + error string so the
+                # next poll's cadence calc doesn't apply backoff.
+                st.consecutive_failures = 0
+                if st.last_error == "credentials_invalid":
+                    st.last_error = None
+                cleared.append(car_id)
+        return cleared
 
     async def sync_car(self, car_id: int, kind: str = "periodic") -> SyncJob:
         """Run (or attach to) a sync for `car_id`.

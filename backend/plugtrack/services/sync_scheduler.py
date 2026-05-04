@@ -152,7 +152,20 @@ class SyncScheduler:
         *,
         just_transitioned: bool = False,
     ) -> int:
-        """Compute + apply the next interval. Returns seconds chosen."""
+        """Compute + apply the next interval. Returns seconds chosen.
+
+        When `state.auth_invalid` is True (Phase 5.4) no APScheduler job
+        is armed — the scheduler refuses to spin further requests at
+        invalid credentials. The user must re-save cupra_* settings to
+        clear the flag (which also triggers an immediate sync from the
+        settings route). `next_poll_at` is left unset so the snapshot
+        UI shows "—" rather than a misleading future timestamp.
+        """
+        if state.auth_invalid:
+            self._cancel_job(car_id)
+            state.next_poll_at = None
+            return 0
+
         seconds = compute_next_interval_seconds(
             state, telemetry, settings, just_transitioned=just_transitioned
         )
@@ -177,6 +190,17 @@ class SyncScheduler:
         )
         self._job_ids[car_id] = job_id
         return seconds
+
+    def _cancel_job(self, car_id: int) -> None:
+        """Remove any scheduled job for this car (best-effort)."""
+        if self._scheduler is None or not self._scheduler.running:
+            return
+        job_id = f"sync-car-{car_id}"
+        try:
+            self._scheduler.remove_job(job_id)
+        except Exception:
+            pass
+        self._job_ids.pop(car_id, None)
 
 
 def _bool_setting(raw: Any, *, default: bool) -> bool:

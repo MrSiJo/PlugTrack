@@ -16,6 +16,7 @@ import SessionDetail from '@/pages/SessionDetail'
 import Sessions from '@/pages/Sessions'
 import SettingsPage from '@/pages/SettingsPage'
 import SetupPage from '@/pages/SetupPage'
+import AuthFailureBanner from '@/components/AuthFailureBanner'
 import SyncStreamSubscriber from '@/components/SyncStreamSubscriber'
 
 interface BootstrapResult {
@@ -218,6 +219,7 @@ export default function App() {
     <BrowserRouter>
       <AppShell>
         <SyncStreamSubscriber />
+        <AuthFailureBanner />
         <AppRoutes result={result} />
       </AppShell>
     </BrowserRouter>
