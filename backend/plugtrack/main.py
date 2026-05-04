@@ -146,6 +146,21 @@ async def _lifespan(app: FastAPI):
     )
     app.state.sync_scheduler.start()
 
+    # After every sync (force or periodic) the scheduler arms the next
+    # periodic poll based on the observed state.
+    def _after_sync(car_id: int, state) -> None:  # type: ignore[no-untyped-def]
+        try:
+            app.state.sync_scheduler.schedule_next(
+                car_id=car_id,
+                state=state,
+                telemetry=None,
+                settings=_settings_provider(),
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    app.state.sync_orchestrator.set_on_complete(_after_sync)
+
     try:
         yield
     finally:
