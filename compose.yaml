@@ -1,0 +1,63 @@
+# PlugTrack v2 — production compose file.
+#
+# Two services on a shared bridge network:
+#   plugtrack-api  — FastAPI on :9278
+#   plugtrack-ui   — nginx serving the React SPA on :80, exposed as :9279,
+#                    reverse-proxying /api/* to plugtrack-api:9278.
+#
+# Persistent state lives under /dockerdata/plugtrack on the host so
+# upgrades just rebuild containers.
+
+services:
+  plugtrack-api:
+    build:
+      context: ./backend
+    container_name: plugtrack-api
+    env_file:
+      - .env
+    ports:
+      - "9278:9278"
+    volumes:
+      - /dockerdata/plugtrack/data:/app/data
+      - /dockerdata/plugtrack/logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      # Inherit the HEALTHCHECK baked into the image. Re-declared here
+      # so `docker compose ps` shows it explicitly and depends_on can
+      # gate on service_healthy.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9278/api/health', timeout=3).status == 200 else 1)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  plugtrack-ui:
+    build:
+      context: ./frontend
+    container_name: plugtrack-ui
+    ports:
+      - "9279:80"
+    depends_on:
+      plugtrack-api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --quiet
+        - --tries=1
+        - --spider
+        - http://localhost/
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+networks:
+  default:
+    driver: bridge
