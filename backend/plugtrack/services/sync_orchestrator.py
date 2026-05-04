@@ -88,9 +88,16 @@ class SyncOrchestrator:
         # in isolation. Phase 4.4 wiring replaces the default with the
         # full session-synthesiser + event-bus pipeline.
         self._poll_worker: PollWorker = poll_worker or self._noop_worker
+        # Optional post-sync callback: lifespan wires this to the
+        # SyncScheduler so each completed sync arms the next periodic
+        # poll. Receives `(car_id, state)` after the worker returns.
+        self._on_complete: Optional[Callable[[int, CarSyncState], None]] = None
 
     def set_poll_worker(self, worker: PollWorker) -> None:
         self._poll_worker = worker
+
+    def set_on_complete(self, callback: Callable[[int, CarSyncState], None]) -> None:
+        self._on_complete = callback
 
     @staticmethod
     async def _noop_worker(job: SyncJob, state: CarSyncState) -> None:
@@ -215,5 +222,13 @@ class SyncOrchestrator:
                 # Drop the entry so the dict doesn't grow unboundedly.
                 if self._active_jobs.get(car_id) is job:
                     self._active_jobs.pop(car_id, None)
+                # Arm the next periodic poll based on observed state.
+                if self._on_complete is not None:
+                    try:
+                        self._on_complete(car_id, state)
+                    except Exception:  # noqa: BLE001
+                        # Don't let scheduler bookkeeping leak into the
+                        # sync result. Worst case: next_poll_at stays None.
+                        pass
 
             return job
