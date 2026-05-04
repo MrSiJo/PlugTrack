@@ -81,7 +81,7 @@ def _assert_single_worker() -> None:
 
 
 @asynccontextmanager
-async def _lifespan(app: FastAPI):  # noqa: ARG001
+async def _lifespan(app: FastAPI):
     _assert_single_worker()
     # Resolve via the module so test fixtures can monkeypatch
     # `plugtrack.db.engine` / `SessionLocal` after import.
@@ -90,7 +90,33 @@ async def _lifespan(app: FastAPI):  # noqa: ARG001
     async with db_module.SessionLocal() as session:
         await seed_defaults(session)
         await session.commit()
-    yield
+
+    # Phase 4: orchestrator + scheduler + event bus.
+    from .services.event_bus import get_event_bus
+    from .services.sync_orchestrator import SyncOrchestrator
+    from .services.sync_scheduler import SyncScheduler
+
+    app.state.event_bus = get_event_bus()
+    app.state.sync_orchestrator = SyncOrchestrator()
+
+    async def _scheduled_sync(car_id: int) -> None:
+        await app.state.sync_orchestrator.sync_car(car_id, kind="periodic")
+
+    def _settings_provider() -> dict:
+        # Lazy fetch — settings aren't fully wired here yet for live
+        # reads. Default cadence band kicks in if missing.
+        return {}
+
+    app.state.sync_scheduler = SyncScheduler(
+        sync_callback=_scheduled_sync,
+        settings_provider=_settings_provider,
+    )
+    app.state.sync_scheduler.start()
+
+    try:
+        yield
+    finally:
+        app.state.sync_scheduler.stop()
 
 
 def create_app() -> FastAPI:
@@ -115,6 +141,7 @@ def create_app() -> FastAPI:
     from .api.routes import sessions as sessions_routes
     from .api.routes import settings as settings_routes
     from .api.routes import setup as setup_routes
+    from .api.routes import sync as sync_routes
 
     app.include_router(health_routes.router)
     app.include_router(setup_routes.router)
@@ -123,5 +150,6 @@ def create_app() -> FastAPI:
     app.include_router(cars_routes.router)
     app.include_router(sessions_routes.router)
     app.include_router(locations_routes.router)
+    app.include_router(sync_routes.router)
 
     return app
