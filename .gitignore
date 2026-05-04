@@ -98,3 +98,27 @@ Thumbs.db
 
 docs/project/*
 .cursor/*
+
+# ========================================
+# v2 rebuild — Phase 0 pycupra discovery harness
+# ========================================
+# Probe output and the rendered findings document may contain personal data
+# (account info, VINs, GPS, raw API responses). Keep docs/ out of git.
+# Already-tracked files (e.g. docs/superpowers/, docs/assets/) remain tracked
+# because gitignore does not retroactively untrack files in the index.
+docs/
+.env.probe
+
+# v2 rebuild — legacy Flask app preserved on disk for reference, not tracked
+legacy/
+
+# pycupra discovery harness output (Phase 0)
+scripts/probe_output/
+
+# Python (additional)
+.ruff_cache/
+.mypy_cache/
+
+# Node (additional)
+dist/
+.vite/
