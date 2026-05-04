@@ -191,6 +191,7 @@ class ProductionPollWorker:
             )
             state.consecutive_failures += 1
             state.last_error = "credentials_invalid"
+            state.auth_invalid = True
             return state
         except Exception as exc:  # noqa: BLE001 — anything else is "network"
             await self._fail_run(sync_run_id, "network", str(exc))
@@ -225,6 +226,7 @@ class ProductionPollWorker:
             )
             state.consecutive_failures += 1
             state.last_error = "credentials_invalid"
+            state.auth_invalid = True
             return state
         except Exception as exc:  # noqa: BLE001
             await self._fail_run(sync_run_id, "network", str(exc))

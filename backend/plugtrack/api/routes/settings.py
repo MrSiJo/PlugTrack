@@ -83,6 +83,7 @@ async def list_settings(
 @router.put("")
 async def update_setting(
     body: UpdateSettingRequest,
+    request: Request,
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     entry = _CATALOGUE_BY_KEY.get(body.key)
@@ -110,7 +111,68 @@ async def update_setting(
 
     row.value = new_value
     await session.commit()
+
+    # Phase 5.4: when the user re-saves a cupra_* credential we wipe the
+    # in-memory adapter cache, clear the auth_invalid flag for every car
+    # belonging to the requesting user, and kick off an immediate sync
+    # so the banner clears as soon as the new creds prove out.
+    if body.key.startswith("cupra_"):
+        await _maybe_recover_from_auth_failure(request)
+
     return {"key": row.key, "status": "updated"}
+
+
+async def _maybe_recover_from_auth_failure(request: Request) -> None:
+    """Best-effort: clear cached connections + auth-invalid flags after
+    the user re-saves cupra_* credentials.
+
+    Quietly no-ops in tests where the orchestrator isn't wired or the
+    user has no cars.
+    """
+    user_id = getattr(request.state, "user_id", None)
+    if not isinstance(user_id, int):
+        return
+
+    # Wipe the cached adapter Connection so the next sync re-authenticates
+    # with the freshly-saved settings.
+    from ...services.sync_worker import clear_cached_connections
+
+    clear_cached_connections()
+
+    orch = getattr(request.app.state, "sync_orchestrator", None)
+    if orch is None:
+        return
+
+    # Find this user's cars to know which orchestrator slots to clear.
+    from ...models import Car
+
+    from ...db import get_db as _get_db  # noqa: F401  (only for context)
+
+    # We can't reuse the request-scoped session because it might already
+    # be committed/closed by the caller. Open a fresh one off the global
+    # SessionLocal.
+    from ... import db as db_module
+
+    async with db_module.SessionLocal() as session:
+        cars = (
+            await session.execute(select(Car).where(Car.user_id == user_id))
+        ).scalars().all()
+        car_ids = [c.id for c in cars]
+
+    if not car_ids:
+        return
+
+    cleared = orch.clear_auth_invalid(car_ids)
+    if not cleared:
+        return
+
+    # Kick off an immediate sync attempt for the cleared cars so the UI
+    # banner disappears as soon as the new creds prove out. Fire-and-
+    # forget — failures will surface on the next sync cycle.
+    import asyncio
+
+    for car_id in cleared:
+        asyncio.create_task(orch.sync_car(car_id, kind="force"))
 
 
 def _pycupra_dir() -> Path:
