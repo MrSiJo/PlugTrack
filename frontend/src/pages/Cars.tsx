@@ -7,12 +7,16 @@ import {
   type DiscoveredVehicle,
 } from '@/api/client'
 
+// `battery_kwh` and `nominal_efficiency_mi_per_kwh` are typed `number` on
+// the API but rendered with `value={... || ''}` so the input starts blank;
+// HTML5 `required` then prevents an empty submit before the backend's
+// `gt=0` validator can reject it.
 const EMPTY_NEW: CarCreateRequest = {
   make: '',
   model: '',
   vin: '',
-  battery_kwh: 0,
-  nominal_efficiency_mi_per_kwh: 0,
+  battery_kwh: NaN,
+  nominal_efficiency_mi_per_kwh: NaN,
   provider: 'cupra_connect',
   provider_vehicle_id: '',
   active: true,
@@ -348,30 +352,51 @@ function CarFields({ draft, setDraft }: CarFieldsProps) {
         />
       </label>
       <label className={labelClass}>
-        Battery (kWh)
+        Battery (kWh) <span className="text-red-600">*</span>
         <input
           required
           type="number"
           step="0.1"
-          min="0"
-          value={draft.battery_kwh}
-          onChange={(e) => setDraft({ ...draft, battery_kwh: Number(e.target.value) })}
-          className={fieldClass}
-        />
-      </label>
-      <label className={labelClass}>
-        Nominal efficiency (mi/kWh)
-        <input
-          required
-          type="number"
-          step="0.1"
-          min="0"
-          value={draft.nominal_efficiency_mi_per_kwh}
+          min="0.1"
+          placeholder="e.g. 58 for Cupra Born"
+          value={Number.isFinite(draft.battery_kwh) ? draft.battery_kwh : ''}
           onChange={(e) =>
-            setDraft({ ...draft, nominal_efficiency_mi_per_kwh: Number(e.target.value) })
+            setDraft({
+              ...draft,
+              battery_kwh: e.target.value === '' ? NaN : Number(e.target.value),
+            })
           }
           className={fieldClass}
         />
+        <span className="mt-0.5 block text-[11px] font-normal text-slate-500">
+          Cupra Connect doesn't expose battery capacity — enter manually.
+        </span>
+      </label>
+      <label className={labelClass}>
+        Nominal efficiency (mi/kWh) <span className="text-red-600">*</span>
+        <input
+          required
+          type="number"
+          step="0.1"
+          min="0.1"
+          placeholder="e.g. 3.5 for Cupra Born"
+          value={
+            Number.isFinite(draft.nominal_efficiency_mi_per_kwh)
+              ? draft.nominal_efficiency_mi_per_kwh
+              : ''
+          }
+          onChange={(e) =>
+            setDraft({
+              ...draft,
+              nominal_efficiency_mi_per_kwh:
+                e.target.value === '' ? NaN : Number(e.target.value),
+            })
+          }
+          className={fieldClass}
+        />
+        <span className="mt-0.5 block text-[11px] font-normal text-slate-500">
+          Real-world miles per kWh. Used for range estimates.
+        </span>
       </label>
       <label className={labelClass}>
         Provider

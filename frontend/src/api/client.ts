@@ -90,10 +90,31 @@ export async function fetchJSON<T>(path: string, opts: FetchOpts = {}): Promise<
   }
 
   if (!response.ok) {
-    const detail =
+    const rawDetail =
       parsed && typeof parsed === 'object' && 'detail' in parsed
-        ? String((parsed as { detail: unknown }).detail)
-        : `HTTP ${response.status}`
+        ? (parsed as { detail: unknown }).detail
+        : null
+    let detail: string
+    if (Array.isArray(rawDetail)) {
+      // Pydantic validation errors: [{loc:[...], msg:"...", type:"..."}, ...]
+      detail = rawDetail
+        .map((e) => {
+          if (e && typeof e === 'object') {
+            const item = e as { loc?: unknown[]; msg?: string }
+            const field = Array.isArray(item.loc)
+              ? item.loc.filter((p) => p !== 'body').join('.')
+              : ''
+            const msg = item.msg ?? JSON.stringify(e)
+            return field ? `${field}: ${msg}` : msg
+          }
+          return String(e)
+        })
+        .join('; ')
+    } else if (rawDetail !== null && rawDetail !== undefined) {
+      detail = String(rawDetail)
+    } else {
+      detail = `HTTP ${response.status}`
+    }
     throw new ApiError(response.status, detail, parsed)
   }
 
