@@ -1,0 +1,33 @@
+{
+  "_comment": "SYNTHETIC fixture — not real account data. Vehicle currently DC-fast-charging.",
+  "vehicle_id": "TESTVIN0000000001",
+  "battery_level": 47,
+  "charging": true,
+  "charging_state": true,
+  "charging_power": 75.4,
+  "charging_time_left": 35,
+  "target_soc": 80,
+  "charging_cable_connected": true,
+  "charging_cable_locked": true,
+  "external_power": true,
+  "energy_flow": "on",
+  "vehicle_online": true,
+  "last_connected": "2026-04-12T10:14:33+00:00",
+  "distance_km": 12345,
+  "electric_range_km": 184,
+  "position": {
+    "lat": 50.8503,
+    "lng": -0.1387,
+    "carCapturedTimestamp": "2026-04-12T10:14:00+00:00"
+  },
+  "attrs": {
+    "charging": {
+      "carCapturedTimestamp": "2026-04-12T10:14:00+00:00",
+      "status": {
+        "charging": {
+          "state": "charging"
+        }
+      }
+    }
+  }
+}
