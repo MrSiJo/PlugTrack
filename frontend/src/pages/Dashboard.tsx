@@ -60,52 +60,73 @@ interface CarPanelCardProps {
   busy: boolean
 }
 
+const STATE_LABEL: Record<string, string> = {
+  IDLE: 'Disconnected',
+  PLUGGED_IN: 'Plugged in (not charging)',
+  CHARGING: 'Charging',
+  CHARGING_DONE: 'Charge complete',
+}
+
+const STATE_PILL_CLASS: Record<string, string> = {
+  IDLE: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+  PLUGGED_IN:
+    'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
+  CHARGING:
+    'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200',
+  CHARGING_DONE:
+    'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200',
+}
+
 function CarPanelCard({ car, onForceSync, busy }: CarPanelCardProps) {
+  const stateLabel = car.last_state ? STATE_LABEL[car.last_state] ?? car.last_state : null
+  const statePillClass = car.last_state
+    ? STATE_PILL_CLASS[car.last_state] ?? STATE_PILL_CLASS.IDLE
+    : null
+  const locationDisplay = car.location_address
+    ? car.location_name
+      ? `${car.location_name} · ${car.location_address}`
+      : car.location_address
+    : car.location_name
   return (
     <li
       className="rounded border border-slate-200 bg-white p-4 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900"
       data-testid={`car-panel-${car.id}`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0 flex-1">
           <h3 className="font-semibold">
             {car.make} {car.model}
           </h3>
-          <div className="mt-1 text-xs text-slate-500" data-testid="car-soc">
+          {stateLabel && (
+            <div className="mt-2">
+              <span
+                className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${statePillClass}`}
+                data-testid="state-pill"
+              >
+                {stateLabel}
+              </span>
+            </div>
+          )}
+          <div className="mt-2 text-xs text-slate-500" data-testid="car-soc">
             Battery:{' '}
             <span className="font-mono">
               {car.battery_level ?? '—'}
               {car.battery_level !== null ? '%' : ''}
             </span>
           </div>
+          {locationDisplay && (
+            <div className="mt-1 truncate text-xs text-slate-500" data-testid="car-location">
+              Location: {locationDisplay}
+            </div>
+          )}
           <div className="mt-1 text-xs text-slate-500">
             Last seen: {formatRelative(car.last_connected)}
           </div>
           <div className="text-xs text-slate-500">
             Next sync: {formatRelative(car.next_poll_at)}
           </div>
-          {car.last_state && (
-            <div className="mt-1 text-xs text-slate-500">
-              State: <span className="font-mono">{car.last_state}</span>
-            </div>
-          )}
         </div>
         <div className="flex flex-col items-end gap-2">
-          {car.charging_cable_connected ? (
-            <span
-              className="inline-flex items-center rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
-              data-testid="cable-badge"
-            >
-              Cable in
-            </span>
-          ) : (
-            <span
-              className="inline-flex items-center rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-              data-testid="cable-badge"
-            >
-              Cable out
-            </span>
-          )}
           <button
             type="button"
             onClick={() => void onForceSync(car.id)}

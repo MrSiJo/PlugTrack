@@ -33,6 +33,12 @@ class CarSyncState:
     consecutive_failures: int = 0
     last_error: Optional[str] = None
     active_job_id: Optional[str] = None
+    # Most-recent GPS sample (set on every poll where telemetry has one)
+    # plus the cluster it resolved to. Dashboard reads these to show
+    # "where the car is right now" without needing a session.
+    last_position_lat: Optional[float] = None
+    last_position_lng: Optional[float] = None
+    last_location_id: Optional[int] = None
     # Phase 5.4: when auth fails (`reason="credentials_invalid"`), the
     # worker flips this to True. The scheduler skips further syncs for
     # the car until the user re-saves cupra_* settings, which clears

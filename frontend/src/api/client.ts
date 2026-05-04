@@ -494,6 +494,8 @@ export interface DashboardCarPanel {
   last_state: string | null
   last_soc: number | null
   active_job_id: string | null
+  location_name: string | null
+  location_address: string | null
 }
 
 export interface DashboardSessionRow {

@@ -41,6 +41,8 @@ class CarPanel:
     last_state: Optional[str]
     last_soc: Optional[int]
     active_job_id: Optional[str]
+    location_name: Optional[str] = None
+    location_address: Optional[str] = None
 
 
 @dataclass
@@ -148,6 +150,7 @@ async def dashboard_summary(
         last_soc: Optional[int] = battery_level
         next_poll_at: Optional[datetime] = None
         active_job_id: Optional[str] = None
+        location_id: Optional[int] = None
 
         if orchestrator is not None:
             try:
@@ -163,10 +166,20 @@ async def dashboard_summary(
                 last_state = live.last_state
                 next_poll_at = live.next_poll_at
                 active_job_id = live.active_job_id
+                location_id = getattr(live, "last_location_id", None)
 
         # `charging_cable_connected` is derived from the in-memory state
         # machine: PLUGGED_IN, CHARGING, CHARGING_DONE all imply cable in.
         cable_connected = last_state in {"PLUGGED_IN", "CHARGING", "CHARGING_DONE"}
+
+        # Resolve current cluster → name + address.
+        location_name: Optional[str] = None
+        location_address: Optional[str] = None
+        if location_id is not None:
+            loc_row = await session.get(Location, location_id)
+            if loc_row is not None:
+                location_name = loc_row.name
+                location_address = loc_row.address
 
         summary.cars.append(
             CarPanel(
@@ -180,6 +193,8 @@ async def dashboard_summary(
                 last_state=last_state,
                 last_soc=last_soc,
                 active_job_id=active_job_id,
+                location_name=location_name,
+                location_address=location_address,
             )
         )
 

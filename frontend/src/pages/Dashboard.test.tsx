@@ -19,6 +19,8 @@ function fixtureSummary(): DashboardSummary {
         last_state: 'CHARGING',
         last_soc: 73,
         active_job_id: null,
+        location_name: null,
+        location_address: null,
       },
       {
         id: 2,
@@ -31,6 +33,8 @@ function fixtureSummary(): DashboardSummary {
         last_state: null,
         last_soc: 50,
         active_job_id: null,
+        location_name: null,
+        location_address: null,
       },
     ],
     recent_sessions: [
