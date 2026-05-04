@@ -6,9 +6,11 @@ to slow brute-force scanning of an unset instance.
 """
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
+from ...models import User
 from ...services.auth_service import (
     SetupAlreadyComplete,
     WeakPasswordError,
@@ -28,6 +30,25 @@ class SetupRequest(BaseModel):
 class SetupResponse(BaseModel):
     user_id: int
     username: str
+
+
+class SetupStatusResponse(BaseModel):
+    setup_needed: bool
+
+
+@router.get("/setup", response_model=SetupStatusResponse)
+async def setup_status(
+    session: AsyncSession = Depends(get_db),
+) -> SetupStatusResponse:
+    """Return whether first-run setup is still required.
+
+    Unauthenticated. Used by the SPA to decide between routing the user
+    to /setup vs /login on first paint. Returns true iff the `user`
+    table is empty.
+    """
+    result = await session.execute(select(func.count()).select_from(User))
+    user_count = result.scalar_one() or 0
+    return SetupStatusResponse(setup_needed=user_count == 0)
 
 
 @router.post("/setup", response_model=SetupResponse, status_code=status.HTTP_201_CREATED)
