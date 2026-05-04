@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import { ApiError, api, type CarPayload, type CarCreateRequest } from '@/api/client'
+import {
+  ApiError,
+  api,
+  type CarPayload,
+  type CarCreateRequest,
+  type DiscoveredVehicle,
+} from '@/api/client'
 
 const EMPTY_NEW: CarCreateRequest = {
   make: '',
@@ -21,6 +27,38 @@ export default function CarsPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editDraft, setEditDraft] = useState<CarCreateRequest>(EMPTY_NEW)
   const [busy, setBusy] = useState(false)
+  const [discovering, setDiscovering] = useState(false)
+  const [discovered, setDiscovered] = useState<DiscoveredVehicle[] | null>(null)
+
+  async function handleDiscover() {
+    setDiscovering(true)
+    setError(null)
+    setDiscovered(null)
+    try {
+      const list = await api.discoverVehicles()
+      setDiscovered(list)
+      if (list.length === 0) {
+        setError('No vehicles returned by Cupra Connect.')
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err))
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
+  function applyDiscovered(v: DiscoveredVehicle) {
+    setCreating(true)
+    setDraft({
+      ...EMPTY_NEW,
+      make: 'Cupra',
+      model: v.model ?? '',
+      vin: v.vin,
+      provider: 'cupra_connect',
+      provider_vehicle_id: v.vin,
+    })
+    setDiscovered(null)
+  }
 
   async function reload() {
     setLoading(true)
@@ -112,14 +150,54 @@ export default function CarsPage() {
     <main className="mx-auto max-w-5xl px-4 py-6">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Cars</h1>
-        <button
-          type="button"
-          onClick={() => setCreating((v) => !v)}
-          className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900"
-        >
-          {creating ? 'Cancel' : 'Add car'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => void handleDiscover()}
+            disabled={discovering}
+            className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            {discovering ? 'Discovering…' : 'Discover from Cupra'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setCreating((v) => !v)}
+            className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900"
+          >
+            {creating ? 'Cancel' : 'Add car manually'}
+          </button>
+        </div>
       </div>
+
+      {discovered && discovered.length > 0 && (
+        <div className="mb-6 rounded border border-blue-300 bg-blue-50 p-4 dark:border-blue-700 dark:bg-blue-900/20">
+          <div className="mb-2 text-sm font-medium text-blue-900 dark:text-blue-200">
+            Vehicles found on your Cupra Connect account:
+          </div>
+          <ul className="space-y-2">
+            {discovered.map((v) => (
+              <li
+                key={v.vin}
+                className="flex items-center justify-between rounded bg-white px-3 py-2 dark:bg-slate-800"
+              >
+                <div className="text-sm">
+                  <code className="font-mono text-slate-900 dark:text-slate-100">{v.vin}</code>
+                  <span className="ml-3 text-slate-500">
+                    {v.model ?? 'unknown model'} {v.year ?? ''}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => applyDiscovered(v)}
+                  className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900"
+                >
+                  Use this vehicle
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {error && (
         <div role="alert" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
