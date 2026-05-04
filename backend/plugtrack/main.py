@@ -65,23 +65,15 @@ def create_app() -> FastAPI:
     app.add_middleware(AuthMiddleware, secret_key=settings.app_secret_key)
 
     # Routers — registered here so `app.routes` exposes everything to
-    # the security-invariants test. Task 1.16 fills these in beyond the
-    # placeholder health route registered in 1.15.
+    # the security-invariants test.
+    from .api.routes import auth as auth_routes
     from .api.routes import health as health_routes
+    from .api.routes import settings as settings_routes
+    from .api.routes import setup as setup_routes
 
     app.include_router(health_routes.router)
-
-    # Optional routers: registered if their modules exist. This lets
-    # Task 1.15 boot without 1.16 having added them yet.
-    for module_name in ("setup", "auth", "settings"):
-        try:
-            module = __import__(
-                f"plugtrack.api.routes.{module_name}", fromlist=["router"]
-            )
-        except ImportError:
-            continue
-        router = getattr(module, "router", None)
-        if router is not None:
-            app.include_router(router)
+    app.include_router(setup_routes.router)
+    app.include_router(auth_routes.router)
+    app.include_router(settings_routes.router)
 
     return app

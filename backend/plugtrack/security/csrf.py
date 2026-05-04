@@ -69,8 +69,10 @@ class CsrfMiddleware(BaseHTTPMiddleware):
 
         response: Response = await call_next(request)
 
-        # Issue/refresh the cookie on safe methods so the SPA always has one.
-        if method in SAFE_METHODS and not is_exempt:
+        # Issue/refresh the cookie on every safe response (including
+        # exempt paths) so the SPA always has a token from the very
+        # first request.
+        if method in SAFE_METHODS:
             existing = request.cookies.get(self.cookie_name)
             token = existing or _generate_token()
             response.set_cookie(
