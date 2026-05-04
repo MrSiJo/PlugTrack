@@ -10,6 +10,7 @@ import { ApiError, api } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { applyThemeToDocument } from '@/theme'
+import Cars from '@/pages/Cars'
 import Dashboard from '@/pages/Dashboard'
 import Locations from '@/pages/Locations'
 import LoginPage from '@/pages/LoginPage'
@@ -18,6 +19,7 @@ import Sessions from '@/pages/Sessions'
 import SettingsPage from '@/pages/SettingsPage'
 import SetupPage from '@/pages/SetupPage'
 import AuthFailureBanner from '@/components/AuthFailureBanner'
+import NavBar from '@/components/NavBar'
 import SyncStreamSubscriber from '@/components/SyncStreamSubscriber'
 
 interface BootstrapResult {
@@ -58,7 +60,14 @@ function AppRoutes({ result }: { result: BootstrapResult }) {
     }
   }, [authed, settingsLoaded, reload])
 
+  // Pages that should NOT show the nav bar (pre-auth flows).
+  const showNav = authed && !result.setupNeeded
+  const path = location.pathname
+  const hideNavForPath = path === '/setup' || path === '/login'
+
   return (
+    <>
+      {showNav && !hideNavForPath && <NavBar />}
     <Routes>
       <Route
         path="/setup"
@@ -143,6 +152,18 @@ function AppRoutes({ result }: { result: BootstrapResult }) {
         }
       />
       <Route
+        path="/cars"
+        element={
+          result.setupNeeded ? (
+            <Navigate to="/setup" replace />
+          ) : !authed ? (
+            <Navigate to="/login" replace state={{ from: location }} />
+          ) : (
+            <Cars />
+          )
+        }
+      />
+      <Route
         path="*"
         element={
           <Navigate
@@ -158,6 +179,7 @@ function AppRoutes({ result }: { result: BootstrapResult }) {
         }
       />
     </Routes>
+    </>
   )
 }
 
