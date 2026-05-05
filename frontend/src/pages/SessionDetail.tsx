@@ -20,6 +20,7 @@
  */
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { Info } from 'lucide-react'
 import {
   ApiError,
   api,
@@ -29,6 +30,16 @@ import {
   type SessionUpdateRequest,
 } from '@/api/client'
 import LocationLabelForm from '@/components/LocationLabelForm'
+import { Card } from '@/components/ui/Card'
+import { GradientNumber } from '@/components/ui/GradientNumber'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Pill, type PillTone } from '@/components/ui/Pill'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { useDistanceUnit } from '@/stores/settingsStore'
 import { kmToMi, miToKm } from '@/utils/distance'
 
@@ -150,30 +161,30 @@ function ChargeCurve({ samples }: ChargeCurveProps) {
         <text
           x={W - PAD_R + 4}
           y={yPower(pMax) + 3}
-          className="fill-amber-600 text-[9px]"
+          className="fill-cyan-600 text-[9px] dark:fill-cyan-400"
         >
           {pMax}kW
         </text>
         <text
           x={W - PAD_R + 4}
           y={yPower(0) + 3}
-          className="fill-amber-600 text-[9px]"
+          className="fill-cyan-600 text-[9px] dark:fill-cyan-400"
         >
           0
         </text>
-        {/* SoC line */}
+        {/* SoC line — emerald */}
         <path
           d={socPath}
           fill="none"
-          className="stroke-sky-500"
-          strokeWidth={1.5}
+          className="stroke-emerald-500 dark:stroke-emerald-400"
+          strokeWidth={1.75}
         />
-        {/* Power line */}
+        {/* Power line — cyan */}
         <path
           d={powerPath}
           fill="none"
-          className="stroke-amber-500"
-          strokeWidth={1.5}
+          className="stroke-cyan-500 dark:stroke-cyan-400"
+          strokeWidth={1.75}
         />
         {/* X-axis bottom labels */}
         <text
@@ -192,16 +203,16 @@ function ChargeCurve({ samples }: ChargeCurveProps) {
           {durationMin} min
         </text>
       </svg>
-      <p className="mt-1 flex gap-3 text-[10px] text-slate-500">
+      <p className="mt-2 flex gap-3 text-[10px] text-slate-500 dark:text-slate-400">
         <span className="flex items-center gap-1">
-          <span className="inline-block h-1.5 w-3 rounded-sm bg-sky-500" />
+          <span className="inline-block h-1.5 w-3 rounded-sm bg-emerald-500" />
           SoC
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block h-1.5 w-3 rounded-sm bg-amber-500" />
+          <span className="inline-block h-1.5 w-3 rounded-sm bg-cyan-500" />
           Power (kW, peak {pMaxObserved.toFixed(1)})
         </span>
-        <span>{points.length} samples</span>
+        <span className="tabular-nums">{points.length} samples</span>
       </p>
     </div>
   )
@@ -656,50 +667,132 @@ export default function SessionDetail() {
     )
   if (!session) return <p className="p-6 text-sm">Not found.</p>
 
+  const sourceTone: PillTone =
+    session.source === 'manual'
+      ? 'amber'
+      : session.source === 'cariad'
+        ? 'purple'
+        : 'cyan'
+  const sourceLabel =
+    session.source === 'manual'
+      ? 'Manual'
+      : session.source === 'cariad'
+        ? 'Cariad'
+        : 'Cupra'
+  const titleLocation = session.location_name ?? 'Session'
+  const subtitleParts = [
+    session.date,
+    session.location_address ?? null,
+  ].filter((p): p is string => Boolean(p))
+
   return (
-    <div className="mx-auto max-w-7xl px-6 py-8">
-      <h1 className="mb-2 text-2xl font-semibold">
-        Session #{session.id}
-      </h1>
-      <p className="mb-2 text-sm text-slate-500">
-        {session.date} · {session.start_soc}% → {session.end_soc}% ·{' '}
-        {session.kwh_added.toFixed(2)} kWh
+    <TooltipProvider>
+      <div className="mx-auto max-w-7xl px-6 py-8">
+        <PageHeader
+          title={`${session.date} · ${titleLocation}`}
+          subtitle={subtitleParts.length > 1 ? subtitleParts[1] : null}
+          actions={
+            <Link
+              to="/sessions"
+              className="text-xs text-cyan-600 hover:underline dark:text-cyan-300"
+            >
+              ← All sessions
+            </Link>
+          }
+        />
+
+        {/* Summary strip */}
+        <Card variant="hero" className="mb-6 flex flex-wrap items-center gap-4">
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+              Energy
+            </span>
+            <GradientNumber size="lg">
+              {session.kwh_added.toFixed(1)}
+            </GradientNumber>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              kWh
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+              Cost
+            </span>
+            <GradientNumber size="lg">
+              {fmtPence(session.cost_pence)}
+            </GradientNumber>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              {session.tariff_p_per_kwh
+                ? `${session.tariff_p_per_kwh.toFixed(1)}p / kWh`
+                : '—'}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+              SoC
+            </span>
+            <GradientNumber size="lg">
+              {session.start_soc}→{session.end_soc}
+            </GradientNumber>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              {session.end_soc - session.start_soc}% gained
+            </span>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            {session.charge_network && (
+              <Pill data-testid="charge-network-badge">
+                {session.charge_network}
+              </Pill>
+            )}
+            <Pill tone={sourceTone}>{sourceLabel}</Pill>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="cursor-help text-xs text-slate-500 underline decoration-dotted underline-offset-4 dark:text-slate-400"
+                  data-testid="cost-basis-tile"
+                >
+                  <Info className="mr-1 inline h-3 w-3" aria-hidden />
+                  {COST_BASIS_LABEL[session.cost_basis]}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p className="font-medium">Cost precedence</p>
+                <ol className="mt-1 list-inside list-decimal space-y-0.5 text-[11px]">
+                  <li>Total-cost override (sacred)</li>
+                  <li>Per-kWh override (sacred)</li>
+                  <li>Location free flag</li>
+                  <li>Location default rate</li>
+                  <li>Home rate setting</li>
+                  <li>Otherwise: unknown</li>
+                </ol>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </Card>
         {session.kwh_calculated !== null &&
           Math.abs(session.kwh_calculated - session.kwh_added) >= 0.01 && (
-            <span
-              className="ml-2 text-xs text-slate-400"
+            <p
+              className="mb-6 text-xs text-slate-400"
               data-testid="kwh-calc-hint"
             >
-              (calculated {session.kwh_calculated.toFixed(2)} kWh)
-            </span>
+              Calculated from SoC delta: {session.kwh_calculated.toFixed(2)} kWh
+            </p>
           )}
-      </p>
-      {session.charge_network && (
-        <p className="mb-6">
-          <span
-            className="inline-flex items-center rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200"
-            data-testid="charge-network-badge"
-          >
-            {session.charge_network}
-          </span>
-        </p>
-      )}
-      {!session.charge_network && <div className="mb-6" />}
 
-      <section className="mb-6">
-        <CostBreakdown session={session} />
-      </section>
-
-      {session.power_curve && session.power_curve.length > 0 && (
         <section className="mb-6">
-          <h2 className="mb-2 text-lg font-medium">Charge curve</h2>
-          <div
-            className="rounded border border-slate-200 p-3 dark:border-slate-700"
-          >
-            <ChargeCurve samples={session.power_curve} />
-          </div>
+          <CostBreakdown session={session} />
         </section>
-      )}
+
+        {session.power_curve && session.power_curve.length > 0 && (
+          <section className="mb-6">
+            <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+              Charge curve
+            </h2>
+            <Card>
+              <ChargeCurve samples={session.power_curve} />
+            </Card>
+          </section>
+        )}
 
       {session.metrics && (
         <section className="mb-6">
@@ -778,7 +871,8 @@ export default function SessionDetail() {
             }}
           />
         )}
-      </section>
-    </div>
+        </section>
+      </div>
+    </TooltipProvider>
   )
 }
