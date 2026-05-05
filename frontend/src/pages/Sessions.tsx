@@ -1,110 +1,139 @@
 /**
- * Sessions list page.
+ * Sessions list page (redesigned).
  *
- * Shows a paginated list of charging sessions with:
- * - Source badge (Manual / Cupra Connect / Cariad)
- * - Distance via `formatDistance(km, unit)`
- * - Location pill — labelled name when available, else
- *   "Unlabelled · 51.0, -2.6"
- * - Cost pill colour-coded by `cost_basis`:
- *   green=`location_free`, blue=`override_*`, neutral otherwise.
+ * Two-line rows grouped by month with a per-month total header.
+ * Filters: source (Tabs) + date range (DropdownMenu).
  *
- * Phase 4 additions:
- * - Rows in `syncStore.recentlyImportedSessionIds` get a
- *   `data-highlighted="true"` attribute and a fade-in tailwind class.
- * - Header has a Force-sync + Wake button per active car. (Defaults to
- *   car_id=1 since multi-car selection lives in Phase 5.)
+ * Phase 4 highlight behaviour preserved — rows in
+ * `syncStore.recentlyImportedSessionIds` get `data-highlighted="true"`.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ChevronDown } from 'lucide-react'
 import {
   ApiError,
   api,
   type ChargingSessionPayload,
-  type CostBasis,
 } from '@/api/client'
-import { useDistanceUnit } from '@/stores/settingsStore'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/Card'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { GradientNumber } from '@/components/ui/GradientNumber'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Pill, type PillTone } from '@/components/ui/Pill'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  groupSessionsByMonth,
+  type GroupableSession,
+} from '@/lib/groupSessionsByMonth'
+import { cn } from '@/lib/cn'
 import { useSyncStore } from '@/stores/syncStore'
-import { formatDistance } from '@/utils/distance'
+import { formatCurrency } from '@/utils/currency'
+import { useSetting } from '@/stores/settingsStore'
 
-const SOURCE_BADGE_CLASS: Record<string, string> = {
-  manual: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
-  synthesis: 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200',
-  cariad: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
+type SourceFilter = 'all' | 'manual' | 'synthesis' | 'cariad'
+
+type DateRange = 'this_month' | 'last_30' | 'last_90' | 'this_year' | 'all'
+
+const DATE_LABEL: Record<DateRange, string> = {
+  this_month: 'This month',
+  last_30: 'Last 30 days',
+  last_90: 'Last 90 days',
+  this_year: 'This year',
+  all: 'All time',
 }
 
-const SOURCE_BADGE_LABEL: Record<string, string> = {
+const SOURCE_TONE: Record<string, PillTone> = {
+  manual: 'amber',
+  synthesis: 'cyan',
+  cariad: 'purple',
+}
+
+const SOURCE_LABEL: Record<string, string> = {
   manual: 'Manual',
-  synthesis: 'Cupra Connect',
+  synthesis: 'Cupra',
   cariad: 'Cariad',
 }
 
-const COST_BADGE_CLASS: Record<CostBasis, string> = {
-  location_free: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200',
-  override_total: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
-  override_per_kwh: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
-  location_rate: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200',
-  home_rate: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200',
-  unknown: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
-}
-
-function formatCostPence(pence: number | null): string {
-  if (pence === null) return '—'
-  if (pence === 0) return '£0.00'
-  return `£${(pence / 100).toFixed(2)}`
-}
-
-function locationLabel(s: ChargingSessionPayload): string {
-  if (s.location_name) return s.location_name
-  if (s.location_id === null) return 'No location'
-  return `Unlabelled · loc#${s.location_id}`
+function dateRangeBounds(range: DateRange): {
+  date_from?: string
+  date_to?: string
+} {
+  if (range === 'all') return {}
+  const now = new Date()
+  const today = now.toISOString().slice(0, 10)
+  if (range === 'this_month') {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1)
+      .toISOString()
+      .slice(0, 10)
+    return { date_from: start, date_to: today }
+  }
+  if (range === 'this_year') {
+    const start = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10)
+    return { date_from: start, date_to: today }
+  }
+  const days = range === 'last_30' ? 30 : 90
+  const start = new Date(now.getTime() - days * 86_400_000)
+    .toISOString()
+    .slice(0, 10)
+  return { date_from: start, date_to: today }
 }
 
 interface SessionRowProps {
   session: ChargingSessionPayload
-  unit: 'mi' | 'km'
   highlighted: boolean
+  currency: string
 }
 
-function SessionRow({ session, unit, highlighted }: SessionRowProps) {
-  const distanceKm = session.odometer_at_session_km
+function SessionRow({ session, highlighted, currency }: SessionRowProps) {
+  const tone = SOURCE_TONE[session.source] ?? 'slate'
+  const label = SOURCE_LABEL[session.source] ?? session.source
+  const day = session.date.slice(8, 10)
+  const locationName =
+    session.location_name ??
+    (session.location_id !== null
+      ? `loc#${session.location_id}`
+      : 'No location')
+  const tariff = session.tariff_p_per_kwh
+    ? `@ ${session.tariff_p_per_kwh.toFixed(0)}p`
+    : null
   return (
-    <li
-      className={
-        'grid grid-cols-1 gap-2 rounded border p-3 text-sm md:grid-cols-[120px_120px_1fr_120px_120px_80px] ' +
-        (highlighted
-          ? 'animate-pulse border-emerald-400 bg-emerald-50 transition dark:border-emerald-600 dark:bg-emerald-950'
-          : 'border-slate-200 dark:border-slate-700')
-      }
+    <Link
+      to={`/sessions/${session.id}`}
+      className={cn(
+        'flex items-center gap-3 border-b border-slate-200 px-3 py-3 transition last:border-b-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50',
+        highlighted &&
+          'animate-pulse-soft bg-emerald-50/60 dark:bg-emerald-950/20',
+      )}
       data-testid="session-row"
       data-highlighted={highlighted ? 'true' : 'false'}
     >
-      <span className="font-mono text-xs text-slate-500">{session.date}</span>
-      <span
-        className={`inline-flex w-fit items-center rounded px-2 py-0.5 text-xs font-medium ${
-          SOURCE_BADGE_CLASS[session.source] ?? SOURCE_BADGE_CLASS.manual
-        }`}
-        data-testid={`source-badge-${session.source}`}
-      >
-        {SOURCE_BADGE_LABEL[session.source] ?? session.source}
+      <span className="w-9 text-base font-semibold tabular-nums text-slate-700 dark:text-slate-200">
+        {day}
       </span>
-      <span data-testid="location-pill">{locationLabel(session)}</span>
-      <span className="text-xs text-slate-500" data-testid="distance">
-        {distanceKm !== null ? formatDistance(distanceKm, unit) : '—'}
-      </span>
-      <span
-        className={`inline-flex w-fit items-center rounded px-2 py-0.5 text-xs font-medium ${COST_BADGE_CLASS[session.cost_basis]}`}
-        data-testid={`cost-pill-${session.cost_basis}`}
-      >
-        {formatCostPence(session.cost_pence)}
-      </span>
-      <Link
-        to={`/sessions/${session.id}`}
-        className="text-xs text-indigo-600 underline"
-      >
-        Details
-      </Link>
-    </li>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+          {locationName}
+        </p>
+        <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+          {session.kwh_added.toFixed(1)} kWh
+          {tariff && <span> {tariff}</span>}
+        </p>
+      </div>
+      <div className="flex flex-col items-end gap-1">
+        <GradientNumber size="sm" data-testid="session-cost">
+          {formatCurrency(session.cost_pence, currency)}
+        </GradientNumber>
+        <Pill tone={tone} data-testid={`source-badge-${session.source}`}>
+          {label}
+        </Pill>
+      </div>
+    </Link>
   )
 }
 
@@ -112,54 +141,141 @@ export default function Sessions() {
   const [sessions, setSessions] = useState<ChargingSessionPayload[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const unit = useDistanceUnit()
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
+  const [dateRange, setDateRange] = useState<DateRange>('last_90')
   const recentlyImported = useSyncStore((s) => s.recentlyImportedSessionIds)
+  const currency = useSetting<string>('currency') ?? 'GBP'
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
       try {
-        const data = await api.getSessions()
+        setLoading(true)
+        const params = new URLSearchParams()
+        if (sourceFilter !== 'all') params.set('source', sourceFilter)
+        const bounds = dateRangeBounds(dateRange)
+        if (bounds.date_from) params.set('date_from', bounds.date_from)
+        if (bounds.date_to) params.set('date_to', bounds.date_to)
+        const qs = params.toString()
+        const data = await api.getSessions(qs ? `?${qs}` : undefined)
         if (!cancelled) {
           setSessions(data)
-          setLoading(false)
+          setError(null)
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof ApiError ? err.message : 'Failed to load sessions')
-          setLoading(false)
+          setError(
+            err instanceof ApiError
+              ? err.message
+              : 'Failed to load sessions',
+          )
         }
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [sourceFilter, dateRange])
+
+  const groups = useMemo(
+    () =>
+      groupSessionsByMonth(
+        sessions as unknown as GroupableSession[] as never,
+      ),
+    [sessions],
+  )
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-8">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Charging sessions</h1>
+      <PageHeader
+        title="Sessions"
+        actions={
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5">
+                {DATE_LABEL[dateRange]}
+                <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              {(Object.keys(DATE_LABEL) as DateRange[]).map((r) => (
+                <DropdownMenuItem
+                  key={r}
+                  onSelect={() => setDateRange(r)}
+                >
+                  {DATE_LABEL[r]}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        }
+      />
+
+      <div className="mb-4 flex flex-wrap gap-2" data-testid="source-tabs">
+        {(['all', 'manual', 'synthesis', 'cariad'] as SourceFilter[]).map(
+          (f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setSourceFilter(f)}
+              className={cn(
+                'rounded-md border px-2.5 py-1 text-xs font-medium transition',
+                sourceFilter === f
+                  ? 'border-cyan-300 bg-cyan-500/15 text-cyan-700 dark:border-cyan-900 dark:text-cyan-300'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800',
+              )}
+            >
+              {f === 'all'
+                ? 'All'
+                : f === 'synthesis'
+                  ? 'Cupra'
+                  : SOURCE_LABEL[f]}
+            </button>
+          ),
+        )}
       </div>
+
       {loading && <p className="text-sm text-slate-500">Loading…</p>}
       {error && (
         <div role="alert" className="text-sm text-red-600">
           {error}
         </div>
       )}
-      {!loading && sessions.length === 0 && (
-        <p className="text-sm text-slate-500">No sessions yet.</p>
+      {!loading && groups.length === 0 && (
+        <EmptyState
+          title="No sessions yet"
+          body="Sessions matching the current filters will appear here."
+        />
       )}
-      <ul className="space-y-2">
-        {sessions.map((s) => (
-          <SessionRow
-            key={s.id}
-            session={s}
-            unit={unit}
-            highlighted={recentlyImported.includes(s.id)}
-          />
+
+      <div className="space-y-6">
+        {groups.map((group) => (
+          <div key={group.key}>
+            <div className="mb-2 flex items-baseline justify-between text-[11px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+              <span className="font-semibold">{group.label}</span>
+              <span className="tabular-nums">
+                {group.count}{' '}
+                {group.count === 1 ? 'session' : 'sessions'} ·{' '}
+                {formatCurrency(group.totalCostPence, currency)}
+              </span>
+            </div>
+            <Card className="p-0">
+              {(group.sessions as unknown as ChargingSessionPayload[]).map(
+                (session) => (
+                  <SessionRow
+                    key={session.id}
+                    session={session}
+                    highlighted={recentlyImported.includes(session.id)}
+                    currency={currency}
+                  />
+                ),
+              )}
+            </Card>
+          </div>
         ))}
-      </ul>
+      </div>
     </div>
   )
 }
