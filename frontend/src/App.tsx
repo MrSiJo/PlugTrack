@@ -19,6 +19,7 @@ import Sessions from '@/pages/Sessions'
 import SettingsPage from '@/pages/SettingsPage'
 import SetupPage from '@/pages/SetupPage'
 import AuthFailureBanner from '@/components/AuthFailureBanner'
+import CommandPalette from '@/components/CommandPalette'
 import NavBar from '@/components/NavBar'
 import SyncStreamSubscriber from '@/components/SyncStreamSubscriber'
 
@@ -254,6 +255,7 @@ export default function App() {
     <BrowserRouter>
       <AppShell>
         <SyncStreamSubscriber />
+        <CommandPalette />
         <AuthFailureBanner />
         <AppRoutes result={result} />
       </AppShell>
