@@ -40,17 +40,24 @@ Open http://localhost:9279 in a browser. First-run setup prompts you to create t
 `compose.yaml` defaults to `:latest`. To pin a release:
 
 ```bash
-echo "PLUGTRACK_TAG=v1.2.3" >> .env
+echo "PLUGTRACK_TAG=v2.1.0" >> .env
 docker compose pull && docker compose up -d
 ```
 
-Image tags published by CI:
+Available tags live on the GHCR package pages:
 
-| Trigger              | Tags produced                                        |
-| -------------------- | ---------------------------------------------------- |
-| push to `main`       | `latest`, `sha-<short>`                              |
-| `v*.*.*` git tag     | `vX.Y.Z`, `X.Y`, `X`, `latest`, `sha-<short>`        |
-| pull request         | (build-only, no push)                                |
+- https://github.com/MrSiJo/PlugTrack/pkgs/container/plugtrack-api
+- https://github.com/MrSiJo/PlugTrack/pkgs/container/plugtrack-ui
+
+Or check https://github.com/MrSiJo/PlugTrack/releases for the matching changelog.
+
+Tags published by CI:
+
+| Trigger                                | Tags produced                                       |
+| -------------------------------------- | --------------------------------------------------- |
+| push to `main`                         | `latest`, `sha-<short>`                             |
+| release-please PR merged (cuts a tag)  | `vX.Y.Z`, `X.Y`, `X`, `latest`                      |
+| pull request                           | (build-only, no push)                               |
 
 Both images are multi-arch (`linux/amd64` + `linux/arm64`).
 
@@ -203,12 +210,27 @@ Run with `compose-dev.yaml` and the same paths bind to `/dockerdata/plugtrack/{d
 
 ## Container images and CI
 
-Images are published to the GitHub Container Registry on every push to `main` and on `v*.*.*` tags by `.github/workflows/build-images.yml`:
+Images are published to the GitHub Container Registry:
 
 - `ghcr.io/mrsijo/plugtrack-api`
 - `ghcr.io/mrsijo/plugtrack-ui`
 
 Both images are built for `linux/amd64` and `linux/arm64` (Raspberry Pi 4/5 and Apple Silicon work).
+
+Two workflows drive publishing:
+
+- `.github/workflows/build-images.yml` — every push to `main` produces `:latest` + `:sha-<short>`.
+- `.github/workflows/release-please.yml` — automates semantic-versioned releases (see below).
+
+### Versioned releases — automated via release-please
+
+Versioning follows [Conventional Commits](https://www.conventionalcommits.org/) and is fully automated:
+
+1. Push commits to `main` with prefixes like `feat:`, `fix:`, `feat!:` (breaking), or `chore:`/`docs:`/`ci:` (no version bump).
+2. [release-please](https://github.com/googleapis/release-please) maintains a `chore(main): release X.Y.Z` PR that accumulates everything since the last release, with an auto-generated `CHANGELOG.md` and the proposed version (`feat:` → minor, `fix:` → patch, `feat!:` → major).
+3. **Merging that PR** cuts the `vX.Y.Z` git tag, creates the matching GitHub Release, and triggers the multi-arch image build, pushing `:vX.Y.Z`, `:X.Y`, `:X`, and `:latest` to GHCR.
+
+State is tracked in `.release-please-manifest.json`. To skip a release for a window (e.g. several "wip" `feat:` commits that aren't ready), simply don't merge the Release PR — it will keep accumulating until you do.
 
 ## Out of scope (for now)
 
