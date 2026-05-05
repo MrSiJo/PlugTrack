@@ -244,6 +244,8 @@ export interface ChargingSessionPayload {
   location_id: number | null
   location_name: string | null
   location_address: string | null
+  location_lat: number | null
+  location_lng: number | null
   user_label: string | null
   charge_network: string | null
   notes: string | null

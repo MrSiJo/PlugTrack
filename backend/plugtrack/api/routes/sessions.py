@@ -75,6 +75,8 @@ class SessionPayload(BaseModel):
     location_id: Optional[int]
     location_name: Optional[str] = None
     location_address: Optional[str] = None
+    location_lat: Optional[float] = None
+    location_lng: Optional[float] = None
     user_label: Optional[str]
     charge_network: Optional[str]
     notes: Optional[str]
@@ -137,6 +139,8 @@ def _to_payload(
     *,
     location_name: Optional[str] = None,
     location_address: Optional[str] = None,
+    location_lat: Optional[float] = None,
+    location_lng: Optional[float] = None,
 ) -> SessionPayload:
     return SessionPayload(
         id=cs.id,
@@ -162,6 +166,8 @@ def _to_payload(
         location_id=cs.location_id,
         location_name=location_name,
         location_address=location_address,
+        location_lat=location_lat,
+        location_lng=location_lng,
         user_label=cs.user_label,
         charge_network=cs.charge_network,
         notes=cs.notes,
@@ -254,7 +260,13 @@ async def list_sessions(
             detail=f"source must be one of {sorted(_VALID_SOURCES)}",
         )
     stmt = (
-        select(ChargingSession, Location.name, Location.address)
+        select(
+            ChargingSession,
+            Location.name,
+            Location.address,
+            Location.centroid_lat,
+            Location.centroid_lng,
+        )
         .join(Location, ChargingSession.location_id == Location.id, isouter=True)
         .where(ChargingSession.user_id == user_id)
     )
@@ -271,8 +283,14 @@ async def list_sessions(
     stmt = stmt.order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
     result = await session.execute(stmt)
     return [
-        _to_payload(cs, location_name=name, location_address=address)
-        for cs, name, address in result.all()
+        _to_payload(
+            cs,
+            location_name=name,
+            location_address=address,
+            location_lat=lat,
+            location_lng=lng,
+        )
+        for cs, name, address, lat, lng in result.all()
     ]
 
 
@@ -286,6 +304,8 @@ async def _to_payload_with_location(
         cs,
         location_name=loc.name if loc else None,
         location_address=loc.address if loc else None,
+        location_lat=loc.centroid_lat if loc else None,
+        location_lng=loc.centroid_lng if loc else None,
     )
 
 

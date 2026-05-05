@@ -33,6 +33,8 @@ function makeSession(
     location_id: null,
     location_name: null,
     location_address: null,
+    location_lat: null,
+    location_lng: null,
     user_label: null,
     charge_network: null,
     notes: null,
