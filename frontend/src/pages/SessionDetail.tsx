@@ -657,7 +657,7 @@ export default function SessionDetail() {
   if (!session) return <p className="p-6 text-sm">Not found.</p>
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-8">
+    <div className="mx-auto max-w-7xl px-6 py-8">
       <h1 className="mb-2 text-2xl font-semibold">
         Session #{session.id}
       </h1>

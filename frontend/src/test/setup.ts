@@ -7,8 +7,8 @@ class ResizeObserverPolyfill {
   disconnect() {}
 }
 if (typeof globalThis.ResizeObserver === 'undefined') {
-  // @ts-expect-error — polyfilling JSDOM
-  globalThis.ResizeObserver = ResizeObserverPolyfill
+  globalThis.ResizeObserver =
+    ResizeObserverPolyfill as unknown as typeof ResizeObserver
 }
 
 if (typeof window !== 'undefined' && typeof window.matchMedia === 'undefined') {
