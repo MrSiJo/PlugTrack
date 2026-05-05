@@ -1,22 +1,15 @@
 /**
- * Session detail page.
+ * Session detail page (redesigned).
  *
  * Renders:
- * - Header (date, source, kWh, SoC delta)
- * - Cost breakdown widget (`CostBreakdown`) showing
- *   `kwh × tariff = computed_cost`. When the user has set a total
- *   override, also shows the receipt vs computed delta.
- * - `<ChargeCurve />` SVG chart when `power_curve` is non-empty —
- *   shows SoC% (left axis, sky) and charging power kW (right axis,
- *   amber) over the duration of the session. Updated live by the sync
- *   worker on every poll while CHARGING.
- * - Inline `<LocationLabelForm />` when location is unlabelled.
- * - Edit form, gated behind an "Edit" toggle so the page reads as
- *   view-only by default. Editable fields: kWh, odometer, SoC,
- *   charging type/mode, network, notes, and cost overrides. Surfaces
- *   calculated kWh next to editable value so user can compare metered
- *   vs SoC-derived energy.
- * - `charge_network` shown as a badge under the header summary when set.
+ * - PageHeader (date · location, address subtitle).
+ * - Hero summary strip: Energy / Cost / SoC / Duration as gradient
+ *   numerals + source pill + cost-basis tooltip.
+ * - <ChargeCurve /> when `power_curve` is non-empty (cyan power line,
+ *   emerald SoC line). Updated live by the sync worker.
+ * - Petrol comparison KPI tiles when metrics are available.
+ * - Location section: small map thumbnail + address + edit link.
+ * - Edit form, gated behind an "Edit" toggle.
  */
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -30,10 +23,12 @@ import {
   type SessionUpdateRequest,
 } from '@/api/client'
 import LocationLabelForm from '@/components/LocationLabelForm'
+import { LocationMiniMap } from '@/components/locations/LocationMiniMap'
 import { Card } from '@/components/ui/Card'
 import { GradientNumber } from '@/components/ui/GradientNumber'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Pill, type PillTone } from '@/components/ui/Pill'
+import { StatTile } from '@/components/ui/StatTile'
 import {
   Tooltip,
   TooltipContent,
@@ -241,156 +236,152 @@ function PetrolComparison({
     metrics.miles_since_previous === null
       ? '—'
       : unit === 'mi'
-        ? `${metrics.miles_since_previous.toFixed(1)} mi`
-        : `${(metrics.miles_since_previous * 1.609344).toFixed(1)} km`
+        ? `${metrics.miles_since_previous.toFixed(0)} mi`
+        : `${(metrics.miles_since_previous * 1.609344).toFixed(0)} km`
 
   const savings = metrics.savings_vs_petrol_p
-  const savingsClass =
+  const savingsPositive = savings !== null && savings > 0
+  const savingsHero =
     savings === null
-      ? 'text-slate-500'
+      ? '—'
+      : `${savings > 0 ? '+' : ''}${fmtPence(savings)}`
+  const savingsAccent =
+    savings === null
+      ? 'text-slate-400'
       : savings > 0
-        ? 'text-emerald-700 dark:text-emerald-400'
-        : 'text-rose-700 dark:text-rose-400'
+        ? 'text-gradient-electric'
+        : 'text-rose-500 dark:text-rose-300'
 
-  return (
-    <div
-      className="rounded border border-slate-200 p-3 text-sm dark:border-slate-700"
-      data-testid="petrol-comparison"
-    >
-      <p className="text-xs uppercase tracking-wide text-slate-500">
+  const renderEmpty = (body: string, testid?: string) => (
+    <Card className="p-4 text-sm" data-testid={testid ?? 'petrol-comparison'}>
+      <p className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
         Petrol comparison
       </p>
-      {!settingsConfigured ? (
-        <p className="mt-1 text-xs text-slate-500">
-          Set <strong>Petrol price (p/litre)</strong> and{' '}
-          <strong>Petrol MPG</strong> in Settings to enable this comparison.
+      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+        {body}
+      </p>
+    </Card>
+  )
+
+  if (!settingsConfigured) {
+    return renderEmpty(
+      'Set "Petrol price (p/litre)" and "Petrol MPG" in Settings to enable this comparison.',
+    )
+  }
+
+  if (isChainFollowup) {
+    return (
+      <Card className="p-4 text-sm" data-testid="petrol-comparison">
+        <p className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+          Petrol comparison
         </p>
-      ) : isChainFollowup ? (
-        <p className="mt-1 text-xs text-slate-500" data-testid="chain-followup">
+        <p
+          className="mt-2 text-xs text-slate-500 dark:text-slate-400"
+          data-testid="chain-followup"
+        >
           No miles travelled since the last session — this charge is part of
           an ongoing top-up chain. The combined comparison lives on{' '}
           <Link
             to={`/sessions/${metrics.chain_anchor_id}`}
-            className="text-indigo-600 underline"
+            className="text-cyan-600 hover:underline dark:text-cyan-300"
           >
             session #{metrics.chain_anchor_id}
           </Link>
           .
         </p>
-      ) : !hasMiles ? (
-        <p className="mt-1 text-xs text-slate-500">
-          Needs an odometer on this session and the previous one for the same
-          car. Add the previous odometer to start tracking miles per session.
-        </p>
-      ) : (
-        <>
-          <dl className="mt-2 grid grid-cols-2 gap-y-1 text-xs">
-            <dt className="text-slate-500">Miles since last session</dt>
-            <dd className="text-right font-mono" data-testid="metric-miles">
-              {distanceDisplay}
-            </dd>
+      </Card>
+    )
+  }
 
-            <dt className="text-slate-500">Cost per mile (EV)</dt>
-            <dd
-              className="text-right font-mono"
-              data-testid="metric-cost-per-mile"
-            >
-              {fmtPencePerMile(metrics.cost_per_mile_p)}
-            </dd>
-
-            <dt className="text-slate-500">Petrol equivalent</dt>
-            <dd className="text-right font-mono" data-testid="metric-petrol-ppm">
-              {fmtPencePerMile(metrics.petrol_ppm)}
-            </dd>
-
-            <dt className="text-slate-500">Petrol equivalent cost</dt>
-            <dd
-              className="text-right font-mono"
-              data-testid="metric-petrol-cost"
-            >
-              {fmtPence(metrics.petrol_equivalent_cost_p)}
-            </dd>
-
-            <dt className="text-slate-500">Saving vs petrol</dt>
-            <dd
-              className={`text-right font-mono ${savingsClass}`}
-              data-testid="metric-savings"
-            >
-              {savings !== null && savings > 0 ? '+' : ''}
-              {fmtPence(savings)}
-            </dd>
-          </dl>
-          {chainPartners.length > 0 && (
-            <p
-              className="mt-2 text-[10px] text-slate-500"
-              data-testid="chain-anchor"
-            >
-              Includes top-up charges from{' '}
-              {chainPartners.map((id, i) => (
-                <span key={id}>
-                  {i > 0 && ', '}
-                  <Link
-                    to={`/sessions/${id}`}
-                    className="text-indigo-600 underline"
-                  >
-                    #{id}
-                  </Link>
-                </span>
-              ))}{' '}
-              · combined EV cost{' '}
-              <strong>{fmtPence(metrics.chain_total_cost_pence)}</strong>.
-            </p>
-          )}
-        </>
-      )}
-      {settingsConfigured && (
-        <p className="mt-2 text-[10px] text-slate-400">
-          Based on {metrics.petrol_price_p_per_litre}p/L petrol @{' '}
-          {metrics.petrol_mpg} MPG.
-        </p>
-      )}
-    </div>
-  )
-}
-
-interface CostBreakdownProps {
-  session: ChargingSessionPayload
-}
-
-export function CostBreakdown({ session }: CostBreakdownProps) {
-  const tariff = session.tariff_p_per_kwh
-  const computed =
-    tariff !== null ? Math.round(session.kwh_added * tariff) : null
+  if (!hasMiles) {
+    return renderEmpty(
+      'Needs an odometer on this session and the previous one for the same car. Add the previous odometer to start tracking miles per session.',
+    )
+  }
 
   return (
-    <div
-      className="rounded border border-slate-200 p-3 text-sm dark:border-slate-700"
-      data-testid="cost-breakdown"
-    >
-      <p className="text-xs uppercase tracking-wide text-slate-500">
-        Cost breakdown
-      </p>
-      {tariff !== null && (
-        <p>
-          {session.kwh_added.toFixed(2)} kWh × {tariff.toFixed(1)}p ={' '}
-          <strong>{fmtPence(computed)}</strong>
-        </p>
-      )}
-      <p className="mt-1 text-xs text-slate-500">
-        Basis: {COST_BASIS_LABEL[session.cost_basis]}
-      </p>
-      {session.cost_basis === 'override_total' && (
+    <div data-testid="petrol-comparison">
+      <div className="mb-3 flex items-baseline justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+          Petrol comparison
+        </h2>
+        <span className="text-[10px] text-slate-400 dark:text-slate-500">
+          {metrics.petrol_price_p_per_litre}p/L petrol @ {metrics.petrol_mpg}{' '}
+          MPG
+        </span>
+      </div>
+
+      {/* Hero "you saved" card. */}
+      <Card variant="hero" className="mb-3 flex items-baseline gap-3 p-4">
+        <div className="flex flex-col">
+          <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+            {savingsPositive ? 'Saved vs petrol' : 'Spent over petrol'}
+          </span>
+          <span
+            className={`text-3xl font-bold tabular-nums tracking-tight ${savingsAccent}`}
+            data-testid="metric-savings"
+          >
+            {savingsHero}
+          </span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            over {distanceDisplay} since last charge
+          </span>
+        </div>
+      </Card>
+
+      {/* KPI tile row */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile
+          label="Distance"
+          value={
+            <span data-testid="metric-miles">{distanceDisplay}</span>
+          }
+        />
+        <StatTile
+          label="EV cost / mile"
+          value={
+            <span data-testid="metric-cost-per-mile">
+              {fmtPencePerMile(metrics.cost_per_mile_p)}
+            </span>
+          }
+        />
+        <StatTile
+          label="Petrol cost / mile"
+          value={
+            <span data-testid="metric-petrol-ppm">
+              {fmtPencePerMile(metrics.petrol_ppm)}
+            </span>
+          }
+        />
+        <StatTile
+          label="Petrol equivalent"
+          value={
+            <span data-testid="metric-petrol-cost">
+              {fmtPence(metrics.petrol_equivalent_cost_p)}
+            </span>
+          }
+        />
+      </div>
+
+      {chainPartners.length > 0 && (
         <p
-          className="mt-2 rounded bg-blue-50 p-2 text-xs dark:bg-blue-950"
-          data-testid="override-receipt"
+          className="mt-3 text-[11px] text-slate-500 dark:text-slate-400"
+          data-testid="chain-anchor"
         >
-          Receipt: <strong>{fmtPence(session.cost_pence)}</strong>
-          {tariff !== null && computed !== null && (
-            <>
-              {' '}
-              ({fmtPence((session.cost_pence ?? 0) - computed)} fees over kWh × rate)
-            </>
-          )}
+          Includes top-up charges from{' '}
+          {chainPartners.map((id, i) => (
+            <span key={id}>
+              {i > 0 && ', '}
+              <Link
+                to={`/sessions/${id}`}
+                className="text-cyan-600 hover:underline dark:text-cyan-300"
+              >
+                #{id}
+              </Link>
+            </span>
+          ))}{' '}
+          · combined EV cost{' '}
+          <strong>{fmtPence(metrics.chain_total_cost_pence)}</strong>.
         </p>
       )}
     </div>
@@ -685,6 +676,23 @@ export default function SessionDetail() {
     session.location_address ?? null,
   ].filter((p): p is string => Boolean(p))
 
+  const durationDisplay = (() => {
+    const start = session.charge_start_at
+      ? Date.parse(session.charge_start_at)
+      : null
+    const end = session.charge_end_at
+      ? Date.parse(session.charge_end_at)
+      : null
+    if (start === null || end === null || Number.isNaN(start) || Number.isNaN(end)) {
+      return null
+    }
+    const totalMin = Math.max(0, Math.round((end - start) / 60_000))
+    const h = Math.floor(totalMin / 60)
+    const m = totalMin % 60
+    if (h === 0) return { value: `${m}`, suffix: 'min' }
+    return { value: `${h}h ${String(m).padStart(2, '0')}`, suffix: 'h m' }
+  })()
+
   return (
     <TooltipProvider>
       <div className="mx-auto max-w-7xl px-6 py-8">
@@ -738,6 +746,17 @@ export default function SessionDetail() {
               {session.end_soc - session.start_soc}% gained
             </span>
           </div>
+          {durationDisplay && (
+            <div className="flex flex-col" data-testid="session-duration">
+              <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+                Duration
+              </span>
+              <GradientNumber size="lg">{durationDisplay.value}</GradientNumber>
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {durationDisplay.suffix}
+              </span>
+            </div>
+          )}
           <div className="ml-auto flex items-center gap-2">
             {session.charge_network && (
               <Pill data-testid="charge-network-badge">
@@ -779,10 +798,6 @@ export default function SessionDetail() {
             </p>
           )}
 
-        <section className="mb-6">
-          <CostBreakdown session={session} />
-        </section>
-
         {session.power_curve && session.power_curve.length > 0 && (
           <section className="mb-6">
             <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
@@ -805,23 +820,48 @@ export default function SessionDetail() {
       )}
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-medium">Location</h2>
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+          Location
+        </h2>
         {session.location_id === null ? (
-          <p className="text-sm text-slate-500">No location attached.</p>
+          <Card className="text-sm text-slate-500">No location attached.</Card>
         ) : session.location_name ? (
-          <div className="space-y-1" data-testid="location-summary">
-            <p className="text-sm font-medium">{session.location_name}</p>
-            {session.location_address && (
-              <p className="text-xs text-slate-500">{session.location_address}</p>
-            )}
-            <p className="text-xs text-slate-500">
-              <a
-                href="/locations"
-                className="text-indigo-600 underline"
+          <div
+            className="grid gap-3 md:grid-cols-[260px_1fr]"
+            data-testid="location-summary"
+          >
+            {session.location_lat !== null && session.location_lng !== null ? (
+              <Link
+                to="/locations"
+                aria-label="Open this location on the Locations page"
               >
-                Edit on the Locations page
-              </a>
-            </p>
+                <LocationMiniMap
+                  lat={session.location_lat}
+                  lng={session.location_lng}
+                  height={140}
+                />
+              </Link>
+            ) : (
+              <Card className="flex items-center justify-center text-xs text-slate-500">
+                No coordinates
+              </Card>
+            )}
+            <Card className="flex flex-col gap-1">
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                {session.location_name}
+              </p>
+              {session.location_address && (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {session.location_address}
+                </p>
+              )}
+              <Link
+                to="/locations"
+                className="mt-2 text-xs text-cyan-600 hover:underline dark:text-cyan-300"
+              >
+                Edit on the Locations page →
+              </Link>
+            </Card>
           </div>
         ) : (
           <div className="space-y-2">
