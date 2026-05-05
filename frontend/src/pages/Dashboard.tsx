@@ -306,7 +306,7 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-6xl px-6 py-8">
+      <main className="mx-auto max-w-7xl px-6 py-8">
         <p className="text-sm text-slate-500">Loading dashboard…</p>
       </main>
     )
@@ -314,7 +314,7 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <main className="mx-auto max-w-6xl px-6 py-8">
+      <main className="mx-auto max-w-7xl px-6 py-8">
         <div role="alert" className="text-sm text-red-600">
           {error}
         </div>
@@ -327,7 +327,7 @@ export default function Dashboard() {
   const distance = formatDistance(summary.lifetime_totals.distance_km)
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-8" data-testid="dashboard-root">
+    <main className="mx-auto max-w-7xl px-6 py-8" data-testid="dashboard-root">
       <h1 className="mb-6 text-2xl font-semibold">Dashboard</h1>
 
       <div className="grid gap-6 lg:grid-cols-2">

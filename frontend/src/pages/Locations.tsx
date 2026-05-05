@@ -73,7 +73,7 @@ export default function Locations() {
   }, [toast])
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8">
+    <div className="mx-auto max-w-7xl px-6 py-8">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold">Locations</h1>
         <p className="mt-1 text-sm text-slate-500">

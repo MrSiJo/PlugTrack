@@ -87,7 +87,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-8">
+    <div className="mx-auto max-w-7xl px-6 py-8">
       <header className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Settings</h1>
         <div className="flex items-center gap-3">
