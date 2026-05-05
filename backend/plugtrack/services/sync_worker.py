@@ -268,6 +268,9 @@ class ProductionPollWorker:
             and telemetry.charging
         ):
             self._append_power_sample(scratch, telemetry)
+            # Live flush so the session detail page can render a curve
+            # while charging is still in progress, not only after close.
+            await self._flush_power_curve(scratch)
 
         # ---- Apply each side-effect from the transitions ----
         if transitions.open_plug_in is not None:
@@ -600,6 +603,16 @@ class ProductionPollWorker:
             row.cost_basis = cost_basis
             row.tariff_p_per_kwh = tariff_p
 
+            # Inherit the location's default charge network when the
+            # session doesn't already have one. User edits stay sacred —
+            # we never overwrite a non-NULL value here.
+            if (
+                row.charge_network is None
+                and location is not None
+                and location.default_charge_network
+            ):
+                row.charge_network = location.default_charge_network
+
             # Persist the accumulated power curve.
             if scratch is not None and scratch.power_curve:
                 row.power_curve = list(scratch.power_curve)
@@ -759,10 +772,20 @@ class ProductionPollWorker:
                 pir = await session.get(PlugInRecord, plug_in_id)
                 if pir is not None:
                     pir.location_id = location_id
+                # Pre-resolve the cluster's default network — applied to
+                # any session in this plug-in window without one.
+                resolved_loc = await session.get(Location, location_id)
+                default_net = (
+                    resolved_loc.default_charge_network
+                    if resolved_loc is not None
+                    else None
+                )
                 for sid in session_ids_to_patch:
                     sess_row = await session.get(ChargingSession, sid)
                     if sess_row is not None:
                         sess_row.location_id = location_id
+                        if sess_row.charge_network is None and default_net:
+                            sess_row.charge_network = default_net
                 await session.commit()
 
             for sid in session_ids_to_patch:
@@ -862,6 +885,24 @@ class ProductionPollWorker:
                 float(telemetry.charging_power or 0.0),
             ]
         )
+
+    async def _flush_power_curve(self, scratch: _PlugInScratch) -> None:
+        """Persist the current scratch.power_curve to the open session row.
+
+        Called on every poll while CHARGING so the detail page can render
+        a live curve. The list is copied (not aliased) so close_session
+        can clear scratch.power_curve without affecting the persisted row.
+        """
+        if scratch.open_session_id is None or not scratch.power_curve:
+            return
+        try:
+            async with self._db_sessionmaker() as session:
+                row = await session.get(ChargingSession, scratch.open_session_id)
+                if row is not None:
+                    row.power_curve = list(scratch.power_curve)
+                    await session.commit()
+        except Exception:
+            logger.exception("flush_power_curve: failed to persist")
 
     async def _publish(self, job: SyncJob, event: str, data: dict) -> None:
         try:

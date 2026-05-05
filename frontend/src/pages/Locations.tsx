@@ -138,6 +138,9 @@ function LocationRow({ loc, allLocations, onChanged, onToast }: LocationRowProps
   const [defaultRate, setDefaultRate] = useState<string>(
     loc.default_cost_per_kwh_p === null ? '' : String(loc.default_cost_per_kwh_p),
   )
+  const [defaultNetwork, setDefaultNetwork] = useState<string>(
+    loc.default_charge_network ?? '',
+  )
   const [radiusM, setRadiusM] = useState<string>(String(loc.radius_m))
   const [mergeTargetId, setMergeTargetId] = useState<string>('')
   const [busy, setBusy] = useState(false)
@@ -150,6 +153,7 @@ function LocationRow({ loc, allLocations, onChanged, onToast }: LocationRowProps
     setDefaultRate(
       loc.default_cost_per_kwh_p === null ? '' : String(loc.default_cost_per_kwh_p),
     )
+    setDefaultNetwork(loc.default_charge_network ?? '')
     setRadiusM(String(loc.radius_m))
   }, [loc])
 
@@ -169,6 +173,8 @@ function LocationRow({ loc, allLocations, onChanged, onToast }: LocationRowProps
         is_free: isFree,
         default_cost_per_kwh_p:
           defaultRate === '' ? null : Number(defaultRate),
+        default_charge_network:
+          defaultNetwork.trim() === '' ? null : defaultNetwork.trim(),
         radius_m: Number(radiusM),
       }
       await api.updateLocation(loc.id, payload)
@@ -293,6 +299,14 @@ function LocationRow({ loc, allLocations, onChanged, onToast }: LocationRowProps
             Free
           </span>
         )}
+        {loc.default_charge_network && (
+          <span
+            className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            data-testid="location-network-badge"
+          >
+            {loc.default_charge_network}
+          </span>
+        )}
       </div>
 
       <dl className="mb-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500 sm:grid-cols-4">
@@ -340,6 +354,17 @@ function LocationRow({ loc, allLocations, onChanged, onToast }: LocationRowProps
             value={defaultRate}
             onChange={(e) => setDefaultRate(e.target.value)}
             className="rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-800"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">Default charge network</span>
+          <input
+            type="text"
+            value={defaultNetwork}
+            onChange={(e) => setDefaultNetwork(e.target.value)}
+            placeholder="e.g. Outfox Energy, Tesla, MFG"
+            className="rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-800"
+            data-testid={`default-network-input-${loc.id}`}
           />
         </label>
         <label className="flex flex-col gap-1 text-xs">

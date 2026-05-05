@@ -80,6 +80,29 @@ def _assert_single_worker() -> None:
     _LOCK_HANDLE = handle
 
 
+async def _apply_additive_migrations(conn) -> None:
+    """Add columns introduced after the initial schema.
+
+    SQLAlchemy's `create_all` only creates missing tables — it does NOT
+    add columns to existing tables. We don't run Alembic; instead we run
+    a tiny set of idempotent `ALTER TABLE ... ADD COLUMN` statements
+    here. Each entry is `(table, column, ddl_fragment)`. The check is
+    "does this column already exist?" via PRAGMA, so re-runs are no-ops.
+    """
+    from sqlalchemy import text as _text
+
+    additions = (
+        ("location", "default_charge_network", "VARCHAR(64)"),
+    )
+    for table, column, ddl in additions:
+        cols = (await conn.execute(_text(f"PRAGMA table_info({table})"))).all()
+        existing = {row[1] for row in cols}
+        if column not in existing:
+            await conn.execute(
+                _text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+            )
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     _assert_single_worker()
@@ -87,6 +110,7 @@ async def _lifespan(app: FastAPI):
     # `plugtrack.db.engine` / `SessionLocal` after import.
     async with db_module.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _apply_additive_migrations(conn)
     async with db_module.SessionLocal() as session:
         await seed_defaults(session)
         await session.commit()

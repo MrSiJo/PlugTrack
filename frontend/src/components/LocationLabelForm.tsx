@@ -22,6 +22,7 @@ export default function LocationLabelForm({ locationId, onSaved }: LocationLabel
   const [isHome, setIsHome] = useState(false)
   const [isFree, setIsFree] = useState(false)
   const [defaultRate, setDefaultRate] = useState('')
+  const [defaultNetwork, setDefaultNetwork] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -36,6 +37,8 @@ export default function LocationLabelForm({ locationId, onSaved }: LocationLabel
         is_home: isHome,
         is_free: isFree,
         default_cost_per_kwh_p: rate,
+        default_charge_network:
+          defaultNetwork.trim() === '' ? null : defaultNetwork.trim(),
       })
       onSaved?.(result.sessions_recomputed_count, {
         name: result.location.name ?? name.trim(),
@@ -105,6 +108,20 @@ export default function LocationLabelForm({ locationId, onSaved }: LocationLabel
           className={`${inputClass} ${isFree ? 'opacity-40' : ''}`}
           placeholder={isFree ? 'Disabled — free' : 'e.g. 35.0'}
           aria-label="Default cost per kWh"
+        />
+      </label>
+      <label className="block">
+        <span className="block text-xs font-medium">
+          Default charge network
+        </span>
+        <input
+          type="text"
+          maxLength={64}
+          value={defaultNetwork}
+          onChange={(e) => setDefaultNetwork(e.target.value)}
+          className={inputClass}
+          placeholder="e.g. Outfox Energy, Tesla, MFG"
+          aria-label="Default charge network"
         />
       </label>
       {error && (

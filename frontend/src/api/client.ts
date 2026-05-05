@@ -249,6 +249,8 @@ export interface ChargingSessionPayload {
   notes: string | null
   source: string
   telematics_session_id: string | null
+  // [[delta_seconds, soc, power_kw], ...] — live during charge.
+  power_curve?: number[][] | null
   metrics?: SessionMetricsPayload | null
 }
 
@@ -295,6 +297,7 @@ export interface LocationPayload {
   is_home: boolean
   is_free: boolean
   default_cost_per_kwh_p: number | null
+  default_charge_network: string | null
   address: string | null
 }
 
@@ -310,6 +313,7 @@ export interface LocationLabelRequest {
   is_home: boolean
   is_free: boolean
   default_cost_per_kwh_p: number | null
+  default_charge_network?: string | null
 }
 
 export interface LocationLabelResponse {
@@ -322,6 +326,7 @@ export interface LocationUpdateRequest {
   is_home?: boolean
   is_free?: boolean
   default_cost_per_kwh_p?: number | null
+  default_charge_network?: string | null
   radius_m?: number
 }
 

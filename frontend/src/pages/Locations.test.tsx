@@ -14,6 +14,7 @@ function makeLocation(over: Partial<LocationListPayload> = {}): LocationListPayl
     is_home: true,
     is_free: false,
     default_cost_per_kwh_p: 7.5,
+    default_charge_network: null,
     address: '10 Downing St, London',
     visit_count: 12,
     total_kwh: 234.56,

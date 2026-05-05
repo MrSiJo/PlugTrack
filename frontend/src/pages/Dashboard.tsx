@@ -38,6 +38,12 @@ const SOURCE_BADGE_CLASS: Record<string, string> = {
     'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
 }
 
+const SOURCE_BADGE_LABEL: Record<string, string> = {
+  manual: 'Manual',
+  synthesis: 'Cupra Connect',
+  cariad: 'Cariad',
+}
+
 function formatRelative(iso: string | null): string {
   if (!iso) return 'never'
   const t = new Date(iso).getTime()
@@ -211,7 +217,7 @@ function SessionRowDisplay({ row, currency }: SessionRowDisplayProps) {
             SOURCE_BADGE_CLASS[row.source] ?? SOURCE_BADGE_CLASS.manual
           }`}
         >
-          {row.source}
+          {SOURCE_BADGE_LABEL[row.source] ?? row.source}
         </span>
       </td>
       <td className="px-3 py-2 text-xs text-right">

@@ -33,6 +33,7 @@ describe('LocationLabelForm', () => {
           is_home: false,
           is_free: false,
           default_cost_per_kwh_p: 35,
+          default_charge_network: null,
           address: null,
         },
         sessions_recomputed_count: 7,
@@ -52,6 +53,7 @@ describe('LocationLabelForm', () => {
       is_home: false,
       is_free: false,
       default_cost_per_kwh_p: 35,
+      default_charge_network: null,
     })
     expect(onSaved).toHaveBeenCalledWith(7, expect.objectContaining({ name: 'Tesco' }))
   })
@@ -79,6 +81,7 @@ describe('LocationLabelForm', () => {
           is_home: false,
           is_free: true,
           default_cost_per_kwh_p: null,
+          default_charge_network: null,
           address: null,
         },
         sessions_recomputed_count: 0,

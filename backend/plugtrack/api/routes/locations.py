@@ -51,6 +51,7 @@ class LocationLabelRequest(BaseModel):
     is_home: bool = False
     is_free: bool = False
     default_cost_per_kwh_p: Optional[float] = Field(default=None, ge=0)
+    default_charge_network: Optional[str] = Field(default=None, max_length=64)
 
 
 class LocationPayload(BaseModel):
@@ -62,6 +63,7 @@ class LocationPayload(BaseModel):
     is_home: bool
     is_free: bool
     default_cost_per_kwh_p: Optional[float]
+    default_charge_network: Optional[str]
     address: Optional[str]
 
 
@@ -76,6 +78,7 @@ class LocationListPayload(BaseModel):
     is_home: bool
     is_free: bool
     default_cost_per_kwh_p: Optional[float]
+    default_charge_network: Optional[str]
     address: Optional[str]
     visit_count: int
     total_kwh: float
@@ -95,6 +98,7 @@ class LocationUpdateRequest(BaseModel):
     is_home: Optional[bool] = None
     is_free: Optional[bool] = None
     default_cost_per_kwh_p: Optional[float] = Field(default=None, ge=0)
+    default_charge_network: Optional[str] = Field(default=None, max_length=64)
     radius_m: Optional[int] = Field(default=None, ge=1, le=10_000)
 
 
@@ -134,6 +138,7 @@ def _to_payload(loc: Location) -> LocationPayload:
         is_home=loc.is_home,
         is_free=loc.is_free,
         default_cost_per_kwh_p=loc.default_cost_per_kwh_p,
+        default_charge_network=loc.default_charge_network,
         address=loc.address,
     )
 
@@ -149,6 +154,33 @@ async def _home_rate(session: AsyncSession) -> float:
         return float(row.value)
     except (TypeError, ValueError):
         return 0.0
+
+
+async def _backfill_charge_network(
+    session: AsyncSession,
+    location: Location,
+    user_id: int,
+) -> int:
+    """Set `charge_network` on past sessions of `location` where it's NULL.
+
+    Only fills the gap — never overwrites a user-set network. Returns
+    the count touched. No-op when the location has no
+    `default_charge_network` configured.
+    """
+    if not location.default_charge_network:
+        return 0
+    rows = (
+        await session.execute(
+            select(ChargingSession).where(
+                ChargingSession.location_id == location.id,
+                ChargingSession.user_id == user_id,
+                ChargingSession.charge_network.is_(None),
+            )
+        )
+    ).scalars().all()
+    for cs in rows:
+        cs.charge_network = location.default_charge_network
+    return len(rows)
 
 
 async def _recompute_sessions_for_location(
@@ -256,6 +288,7 @@ async def list_locations(
                 is_home=loc.is_home,
                 is_free=loc.is_free,
                 default_cost_per_kwh_p=loc.default_cost_per_kwh_p,
+                default_charge_network=loc.default_charge_network,
                 address=loc.address,
                 visit_count=int(agg.visit_count) if agg is not None else 0,
                 total_kwh=float(agg.total_kwh) if agg is not None else 0.0,
@@ -502,12 +535,18 @@ async def label_location(
     loc.is_home = body.is_home
     loc.is_free = body.is_free
     loc.default_cost_per_kwh_p = body.default_cost_per_kwh_p
+    loc.default_charge_network = body.default_charge_network
 
     # Retro-recompute: only sessions on `home_rate` (the global
     # fallback). Override-based costs are sacred.
     recomputed = await _recompute_sessions_for_location(
         session, loc, user_id, bases=("home_rate",)
     )
+
+    # Back-fill the network on past sessions that don't have one yet.
+    # Mirrors the cost back-fill: forward and back, but only into NULL
+    # gaps — user-set networks are never overwritten.
+    await _backfill_charge_network(session, loc, user_id)
 
     await session.commit()
     await session.refresh(loc)
