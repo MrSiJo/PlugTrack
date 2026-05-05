@@ -12,10 +12,8 @@ PlugTrack v2 is a two-service container app:
 - **`compose-dev.yaml`** — source-build compose; used by `scripts/deploy.{ps1,sh}` and any local `docker compose -f compose-dev.yaml ...` flow.
 - **`scripts/deploy.{ps1,sh}`** — production deploy entry points; build from source via `compose-dev.yaml` and refuse to run against the local Docker context.
 - **`.github/workflows/build-images.yml`** — multi-arch build + publish of `ghcr.io/mrsijo/plugtrack-{api,ui}` on push to `main` and on `v*.*.*` tags.
-- **`docs/superpowers/`** — design specs and implementation plans (the spec at `specs/2026-05-04-plugtrack-rebuild-design.md` is the source of truth for behaviour decisions).
-- **`legacy/`** — the original Flask v1 codebase, **gitignored** and untracked from origin. Kept on disk for reference; do not modify.
 
-The legacy v1 README documented a Flask app under `plugtrack/`. That repository layout no longer applies — everything new lives under `backend/` or `frontend/`.
+Note: `docs/` and `legacy/` are gitignored. If they exist locally they hold design specs and the v1 Flask codebase respectively, but neither is part of the tracked repo. Treat them as read-only personal scratch when present, and do not assume they exist.
 
 ## Common Commands
 
@@ -124,7 +122,7 @@ The test runs in the default suite, so a drift will fail CI immediately.
 INTEGRATION=1 pytest backend/tests/integration -v
 ```
 
-The default `pytest backend/tests` run skips them. Phase 0 reverse-engineering findings live in `docs/pycupra-findings.md` (also gitignored — strictly local).
+The default `pytest backend/tests` run skips them.
 
 ### Other conventions
 
@@ -138,10 +136,7 @@ The default `pytest backend/tests` run skips them. Phase 0 reverse-engineering f
 ## Reference Docs in This Repo
 
 - [`README.md`](README.md) — public-facing intro, quickstart, architecture overview.
-- [`docs/superpowers/specs/2026-05-04-plugtrack-rebuild-design.md`](docs/superpowers/specs/2026-05-04-plugtrack-rebuild-design.md) — full design spec; the source of truth when behaviour is ambiguous.
-- [`docs/superpowers/plans/2026-05-04-plugtrack-rebuild.md`](docs/superpowers/plans/2026-05-04-plugtrack-rebuild.md) — phase-by-phase implementation plan (referenced by commit messages).
-- `docs/pycupra-findings.md` — Phase 0 reverse-engineering notes for the Cariad `multicharge` BFF. **Gitignored — local only.**
-- `legacy/` — preserved v1 Flask code for reference. **Gitignored — local only.**
+- [`backend/CONTRIBUTING.md`](backend/CONTRIBUTING.md) — backend contributor notes.
 - `.env.example` — required environment variables (`APP_SECRET_KEY`, optional `DATABASE_URL`, `COOKIE_SECURE`).
 - `compose.yaml` — production two-service compose stack pulling from GHCR.
 - `compose-dev.yaml` — source-build compose stack used by the deploy scripts.
