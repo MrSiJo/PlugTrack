@@ -8,8 +8,10 @@ PlugTrack v2 is a two-service container app:
 
 - **`backend/`** — FastAPI + async SQLAlchemy + APScheduler. The Python package lives in `backend/plugtrack/`. Tests in `backend/tests/`.
 - **`frontend/`** — React 19 + Vite + Tailwind 4 + zustand. Source in `frontend/src/`.
-- **`compose.yaml`** — top-level two-service production compose (api + nginx-served SPA).
-- **`scripts/deploy.{ps1,sh}`** — production deploy entry points (refuse to run against the local Docker context).
+- **`compose.yaml`** — pulls pre-built images from GHCR (the default `docker compose up -d` target).
+- **`compose-dev.yaml`** — source-build compose; used by `scripts/deploy.{ps1,sh}` and any local `docker compose -f compose-dev.yaml ...` flow.
+- **`scripts/deploy.{ps1,sh}`** — production deploy entry points; build from source via `compose-dev.yaml` and refuse to run against the local Docker context.
+- **`.github/workflows/build-images.yml`** — multi-arch build + publish of `ghcr.io/mrsijo/plugtrack-{api,ui}` on push to `main` and on `v*.*.*` tags.
 - **`docs/superpowers/`** — design specs and implementation plans (the spec at `specs/2026-05-04-plugtrack-rebuild-design.md` is the source of truth for behaviour decisions).
 - **`legacy/`** — the original Flask v1 codebase, **gitignored** and untracked from origin. Kept on disk for reference; do not modify.
 
@@ -141,4 +143,5 @@ The default `pytest backend/tests` run skips them. Phase 0 reverse-engineering f
 - `docs/pycupra-findings.md` — Phase 0 reverse-engineering notes for the Cariad `multicharge` BFF. **Gitignored — local only.**
 - `legacy/` — preserved v1 Flask code for reference. **Gitignored — local only.**
 - `.env.example` — required environment variables (`APP_SECRET_KEY`, optional `DATABASE_URL`, `COOKIE_SECURE`).
-- `compose.yaml` — production two-service compose stack.
+- `compose.yaml` — production two-service compose stack pulling from GHCR.
+- `compose-dev.yaml` — source-build compose stack used by the deploy scripts.

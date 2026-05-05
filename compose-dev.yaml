@@ -1,0 +1,79 @@
+# PlugTrack v2 — source-build compose file.
+#
+# Builds both images from the local source tree. Use this when
+# developing or self-deploying from the repo (the scripts under
+# `scripts/` invoke this file for you). Downstream consumers who just
+# want to run the app should use `compose.yaml`, which pulls pre-built
+# images from GHCR.
+#
+#   docker compose -f compose-dev.yaml build
+#   docker compose -f compose-dev.yaml up -d
+#
+# Two services on a shared bridge network:
+#   plugtrack-api  — FastAPI on :9278
+#   plugtrack-ui   — nginx serving the React SPA on :80, exposed as :9279,
+#                    reverse-proxying /api/* to plugtrack-api:9278.
+#
+# Persistent state lives under /dockerdata/plugtrack on the host so
+# upgrades just rebuild containers.
+
+services:
+  plugtrack-api:
+    build:
+      context: ./backend
+    container_name: plugtrack-api
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /app/data
+      # pycupra writes per-VIN model images to ./www/pycupra/. Pin the
+      # location so the API's /api/cars/:id/image route reads from the
+      # same place the worker writes to.
+      PYCUPRA_IMAGE_DIR: /app/www/pycupra
+    ports:
+      - "9278:9278"
+    volumes:
+      - /dockerdata/plugtrack/data:/app/data
+      - /dockerdata/plugtrack/logs:/app/logs
+      - /dockerdata/plugtrack/www:/app/www
+    restart: unless-stopped
+    healthcheck:
+      # Inherit the HEALTHCHECK baked into the image. Re-declared here
+      # so `docker compose ps` shows it explicitly and depends_on can
+      # gate on service_healthy.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9278/api/health', timeout=3).status == 200 else 1)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  plugtrack-ui:
+    build:
+      context: ./frontend
+    container_name: plugtrack-ui
+    ports:
+      - "9279:80"
+    depends_on:
+      plugtrack-api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --quiet
+        - --tries=1
+        - --spider
+        - http://localhost/
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+networks:
+  default:
+    driver: bridge

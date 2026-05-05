@@ -24,18 +24,20 @@ Write-Host "Deploying via context: $context" -ForegroundColor Cyan
 
 $root = Split-Path -Parent $PSScriptRoot
 
+$compose = @('compose', '-f', 'compose-dev.yaml')
+
 Push-Location $root
 try {
-    Write-Host "==> docker compose build" -ForegroundColor Green
-    docker compose build
+    Write-Host "==> docker compose -f compose-dev.yaml build" -ForegroundColor Green
+    docker @compose build
     if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
-    Write-Host "==> docker compose up -d" -ForegroundColor Green
-    docker compose up -d
+    Write-Host "==> docker compose -f compose-dev.yaml up -d" -ForegroundColor Green
+    docker @compose up -d
     if ($LASTEXITCODE -ne 0) { throw "up failed" }
 
-    Write-Host "==> docker compose ps" -ForegroundColor Green
-    docker compose ps
+    Write-Host "==> docker compose -f compose-dev.yaml ps" -ForegroundColor Green
+    docker @compose ps
 }
 finally {
     Pop-Location
@@ -43,5 +45,5 @@ finally {
 
 Write-Host ""
 Write-Host "Deploy submitted. Check container health with:" -ForegroundColor Cyan
-Write-Host "  docker compose ps"
-Write-Host "  docker compose logs -f plugtrack-api plugtrack-ui"
+Write-Host "  docker compose -f compose-dev.yaml ps"
+Write-Host "  docker compose -f compose-dev.yaml logs -f plugtrack-api plugtrack-ui"
