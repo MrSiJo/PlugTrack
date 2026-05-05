@@ -182,7 +182,7 @@ Routes are thin and live under `backend/plugtrack/api/routes/`. **Every query fi
 
 React 19 + Vite + Tailwind v4 + zustand. One zustand store per domain (`auth`, `settings`, `sync`, `cars`, `sessions`). Pages in `frontend/src/pages/`, shared primitives in `frontend/src/components/ui/`, the typed API client in `frontend/src/api/client.ts`. Distance values flow through `formatDistance(km)` against the user's chosen unit; cost values flow through `formatCurrency(pence, currency)` against the active currency setting.
 
-The visual design is documented at [`docs/superpowers/specs/2026-05-05-plugtrack-ux-redesign-design.md`](docs/superpowers/specs/2026-05-05-plugtrack-ux-redesign-design.md). Headlines:
+Visual identity:
 
 - "Electric" palette: green → cyan → blue gradient on charcoal-navy backgrounds.
 - Inter typography (self-hosted, offline-capable) with tabular numerals.
@@ -212,7 +212,7 @@ Both images are built for `linux/amd64` and `linux/arm64` (Raspberry Pi 4/5 and 
 
 ## Out of scope (for now)
 
-The undocumented Cariad `multicharge` BFF used by the My Cupra mobile app for full charging history is **not** shipped here. That endpoint is officially internal, would tie us to a single OEM tenancy, and pycupra does not cover it. The plugin contract `ChargingHistoryProvider` exists in `backend/plugtrack/plugins/` for any future personal-plugin implementation; nothing in mainline depends on it being installed. Phase 0 reverse-engineering notes for that BFF live in `docs/pycupra-findings.md` — gitignored, local-only, contains personal account material.
+The undocumented Cariad `multicharge` BFF used by the My Cupra mobile app for full charging history is **not** shipped here. That endpoint is officially internal, would tie us to a single OEM tenancy, and pycupra does not cover it. The plugin contract `ChargingHistoryProvider` exists in `backend/plugtrack/plugins/` for any future personal-plugin implementation; nothing in mainline depends on it being installed.
 
 ## Project layout
 
@@ -235,17 +235,13 @@ The undocumented Cariad `multicharge` BFF used by the My Cupra mobile app for fu
 │       └── stores/                      # zustand
 ├── compose.yaml                         # GHCR pull (default)
 ├── compose-dev.yaml                     # source-build (used by scripts/deploy.*)
-├── scripts/deploy.{ps1,sh}              # source-build deploy entry points
-├── docs/superpowers/                    # design specs + implementation plans
-└── legacy/                              # v1 Flask code (gitignored)
+└── scripts/deploy.{ps1,sh}              # source-build deploy entry points
 ```
 
 ## Reference
 
-- Spec for the v2 rebuild: [`docs/superpowers/specs/2026-05-04-plugtrack-rebuild-design.md`](docs/superpowers/specs/2026-05-04-plugtrack-rebuild-design.md)
-- Spec for the UX/UI redesign: [`docs/superpowers/specs/2026-05-05-plugtrack-ux-redesign-design.md`](docs/superpowers/specs/2026-05-05-plugtrack-ux-redesign-design.md)
-- Implementation plan: [`docs/superpowers/plans/2026-05-04-plugtrack-rebuild.md`](docs/superpowers/plans/2026-05-04-plugtrack-rebuild.md)
 - Project conventions for Claude Code: [`CLAUDE.md`](CLAUDE.md)
+- Backend contributor notes: [`backend/CONTRIBUTING.md`](backend/CONTRIBUTING.md)
 
 ## Licence
 

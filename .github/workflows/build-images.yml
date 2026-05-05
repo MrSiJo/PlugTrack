@@ -17,6 +17,11 @@ on:
   push:
     branches: [main]
     tags: ['v*.*.*']
+    paths-ignore:
+      - '**/*.md'
+      - LICENSE
+      - .gitignore
+      - .pre-commit-config.yaml
   pull_request:
     branches: [main]
     paths:
