@@ -1,43 +1,81 @@
 # PlugTrack
 
-PlugTrack v2 is a container-native EV charging tracker for Cupra Connect-equipped vehicles. A FastAPI backend pulls telematics from the official My Cupra cloud (via [pycupra](https://pypi.org/project/pycupra/)), synthesises charging sessions from the SoC stream, and serves them to a React 19 single-page app. There is no manual logging step — plug the car in, and a session appears once it finishes charging.
+PlugTrack v2 is a self-hosted, container-native EV charging tracker. A FastAPI backend pulls telematics from the official **My Cupra** cloud (via [pycupra](https://pypi.org/project/pycupra/)), synthesises charging sessions from the SoC stream, and serves them to a React 19 single-page app. There is no manual logging step — plug the car in, and a session appears once it finishes charging.
 
-## What's new in v2
+It is built around four ideas:
 
-- **Container-first.** Two services (FastAPI API + nginx-served SPA) defined in `compose.yaml`. No Flask, no Jinja templates, no jQuery.
-- **FastAPI + React 19 rewrite.** Async SQLAlchemy 2.x on the backend; Vite + Tailwind 4 + zustand on the frontend.
-- **Live SSE sync streaming.** `POST /api/sync/{car_id}` returns a `stream_url` the browser subscribes to over Server-Sent Events for play-by-play sync events.
-- **Telematics-first session synthesis.** A state machine consumes the polled SoC + charging-status stream and emits one `ChargingSession` per plug-in cycle, with cost computed against the location overlay (free / per-kWh / home rate / overrides).
-- **Location auto-clustering.** Plug-in coordinates are clustered into per-user locations with reverse-geocoded addresses; labelling a location retro-recomputes past sessions' costs.
-- **Plugin contract for future history providers.** `ChargingHistoryProvider` exists in `backend/plugtrack/plugins/` so a future personal plugin can backfill from a richer source without re-architecting.
+- **Telematics-first.** A state machine consumes the polled SoC + charging-status stream and emits one `ChargingSession` per plug-in cycle. No CSV imports, no scraping, no manual data entry (though manual entry is supported as a fallback).
+- **Cost is sacred.** Per-kWh / total-cost overrides set by the user are never overwritten by re-syncs. A strict precedence rule (`override_total` → `override_per_kwh` → `location_free` → `location_rate` → `home_rate` → `unknown`) is implemented exactly once in `services/cost.py`.
+- **Locations cluster themselves.** Plug-in coordinates are clustered into per-user `Location` rows with reverse-geocoded addresses; labelling a location retro-recomputes the costs of past sessions that resolved against it.
+- **Single-user, single-worker.** SQLite + an in-process APScheduler. Multi-worker is hard-blocked at startup. This keeps the operational surface tiny.
 
-## Quickstart
+## Screenshots
 
-### 1. Clone & configure
+The dashboard answers "what is the car doing right now?" in one glance — a hero per-car card with a live charging progress bar, a 30-day spend chart, lifetime KPIs, recent sessions, and top locations. Session detail is built around the live charge curve. Locations is a real OpenStreetMap-tiled map with cost-banded markers (green = free, cyan = ~home rate, amber = expensive, red = very expensive).
+
+## Quickstart — pull images from GHCR
+
+This is the easiest path. You need `docker` (with `compose`) and a way to generate a random secret. No source code, no build toolchain, no Python.
 
 ```bash
-git clone <your-fork-or-this-repo>
+# 1. Grab the compose file (or write it yourself — see compose.yaml in this repo)
+curl -O https://raw.githubusercontent.com/MrSiJo/PlugTrack/main/compose.yaml
+
+# 2. Generate a strong secret (≥32 chars; the loader rejects shorter ones)
+echo "APP_SECRET_KEY=$(python -c 'import secrets; print(secrets.token_urlsafe(48))')" > .env
+
+# 3. Pull and start
+docker compose pull
+docker compose up -d
+```
+
+Open http://localhost:9279 in a browser. First-run setup prompts you to create the single administrator account. After that:
+
+- Add your Cupra Connect credentials in **Settings → Cupra Connect** to start syncing.
+- Add a car in **Cars** (or use **Discover from Cupra** to pull one off your account).
+- Sit back. Plug in. A session will appear on the dashboard once charging completes.
+
+### Pinning a specific image tag
+
+`compose.yaml` defaults to `:latest`. To pin a release:
+
+```bash
+echo "PLUGTRACK_TAG=v1.2.3" >> .env
+docker compose pull && docker compose up -d
+```
+
+Image tags published by CI:
+
+| Trigger              | Tags produced                                        |
+| -------------------- | ---------------------------------------------------- |
+| push to `main`       | `latest`, `sha-<short>`                              |
+| `v*.*.*` git tag     | `vX.Y.Z`, `X.Y`, `X`, `latest`, `sha-<short>`        |
+| pull request         | (build-only, no push)                                |
+
+Both images are multi-arch (`linux/amd64` + `linux/arm64`).
+
+## Quickstart — local dev (run from source)
+
+For day-to-day development on the backend or frontend.
+
+### 1. Clone and configure
+
+```bash
+git clone https://github.com/MrSiJo/PlugTrack.git
 cd PlugTrack
 cp .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(48))" >> .env  # paste as APP_SECRET_KEY
 ```
 
-Generate a real `APP_SECRET_KEY` (the loader rejects placeholders and anything shorter than 32 chars) and paste it into `.env`:
-
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(48))"
-```
-
-### 2. Local dev
-
-In one terminal — backend (factory mode is required so the lifespan handler runs):
+### 2. Backend — factory mode is required so the lifespan handler runs
 
 ```bash
 cd backend
 pip install -r requirements.txt
-uvicorn plugtrack.main:create_app --factory --port 9278
+uvicorn plugtrack.main:create_app --factory --port 9278 --reload
 ```
 
-In another — frontend (Vite dev server proxies `/api` to `localhost:9278`):
+### 3. Frontend — Vite proxies `/api` to `localhost:9278`
 
 ```bash
 cd frontend
@@ -45,37 +83,169 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints, complete first-run setup, then add your Cupra Connect credentials in **Settings → Cupra Connect** to start syncing. (No credentials needed to explore the UI; the sync orchestrator is happy to sit idle.)
+Open the URL Vite prints (usually `http://localhost:5173`).
 
-### 3. Deploy
+### 4. Tests
 
 ```bash
-docker context use <your-remote-context>   # never deploy against `default`
-scripts/deploy.ps1                          # PowerShell
-# or
-scripts/deploy.sh                           # bash
+# Backend (default suite — integration tests are gated)
+cd backend && pytest tests
+
+# Frontend
+cd frontend && npm test -- --run && npm run typecheck && npm run lint
 ```
 
-The deploy scripts refuse to run if the active Docker context is `default` — guarding against accidentally deploying to the developer machine.
+## Self-hosting from source (build locally, push to a remote Docker host)
 
-## Architecture overview
+If you don't want to use the published images — say, you've patched the source — `scripts/deploy.{ps1,sh}` builds both images locally via `compose-dev.yaml` and runs `docker compose up -d` against your active Docker context. The scripts refuse to run if your context is `default`, guarding against accidentally deploying to the developer machine.
 
-The backend is a single-worker FastAPI app. A lifespan handler asserts `WEB_CONCURRENCY=1` (plus a filesystem lock) so SQLite + the in-process APScheduler stay correct, then wires three long-lived services into `app.state`: an event bus (for SSE fan-out), a per-car sync orchestrator (serialises syncs per vehicle), and an adaptive scheduler (varies poll cadence with charging state). Routes are thin wrappers over services in `backend/plugtrack/services/`; every query filters by `user_id` for multi-user isolation. Cost computation has a strict precedence rule (`override_total` > `override_per_kwh` > `location_free` > `location_rate` > `home_rate` > `unknown`) implemented once in `services/cost.py`.
+```bash
+docker context use <your-remote-context>
+scripts/deploy.ps1     # PowerShell on Windows
+# or
+scripts/deploy.sh      # bash on Linux / macOS / WSL
+```
 
-The frontend is a Vite-built React SPA served by nginx in production. It owns no charging logic — it reads the same JSON the API exposes, and the dashboard, sessions list, session detail, settings, and locations admin pages are pure render-from-state. The full design is documented in [`docs/superpowers/specs/2026-05-04-plugtrack-rebuild-design.md`](docs/superpowers/specs/2026-05-04-plugtrack-rebuild-design.md).
+## Configuration
+
+All configuration lives in two places.
+
+### `.env` — boot-time secrets
+
+| Variable                   | Required                       | Default              | Notes                                                |
+| -------------------------- | ------------------------------ | -------------------- | ---------------------------------------------------- |
+| `APP_SECRET_KEY`           | yes                            | —                    | ≥32 chars, used to sign cookies + encrypt VINs       |
+| `DATABASE_URL`             | no                             | `sqlite+aiosqlite:///./data/plugtrack.db` | Override only if you want non-default DB path |
+| `COOKIE_SECURE`            | no                             | `true`               | Set to `false` for plain-HTTP local dev              |
+| `WEB_CONCURRENCY`          | no                             | `1` (enforced)       | **Must be `1`.** The lifespan handler asserts this and acquires a filesystem lock so direct `--workers N` invocations also fail. |
+| `PYCUPRA_IMAGE_DIR`        | no                             | `./www/pycupra`      | Where the API reads cached vehicle images from. Set automatically inside the container. |
+| `PLUGTRACK_TAG`            | only for `compose.yaml`        | `latest`             | Image tag to pull from GHCR.                         |
+
+### Settings catalogue (UI) — runtime tunables
+
+After first-run setup, all per-user configuration is in **Settings**:
+
+- **Display:** theme (light/dark/system), distance unit (mi/km), currency.
+- **Cupra Connect:** username / password / S-PIN. Encrypted at rest.
+- **Charging defaults:** default home rate (p/kWh), petrol price (p/L), petrol MPG (used for the petrol comparison).
+- **Sync:** active/idle poll cadences and the cap on simultaneous syncs.
+
+Cupra credentials are encrypted with `APP_SECRET_KEY` — rotating that secret renders saved credentials unreadable, so plan accordingly.
+
+## Architecture
+
+PlugTrack is two services on a shared bridge network:
+
+```
+┌─────────────────┐  /api/*  ┌────────────────────────────────┐
+│ plugtrack-ui    │ ───────► │ plugtrack-api                  │
+│ nginx + SPA     │          │ FastAPI · async SQLAlchemy 2.x │
+│ port 80 → :9279 │          │ APScheduler · pycupra adapter  │
+│                 │          │ port 9278                      │
+└─────────────────┘          └─────────────┬──────────────────┘
+                                           │
+                                           ▼
+                                    SQLite + APScheduler
+                                    (single-worker, in-process)
+```
+
+### Backend
+
+`backend/plugtrack/main.py:create_app()` is the single source of truth for app wiring. The lifespan handler:
+
+1. Asserts `WEB_CONCURRENCY=1` and acquires `/tmp/plugtrack.lock` so direct `--workers N` invocations crash on the first non-zero worker.
+2. Creates the schema (`Base.metadata.create_all`).
+3. Seeds defaults into the `setting` catalogue.
+4. Wires three long-lived services into `app.state`:
+   - `event_bus` — pub/sub fan-out for SSE clients.
+   - `sync_orchestrator` — per-car mutex + state cache.
+   - `sync_scheduler` — APScheduler-backed adaptive cadence (faster polls while charging, backs off when idle / on auth failure).
+
+Key services live under `backend/plugtrack/services/`:
+
+| Service                        | Purpose                                                                 |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| `sync_orchestrator.py`         | Per-car mutex + live state cache.                                       |
+| `sync_scheduler.py`            | APScheduler-backed adaptive poll cadence.                               |
+| `sync_worker.py`               | Reads pycupra adapter, runs the state machine, persists sessions.       |
+| `session_synthesiser.py`       | Pure state-machine: SoC + charging-status stream → one ChargingSession. |
+| `cost.py`                      | Single source of truth for cost computation (precedence rule).          |
+| `location_clustering.py`       | Auto-clusters plug-in coords into per-user `Location` rows.             |
+| `geocoding.py`                 | Reverse-geocodes addresses on first sighting.                           |
+| `dashboard_service.py`         | Single AsyncSession aggregation pass for the dashboard.                 |
+| `dashboard_trend.py`           | Daily spend totals (powers the dashboard chart).                        |
+| `event_bus.py`                 | `EventBus.publish(event)` / `subscribe(job_id)` pair backing SSE.       |
+
+Routes are thin and live under `backend/plugtrack/api/routes/`. **Every query filters by `request.state.user_id`** — multi-user isolation is enforced at the query level, not by the database.
+
+### Frontend
+
+React 19 + Vite + Tailwind v4 + zustand. One zustand store per domain (`auth`, `settings`, `sync`, `cars`, `sessions`). Pages in `frontend/src/pages/`, shared primitives in `frontend/src/components/ui/`, the typed API client in `frontend/src/api/client.ts`. Distance values flow through `formatDistance(km)` against the user's chosen unit; cost values flow through `formatCurrency(pence, currency)` against the active currency setting.
+
+The visual design is documented at [`docs/superpowers/specs/2026-05-05-plugtrack-ux-redesign-design.md`](docs/superpowers/specs/2026-05-05-plugtrack-ux-redesign-design.md). Headlines:
+
+- "Electric" palette: green → cyan → blue gradient on charcoal-navy backgrounds.
+- Inter typography (self-hosted, offline-capable) with tabular numerals.
+- shadcn/ui primitives + Recharts for the dashboard spend chart + Leaflet (OSM/CartoDB tiles) for the locations map.
+- ⌘K command palette for navigation and theme toggle.
+
+## Storage layout
+
+Run with the default `compose.yaml` (named volumes, managed by Docker):
+
+| Volume               | Mounted at  | Contents                                                       |
+| -------------------- | ----------- | -------------------------------------------------------------- |
+| `plugtrack-data`     | `/app/data` | SQLite DB, pycupra token cache.                                |
+| `plugtrack-logs`     | `/app/logs` | App logs.                                                      |
+| `plugtrack-www`      | `/app/www`  | pycupra-fetched per-VIN car images served by `/api/cars/:id/image`. |
+
+Run with `compose-dev.yaml` and the same paths bind to `/dockerdata/plugtrack/{data,logs,www}` on the host instead — easier to inspect, less portable.
+
+## Container images and CI
+
+Images are published to the GitHub Container Registry on every push to `main` and on `v*.*.*` tags by `.github/workflows/build-images.yml`:
+
+- `ghcr.io/mrsijo/plugtrack-api`
+- `ghcr.io/mrsijo/plugtrack-ui`
+
+Both images are built for `linux/amd64` and `linux/arm64` (Raspberry Pi 4/5 and Apple Silicon work).
 
 ## Out of scope (for now)
 
-The undocumented Cariad `multicharge` BFF used by the **My Cupra** mobile app for full charging history is **not** shipped here. That endpoint is officially internal, would tie us to a single OEM tenancy, and pycupra does not cover it. The plugin contract `ChargingHistoryProvider` exists in `backend/plugtrack/plugins/` for any future personal-plugin implementation; nothing in mainline depends on it being installed.
+The undocumented Cariad `multicharge` BFF used by the My Cupra mobile app for full charging history is **not** shipped here. That endpoint is officially internal, would tie us to a single OEM tenancy, and pycupra does not cover it. The plugin contract `ChargingHistoryProvider` exists in `backend/plugtrack/plugins/` for any future personal-plugin implementation; nothing in mainline depends on it being installed. Phase 0 reverse-engineering notes for that BFF live in `docs/pycupra-findings.md` — gitignored, local-only, contains personal account material.
 
-Phase 0 reverse-engineering notes for that BFF — including request shapes captured during a probe — live in `docs/pycupra-findings.md`. **That file is gitignored and only exists locally**; it is not shipped with the repo and contains personal account material.
+## Project layout
+
+```
+.
+├── .github/workflows/build-images.yml   # CI: build + push GHCR images
+├── backend/                             # FastAPI app
+│   ├── plugtrack/
+│   │   ├── api/                         # routes + middleware
+│   │   ├── models/                      # SQLAlchemy models
+│   │   ├── plugins/                     # pycupra adapter + plugin contract
+│   │   ├── services/                    # business logic
+│   │   └── main.py                      # create_app() — single source of truth
+│   └── tests/                           # pytest (default + integration suites)
+├── frontend/                            # React 19 SPA
+│   └── src/
+│       ├── api/                         # typed client
+│       ├── components/ui/               # shadcn + project primitives
+│       ├── pages/                       # one component per route
+│       └── stores/                      # zustand
+├── compose.yaml                         # GHCR pull (default)
+├── compose-dev.yaml                     # source-build (used by scripts/deploy.*)
+├── scripts/deploy.{ps1,sh}              # source-build deploy entry points
+├── docs/superpowers/                    # design specs + implementation plans
+└── legacy/                              # v1 Flask code (gitignored)
+```
 
 ## Reference
 
-- Spec: [`docs/superpowers/specs/2026-05-04-plugtrack-rebuild-design.md`](docs/superpowers/specs/2026-05-04-plugtrack-rebuild-design.md)
-- Plan: [`docs/superpowers/plans/2026-05-04-plugtrack-rebuild.md`](docs/superpowers/plans/2026-05-04-plugtrack-rebuild.md)
+- Spec for the v2 rebuild: [`docs/superpowers/specs/2026-05-04-plugtrack-rebuild-design.md`](docs/superpowers/specs/2026-05-04-plugtrack-rebuild-design.md)
+- Spec for the UX/UI redesign: [`docs/superpowers/specs/2026-05-05-plugtrack-ux-redesign-design.md`](docs/superpowers/specs/2026-05-05-plugtrack-ux-redesign-design.md)
+- Implementation plan: [`docs/superpowers/plans/2026-05-04-plugtrack-rebuild.md`](docs/superpowers/plans/2026-05-04-plugtrack-rebuild.md)
 - Project conventions for Claude Code: [`CLAUDE.md`](CLAUDE.md)
-- Legacy v1 Flask code is preserved on disk under `legacy/` for reference but is gitignored and untracked from origin.
 
 ## Licence
 

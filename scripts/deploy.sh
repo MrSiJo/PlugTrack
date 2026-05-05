@@ -26,18 +26,20 @@ echo "Deploying via context: ${context}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
 
-echo "==> docker compose build"
-docker compose build
+COMPOSE="docker compose -f compose-dev.yaml"
 
-echo "==> docker compose up -d"
-docker compose up -d
+echo "==> ${COMPOSE} build"
+${COMPOSE} build
 
-echo "==> docker compose ps"
-docker compose ps
+echo "==> ${COMPOSE} up -d"
+${COMPOSE} up -d
+
+echo "==> ${COMPOSE} ps"
+${COMPOSE} ps
 
 cat <<EOF
 
 Deploy submitted. Check container health with:
-  docker compose ps
-  docker compose logs -f plugtrack-api plugtrack-ui
+  ${COMPOSE} ps
+  ${COMPOSE} logs -f plugtrack-api plugtrack-ui
 EOF

@@ -1,37 +1,47 @@
-# PlugTrack v2 — production compose file.
+# PlugTrack production compose — pulls pre-built images from the
+# GitHub Container Registry instead of building locally.
 #
-# Two services on a shared bridge network:
-#   plugtrack-api  — FastAPI on :9278
-#   plugtrack-ui   — nginx serving the React SPA on :80, exposed as :9279,
-#                    reverse-proxying /api/* to plugtrack-api:9278.
+# This is the file `docker compose up -d` will pick up by default.
+# Use `compose-dev.yaml` instead if you have the source checked out and
+# want to build images locally (the deploy scripts under `scripts/`
+# already do this for you).
 #
-# Persistent state lives under /dockerdata/plugtrack on the host so
-# upgrades just rebuild containers.
+# Usage:
+#   1. Create a `.env` next to this file with at least:
+#        APP_SECRET_KEY=<a-strong-random-secret-of-32+-chars>
+#      Copy `.env.example` if you have the repo cloned, or generate one:
+#        python -c "import secrets; print(secrets.token_urlsafe(48))"
+#
+#   2. (Optional) Pin a specific image tag — defaults to `latest`:
+#        export PLUGTRACK_TAG=v1.2.3
+#      or set `PLUGTRACK_TAG=v1.2.3` in `.env`.
+#
+#   3. docker compose pull
+#      docker compose up -d
+#
+# Data lives in the Docker-managed named volumes `plugtrack-data`,
+# `plugtrack-logs`, and `plugtrack-www` (run `docker volume ls` to find
+# them on the host). Replace each `volumes:` entry with bind mounts if
+# you want direct host access.
 
 services:
   plugtrack-api:
-    build:
-      context: ./backend
+    image: ghcr.io/mrsijo/plugtrack-api:${PLUGTRACK_TAG:-latest}
     container_name: plugtrack-api
+    pull_policy: always
     env_file:
       - .env
     environment:
       DATA_DIR: /app/data
-      # pycupra writes per-VIN model images to ./www/pycupra/. Pin the
-      # location so the API's /api/cars/:id/image route reads from the
-      # same place the worker writes to.
       PYCUPRA_IMAGE_DIR: /app/www/pycupra
     ports:
       - "9278:9278"
     volumes:
-      - /dockerdata/plugtrack/data:/app/data
-      - /dockerdata/plugtrack/logs:/app/logs
-      - /dockerdata/plugtrack/www:/app/www
+      - plugtrack-data:/app/data
+      - plugtrack-logs:/app/logs
+      - plugtrack-www:/app/www
     restart: unless-stopped
     healthcheck:
-      # Inherit the HEALTHCHECK baked into the image. Re-declared here
-      # so `docker compose ps` shows it explicitly and depends_on can
-      # gate on service_healthy.
       test:
         - CMD
         - python
@@ -43,9 +53,9 @@ services:
       retries: 3
 
   plugtrack-ui:
-    build:
-      context: ./frontend
+    image: ghcr.io/mrsijo/plugtrack-ui:${PLUGTRACK_TAG:-latest}
     container_name: plugtrack-ui
+    pull_policy: always
     ports:
       - "9279:80"
     depends_on:
@@ -64,6 +74,11 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+
+volumes:
+  plugtrack-data:
+  plugtrack-logs:
+  plugtrack-www:
 
 networks:
   default:
