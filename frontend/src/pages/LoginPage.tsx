@@ -1,6 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Zap } from 'lucide-react'
 import { ApiError } from '@/api/client'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/Card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { useAuthStore } from '@/stores/authStore'
 
 export default function LoginPage() {
@@ -28,43 +33,50 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6">
-      <h1 className="mb-6 text-2xl font-semibold">Sign in to PlugTrack</h1>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <label className="block">
-          <span className="block text-sm font-medium">Username</span>
-          <input
-            type="text"
-            required
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
-          />
-        </label>
-        <label className="block">
-          <span className="block text-sm font-medium">Password</span>
-          <input
-            type="password"
-            required
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
-          />
-        </label>
-        {error && (
-          <div role="alert" className="text-sm text-red-600">
-            {error}
+      <div className="mb-6 flex items-center gap-2 text-2xl font-bold tracking-tight">
+        <Zap className="h-5 w-5 text-cyan-500" aria-hidden />
+        <span className="text-gradient-electric">PlugTrack</span>
+      </div>
+      <Card variant="hero">
+        <h1 className="mb-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+          Sign in
+        </h1>
+        <p className="mb-5 text-sm text-slate-500 dark:text-slate-400">
+          Welcome back.
+        </p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="login-username">Username</Label>
+            <Input
+              id="login-username"
+              type="text"
+              required
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
           </div>
-        )}
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded bg-indigo-600 px-4 py-2 text-white disabled:opacity-50"
-        >
-          {submitting ? 'Signing in…' : 'Sign in'}
-        </button>
-      </form>
+          <div className="space-y-1.5">
+            <Label htmlFor="login-password">Password</Label>
+            <Input
+              id="login-password"
+              type="password"
+              required
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          {error && (
+            <div role="alert" className="text-sm text-red-600">
+              {error}
+            </div>
+          )}
+          <Button type="submit" disabled={submitting} className="w-full">
+            {submitting ? 'Signing in…' : 'Sign in'}
+          </Button>
+        </form>
+      </Card>
     </div>
   )
 }
