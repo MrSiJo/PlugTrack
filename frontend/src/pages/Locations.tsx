@@ -24,6 +24,9 @@ import {
   type LocationListPayload,
   type LocationUpdateRequest,
 } from '@/api/client'
+import { LocationsMap } from '@/components/locations/LocationsMap'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { useSetting } from '@/stores/settingsStore'
 
 interface Toast {
   kind: 'success' | 'error'
@@ -72,17 +75,26 @@ export default function Locations() {
     return () => window.clearTimeout(handle)
   }, [toast])
 
+  const homeRateRaw = useSetting<string>('default_home_rate_p_per_kwh') ?? '0'
+  const homeRatePence = Number(homeRateRaw) || 0
+  const currency = useSetting<string>('currency') ?? 'GBP'
+
   return (
     <div className="mx-auto max-w-7xl px-6 py-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold">Locations</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Edits here are forward-going only. Use{' '}
-          <em>Recalculate past costs</em> to re-apply this location&apos;s
-          tariff to historical sessions. Override-cost sessions are never
-          touched.
-        </p>
-      </header>
+      <PageHeader
+        title="Locations"
+        subtitle="Map shows where you charge — colour = cost band, size = visits. Edits here are forward-going only; use Recalculate past costs to re-apply this location's tariff to historical sessions."
+      />
+
+      {!loading && locations.length > 0 && (
+        <div className="mb-6">
+          <LocationsMap
+            locations={locations}
+            homeRatePence={homeRatePence}
+            currency={currency}
+          />
+        </div>
+      )}
 
       {toast && (
         <div
