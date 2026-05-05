@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { api, type LocationListPayload } from '@/api/client'
+import { useSettingsStore } from '@/stores/settingsStore'
 import Locations from './Locations'
 
 function makeLocation(over: Partial<LocationListPayload> = {}): LocationListPayload {
@@ -27,6 +28,8 @@ function makeLocation(over: Partial<LocationListPayload> = {}): LocationListPayl
 describe('Locations page', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.spyOn(api, 'getSettings').mockResolvedValue({})
+    useSettingsStore.setState({ settings: {}, loaded: true })
   })
 
   afterEach(() => {
