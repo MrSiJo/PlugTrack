@@ -469,6 +469,14 @@ export const api = {
 
   getDashboard: (): Promise<DashboardSummary> =>
     fetchJSON<DashboardSummary>('/api/dashboard'),
+
+  getSpendTrend: (days = 30): Promise<SpendTrendDay[]> =>
+    fetchJSON<SpendTrendDay[]>(`/api/dashboard/spend-trend?days=${days}`),
+}
+
+export interface SpendTrendDay {
+  date: string
+  cost_pence: number
 }
 
 // ---------------------------------------------------------------------------
