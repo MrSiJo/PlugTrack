@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@fontsource-variable/inter";
+@import "leaflet/dist/leaflet.css";
 
 /* ---------- Electric palette tokens (light mode = default) ---------- */
 @theme {
