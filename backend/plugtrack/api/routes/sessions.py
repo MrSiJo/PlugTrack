@@ -80,6 +80,11 @@ class SessionPayload(BaseModel):
     notes: Optional[str]
     source: str
     telematics_session_id: Optional[str]
+    # Live charge curve as `[[delta_seconds, soc, power_kw], ...]`.
+    # Written by the sync worker on every poll while CHARGING so the
+    # session detail page can plot SoC + power as the charge progresses.
+    # NULL on manual sessions and pre-Phase-4 historic rows.
+    power_curve: Optional[list] = None
     metrics: Optional[SessionMetricsPayload] = None
 
 
@@ -162,6 +167,7 @@ def _to_payload(
         notes=cs.notes,
         source=cs.source,
         telematics_session_id=cs.telematics_session_id,
+        power_curve=cs.power_curve,
     )
 
 

@@ -54,6 +54,15 @@ class Location(Base):
     default_cost_per_kwh_p: Mapped[Optional[float]] = mapped_column(
         Float, nullable=True
     )
+    # Default charge network for sessions at this location. When a sync
+    # closes a session here and the session has no charge_network set,
+    # this value is copied across. User edits to a session's network are
+    # sacred — never overwritten on re-sync. Useful for tagging the home
+    # location with the energy supplier (e.g. "Outfox Energy") and
+    # commercial sites with the network operator (e.g. "MFG", "Tesla").
+    default_charge_network: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
 
     visit_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_visited_at: Mapped[Optional[datetime]] = mapped_column(

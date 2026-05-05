@@ -6,10 +6,17 @@
  * - Cost breakdown widget (`CostBreakdown`) showing
  *   `kwh × tariff = computed_cost`. When the user has set a total
  *   override, also shows the receipt vs computed delta.
+ * - `<ChargeCurve />` SVG chart when `power_curve` is non-empty —
+ *   shows SoC% (left axis, sky) and charging power kW (right axis,
+ *   amber) over the duration of the session. Updated live by the sync
+ *   worker on every poll while CHARGING.
  * - Inline `<LocationLabelForm />` when location is unlabelled.
- * - Edit form for kWh, odometer, SoC, charging type/mode, network,
- *   notes, and cost overrides. Surfaces calculated kWh next to editable
- *   value so user can compare metered vs SoC-derived energy.
+ * - Edit form, gated behind an "Edit" toggle so the page reads as
+ *   view-only by default. Editable fields: kWh, odometer, SoC,
+ *   charging type/mode, network, notes, and cost overrides. Surfaces
+ *   calculated kWh next to editable value so user can compare metered
+ *   vs SoC-derived energy.
+ * - `charge_network` shown as a badge under the header summary when set.
  */
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -42,6 +49,162 @@ function fmtPence(pence: number | null): string {
 function fmtPencePerMile(p: number | null): string {
   if (p === null) return '—'
   return `${p.toFixed(1)}p/mi`
+}
+
+interface ChargeCurveProps {
+  samples: number[][]
+}
+
+function ChargeCurve({ samples }: ChargeCurveProps) {
+  // Normalise the [delta_seconds, soc, power_kw] triplets to a typed
+  // shape up-front so the rest of the function isn't littered with
+  // index-access guards.
+  const points = samples
+    .filter((s): s is [number, number, number] => s.length >= 3)
+    .map(([t, soc, kw]) => ({ t, soc, kw }))
+
+  if (points.length < 2) {
+    return (
+      <p className="text-xs text-slate-500">
+        Not enough samples yet — the curve appears once the charger has
+        reported a couple of readings.
+      </p>
+    )
+  }
+
+  const W = 480
+  const H = 160
+  const PAD_L = 32
+  const PAD_R = 36
+  const PAD_T = 8
+  const PAD_B = 22
+
+  const ts = points.map((p) => p.t)
+  const tMin = Math.min(...ts)
+  const tMax = Math.max(...ts)
+  const tSpan = tMax - tMin || 1
+
+  // Power axis auto-scales to the observed max (round up to nearest 5
+  // for a clean grid). SoC axis is fixed 0–100.
+  const powers = points.map((p) => p.kw)
+  const pMaxObserved = Math.max(...powers, 1)
+  const pMax = Math.max(5, Math.ceil(pMaxObserved / 5) * 5)
+
+  const xAt = (t: number) =>
+    PAD_L + ((t - tMin) / tSpan) * (W - PAD_L - PAD_R)
+  const ySoc = (soc: number) =>
+    PAD_T + (1 - soc / 100) * (H - PAD_T - PAD_B)
+  const yPower = (kw: number) =>
+    PAD_T + (1 - kw / pMax) * (H - PAD_T - PAD_B)
+
+  const socPath = points
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${xAt(p.t).toFixed(1)},${ySoc(p.soc).toFixed(1)}`)
+    .join(' ')
+  const powerPath = points
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${xAt(p.t).toFixed(1)},${yPower(p.kw).toFixed(1)}`)
+    .join(' ')
+
+  const durationMin = Math.round(tSpan / 60)
+
+  return (
+    <div data-testid="charge-curve">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full"
+        role="img"
+        aria-label="Charge curve"
+      >
+        {/* Frame */}
+        <rect
+          x={PAD_L}
+          y={PAD_T}
+          width={W - PAD_L - PAD_R}
+          height={H - PAD_T - PAD_B}
+          fill="none"
+          className="stroke-slate-200 dark:stroke-slate-700"
+          strokeWidth={1}
+        />
+        {/* Y-grid: 0/25/50/75/100 */}
+        {[0, 25, 50, 75, 100].map((soc) => (
+          <g key={soc}>
+            <line
+              x1={PAD_L}
+              x2={W - PAD_R}
+              y1={ySoc(soc)}
+              y2={ySoc(soc)}
+              className="stroke-slate-200 dark:stroke-slate-700"
+              strokeDasharray="2 3"
+              strokeWidth={0.5}
+            />
+            <text
+              x={PAD_L - 4}
+              y={ySoc(soc) + 3}
+              textAnchor="end"
+              className="fill-slate-500 text-[9px]"
+            >
+              {soc}%
+            </text>
+          </g>
+        ))}
+        {/* Right axis labels — power max */}
+        <text
+          x={W - PAD_R + 4}
+          y={yPower(pMax) + 3}
+          className="fill-amber-600 text-[9px]"
+        >
+          {pMax}kW
+        </text>
+        <text
+          x={W - PAD_R + 4}
+          y={yPower(0) + 3}
+          className="fill-amber-600 text-[9px]"
+        >
+          0
+        </text>
+        {/* SoC line */}
+        <path
+          d={socPath}
+          fill="none"
+          className="stroke-sky-500"
+          strokeWidth={1.5}
+        />
+        {/* Power line */}
+        <path
+          d={powerPath}
+          fill="none"
+          className="stroke-amber-500"
+          strokeWidth={1.5}
+        />
+        {/* X-axis bottom labels */}
+        <text
+          x={PAD_L}
+          y={H - 6}
+          className="fill-slate-500 text-[9px]"
+        >
+          0 min
+        </text>
+        <text
+          x={W - PAD_R}
+          y={H - 6}
+          textAnchor="end"
+          className="fill-slate-500 text-[9px]"
+        >
+          {durationMin} min
+        </text>
+      </svg>
+      <p className="mt-1 flex gap-3 text-[10px] text-slate-500">
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-1.5 w-3 rounded-sm bg-sky-500" />
+          SoC
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-1.5 w-3 rounded-sm bg-amber-500" />
+          Power (kW, peak {pMaxObserved.toFixed(1)})
+        </span>
+        <span>{points.length} samples</span>
+      </p>
+    </div>
+  )
 }
 
 interface PetrolComparisonProps {
@@ -460,6 +623,7 @@ export default function SessionDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [labelToast, setLabelToast] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
 
   useEffect(() => {
     if (sessionId === null) return
@@ -497,7 +661,7 @@ export default function SessionDetail() {
       <h1 className="mb-2 text-2xl font-semibold">
         Session #{session.id}
       </h1>
-      <p className="mb-6 text-sm text-slate-500">
+      <p className="mb-2 text-sm text-slate-500">
         {session.date} · {session.start_soc}% → {session.end_soc}% ·{' '}
         {session.kwh_added.toFixed(2)} kWh
         {session.kwh_calculated !== null &&
@@ -510,10 +674,32 @@ export default function SessionDetail() {
             </span>
           )}
       </p>
+      {session.charge_network && (
+        <p className="mb-6">
+          <span
+            className="inline-flex items-center rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            data-testid="charge-network-badge"
+          >
+            {session.charge_network}
+          </span>
+        </p>
+      )}
+      {!session.charge_network && <div className="mb-6" />}
 
       <section className="mb-6">
         <CostBreakdown session={session} />
       </section>
+
+      {session.power_curve && session.power_curve.length > 0 && (
+        <section className="mb-6">
+          <h2 className="mb-2 text-lg font-medium">Charge curve</h2>
+          <div
+            className="rounded border border-slate-200 p-3 dark:border-slate-700"
+          >
+            <ChargeCurve samples={session.power_curve} />
+          </div>
+        </section>
+      )}
 
       {session.metrics && (
         <section className="mb-6">
@@ -571,12 +757,27 @@ export default function SessionDetail() {
       </section>
 
       <section>
-        <h2 className="mb-2 text-lg font-medium">Edit session</h2>
-        <SessionEditForm
-          session={session}
-          unit={unit}
-          onSaved={(updated) => setSession(updated)}
-        />
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-lg font-medium">Edit session</h2>
+          <button
+            type="button"
+            onClick={() => setEditing((v) => !v)}
+            className="rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200"
+            data-testid="toggle-edit"
+          >
+            {editing ? 'Cancel' : 'Edit'}
+          </button>
+        </div>
+        {editing && (
+          <SessionEditForm
+            session={session}
+            unit={unit}
+            onSaved={(updated) => {
+              setSession(updated)
+              setEditing(false)
+            }}
+          />
+        )}
       </section>
     </div>
   )

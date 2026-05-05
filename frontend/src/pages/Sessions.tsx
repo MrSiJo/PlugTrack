@@ -2,7 +2,7 @@
  * Sessions list page.
  *
  * Shows a paginated list of charging sessions with:
- * - Source badge (manual / synthesis / cariad)
+ * - Source badge (Manual / Cupra Connect / Cariad)
  * - Distance via `formatDistance(km, unit)`
  * - Location pill — labelled name when available, else
  *   "Unlabelled · 51.0, -2.6"
@@ -31,6 +31,12 @@ const SOURCE_BADGE_CLASS: Record<string, string> = {
   manual: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
   synthesis: 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200',
   cariad: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
+}
+
+const SOURCE_BADGE_LABEL: Record<string, string> = {
+  manual: 'Manual',
+  synthesis: 'Cupra Connect',
+  cariad: 'Cariad',
 }
 
 const COST_BADGE_CLASS: Record<CostBasis, string> = {
@@ -80,7 +86,7 @@ function SessionRow({ session, unit, highlighted }: SessionRowProps) {
         }`}
         data-testid={`source-badge-${session.source}`}
       >
-        {session.source}
+        {SOURCE_BADGE_LABEL[session.source] ?? session.source}
       </span>
       <span data-testid="location-pill">{locationLabel(session)}</span>
       <span className="text-xs text-slate-500" data-testid="distance">
