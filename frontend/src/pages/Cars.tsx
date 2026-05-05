@@ -6,8 +6,12 @@ import {
   type CarCreateRequest,
   type DiscoveredVehicle,
 } from '@/api/client'
+import { CarImage } from '@/components/cars/CarImage'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/Card'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { Pill } from '@/components/ui/Pill'
 
 // `battery_kwh` and `nominal_efficiency_mi_per_kwh` are typed `number` on
 // the API but rendered with `value={... || ''}` so the input starts blank;
@@ -174,33 +178,36 @@ export default function CarsPage() {
       />
 
       {discovered && discovered.length > 0 && (
-        <div className="mb-6 rounded border border-blue-300 bg-blue-50 p-4 dark:border-blue-700 dark:bg-blue-900/20">
-          <div className="mb-2 text-sm font-medium text-blue-900 dark:text-blue-200">
-            Vehicles found on your Cupra Connect account:
-          </div>
-          <ul className="space-y-2">
+        <Card className="mb-6">
+          <p className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+            Vehicles found on your Cupra Connect account
+          </p>
+          <ul className="mt-2 space-y-2">
             {discovered.map((v) => (
               <li
                 key={v.vin}
-                className="flex items-center justify-between rounded bg-white px-3 py-2 dark:bg-slate-800"
+                className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
               >
-                <div className="text-sm">
-                  <code className="font-mono text-slate-900 dark:text-slate-100">{v.vin}</code>
+                <div className="min-w-0 text-sm">
+                  <code className="font-mono text-slate-900 dark:text-slate-100">
+                    {v.vin}
+                  </code>
                   <span className="ml-3 text-slate-500">
                     {v.model ?? 'unknown model'} {v.year ?? ''}
                   </span>
                 </div>
-                <button
+                <Button
                   type="button"
+                  size="sm"
+                  variant="outline"
                   onClick={() => applyDiscovered(v)}
-                  className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900"
                 >
                   Use this vehicle
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
-        </div>
+        </Card>
       )}
 
       {error && (
@@ -210,108 +217,125 @@ export default function CarsPage() {
       )}
 
       {creating && (
-        <form
-          onSubmit={handleCreate}
-          className="mb-6 rounded border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
-        >
-          <CarFields draft={draft} setDraft={setDraft} />
-          <div className="mt-3 flex gap-2">
-            <button
-              type="submit"
-              disabled={busy}
-              className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
-            >
-              {busy ? 'Creating…' : 'Create'}
-            </button>
-          </div>
-        </form>
+        <Card variant="hero" className="mb-6">
+          <form onSubmit={handleCreate}>
+            <CarFields draft={draft} setDraft={setDraft} />
+            <div className="mt-4 flex gap-2">
+              <Button type="submit" size="sm" disabled={busy}>
+                {busy ? 'Creating…' : 'Create'}
+              </Button>
+            </div>
+          </form>
+        </Card>
       )}
 
       {loading ? (
         <p className="text-sm text-slate-500">Loading…</p>
       ) : cars.length === 0 ? (
-        <p className="text-sm text-slate-500">
-          No cars yet. Click <strong>Add car</strong> to register your first vehicle.
-        </p>
+        <EmptyState
+          title="No cars yet"
+          body="Add your first vehicle manually, or use Discover from Cupra to pull one off your Cupra Connect account."
+        />
       ) : (
-        <ul className="space-y-3">
+        <ul className="grid gap-4 md:grid-cols-2">
           {cars.map((car) => (
-            <li
-              key={car.id}
-              className="rounded border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
-            >
+            <li key={car.id}>
               {editingId === car.id ? (
-                <form onSubmit={(e) => handleSave(car.id, e)}>
-                  <CarFields draft={editDraft} setDraft={setEditDraft} />
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="submit"
-                      disabled={busy}
-                      className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
-                    >
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditingId(null)}
-                      className="rounded px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                      {car.make} {car.model}
+                <Card variant="hero">
+                  <form onSubmit={(e) => handleSave(car.id, e)}>
+                    <CarFields draft={editDraft} setDraft={setEditDraft} />
+                    <div className="mt-4 flex gap-2">
+                      <Button type="submit" size="sm" disabled={busy}>
+                        Save
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditingId(null)}
+                      >
+                        Cancel
+                      </Button>
                     </div>
-                    <dl className="mt-1 grid grid-cols-2 gap-x-6 gap-y-0.5 text-xs text-slate-600 dark:text-slate-400">
+                  </form>
+                </Card>
+              ) : (
+                <Card variant="hero" className="flex gap-4 p-4">
+                  <CarImage
+                    carId={car.id}
+                    className="aspect-[4/3] h-28 w-44 flex-shrink-0"
+                    alt={`${car.make} ${car.model}`}
+                  />
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                        {car.make} {car.model}
+                      </h3>
+                      <div className="flex gap-1">
+                        {car.active ? (
+                          <Pill tone="green">Active</Pill>
+                        ) : (
+                          <Pill tone="slate">Inactive</Pill>
+                        )}
+                      </div>
+                    </div>
+                    <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-400">
                       <div>
-                        <dt className="inline font-medium">Battery: </dt>
-                        <dd className="inline">{car.battery_kwh} kWh</dd>
+                        <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
+                          Battery
+                        </dt>
+                        <dd className="font-medium text-slate-900 dark:text-slate-100">
+                          {car.battery_kwh} kWh
+                        </dd>
                       </div>
                       <div>
-                        <dt className="inline font-medium">Nominal: </dt>
-                        <dd className="inline">{car.nominal_efficiency_mi_per_kwh} mi/kWh</dd>
+                        <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
+                          Efficiency
+                        </dt>
+                        <dd className="font-medium text-slate-900 dark:text-slate-100">
+                          {car.nominal_efficiency_mi_per_kwh} mi/kWh
+                        </dd>
                       </div>
                       <div>
-                        <dt className="inline font-medium">Provider: </dt>
-                        <dd className="inline">{car.provider}</dd>
-                      </div>
-                      <div>
-                        <dt className="inline font-medium">Vehicle ID: </dt>
-                        <dd className="inline">{car.provider_vehicle_id ?? '—'}</dd>
+                        <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
+                          Provider
+                        </dt>
+                        <dd className="font-medium text-slate-900 dark:text-slate-100">
+                          {car.provider}
+                        </dd>
                       </div>
                       {car.vin && (
-                        <div className="col-span-2">
-                          <dt className="inline font-medium">VIN: </dt>
-                          <dd className="inline">{car.vin}</dd>
+                        <div>
+                          <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
+                            VIN
+                          </dt>
+                          <dd className="truncate font-mono text-[11px] text-slate-700 dark:text-slate-200">
+                            {car.vin}
+                          </dd>
                         </div>
                       )}
-                      <div>
-                        <dt className="inline font-medium">Active: </dt>
-                        <dd className="inline">{car.active ? 'yes' : 'no'}</dd>
-                      </div>
                     </dl>
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => startEdit(car)}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void handleDelete(car.id)}
+                        className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                      >
+                        Delete
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex flex-shrink-0 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => startEdit(car)}
-                      className="rounded px-3 py-1 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDelete(car.id)}
-                      className="rounded px-3 py-1 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
+                </Card>
               )}
             </li>
           ))}
