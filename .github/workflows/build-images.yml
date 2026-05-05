@@ -1,27 +1,31 @@
 # Build and publish PlugTrack container images to GitHub Container Registry.
 #
-# - Pushes on `main` produce :latest + :sha-<short> tags.
-# - Pushes of git tags `v*.*.*` produce :v1.2.3 + :1.2 + :1 + :latest.
-# - Pull requests build (no push) so we still verify the Dockerfiles compile.
+# This workflow handles main-branch builds only — every push to `main`
+# produces :latest and :sha-<short> tags. Versioned releases (vX.Y.Z,
+# X.Y, X) are owned by `release-please.yml`, which triggers when a
+# release-please PR is merged.
+#
+# Pull requests build (no push) so we still verify the Dockerfiles compile.
 #
 # Multi-arch (linux/amd64 + linux/arm64) via buildx + QEMU.
 # Cache via GitHub Actions cache (per-image scope).
 #
-# After the first successful run on `main`, set both packages to public
-# under https://github.com/MrSiJo?tab=packages so downstream users can
-# pull anonymously.
+# After the first successful run, set both packages to public under
+# https://github.com/MrSiJo?tab=packages so downstream users can pull
+# anonymously.
 
 name: Build container images
 
 on:
   push:
     branches: [main]
-    tags: ['v*.*.*']
     paths-ignore:
       - '**/*.md'
       - LICENSE
       - .gitignore
       - .pre-commit-config.yaml
+      - .release-please-manifest.json
+      - release-please-config.json
   pull_request:
     branches: [main]
     paths:
