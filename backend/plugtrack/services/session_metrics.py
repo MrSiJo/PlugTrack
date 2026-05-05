@@ -260,8 +260,11 @@ async def compute_session_metrics(
         return base
 
     span_km = float(cs.odometer_at_session_km) - float(prev.odometer_at_session_km)
-    if span_km <= 0:
-        # Zero/negative — `cs` is a follow-up in someone else's chain.
+    # Treat sub-mile odometer drift as zero — the car telemetry rounds to
+    # 1 km and manual entries are typically integers, so a 1 km gap can
+    # mean "didn't move, just rounded differently". Below 1 mi rounds to
+    # zero anyway; clamping here keeps the chain logic consistent.
+    if span_km < _KM_PER_MILE:
         anchor = await _walk_back_to_anchor(session, cs=cs)
         base.chain_anchor_id = anchor.id if anchor is not None else None
         return base
@@ -289,7 +292,7 @@ async def compute_session_metrics(
             savings_p = petrol_equiv_p - chain_total
 
     return SessionMetrics(
-        miles_since_previous=round(miles, 1),
+        miles_since_previous=float(round(miles)),
         cost_per_mile_p=round(cost_per_mile_p, 2) if cost_per_mile_p is not None else None,
         petrol_ppm=round(ppm, 2) if ppm is not None else None,
         petrol_equivalent_cost_p=petrol_equiv_p,

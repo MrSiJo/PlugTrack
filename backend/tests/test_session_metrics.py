@@ -66,7 +66,7 @@ async def test_anchor_session_uses_chain_total(test_sessionmaker):
         m = await compute_session_metrics(s, anchor)
 
         miles = (1100.0 - 1000.0) / 1.609344
-        assert m.miles_since_previous == round(miles, 1)
+        assert m.miles_since_previous == float(round(miles))
         # Chain total = 500 + 300 + 400.
         assert m.chain_total_cost_pence == 1200
         assert sorted(m.chain_session_ids) == [2, 3, 4]

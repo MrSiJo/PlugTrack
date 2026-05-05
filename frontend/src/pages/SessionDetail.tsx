@@ -7,7 +7,9 @@
  *   `kwh × tariff = computed_cost`. When the user has set a total
  *   override, also shows the receipt vs computed delta.
  * - Inline `<LocationLabelForm />` when location is unlabelled.
- * - Manual-overlay editor (charge_network, notes, user_label).
+ * - Edit form for kWh, odometer, SoC, charging type/mode, network,
+ *   notes, and cost overrides. Surfaces calculated kWh next to editable
+ *   value so user can compare metered vs SoC-derived energy.
  */
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -17,9 +19,11 @@ import {
   type ChargingSessionPayload,
   type CostBasis,
   type SessionMetricsPayload,
+  type SessionUpdateRequest,
 } from '@/api/client'
 import LocationLabelForm from '@/components/LocationLabelForm'
 import { useDistanceUnit } from '@/stores/settingsStore'
+import { kmToMi, miToKm } from '@/utils/distance'
 
 const COST_BASIS_LABEL: Record<CostBasis, string> = {
   override_total: 'Total cost overridden by user',
@@ -219,6 +223,234 @@ export function CostBreakdown({ session }: CostBreakdownProps) {
   )
 }
 
+interface EditFormProps {
+  session: ChargingSessionPayload
+  unit: 'mi' | 'km'
+  onSaved: (updated: ChargingSessionPayload) => void
+}
+
+function SessionEditForm({ session, unit, onSaved }: EditFormProps) {
+  const initialOdo =
+    session.odometer_at_session_km !== null
+      ? unit === 'mi'
+        ? kmToMi(session.odometer_at_session_km)
+        : session.odometer_at_session_km
+      : null
+
+  const [kwh, setKwh] = useState<string>(session.kwh_added.toFixed(2))
+  const [odo, setOdo] = useState<string>(
+    initialOdo !== null ? initialOdo.toFixed(0) : '',
+  )
+  const [startSoc, setStartSoc] = useState<string>(String(session.start_soc))
+  const [endSoc, setEndSoc] = useState<string>(String(session.end_soc))
+  const [chargingType, setChargingType] = useState(session.charging_type)
+  const [chargingMode, setChargingMode] = useState(session.charging_mode)
+  const [network, setNetwork] = useState(session.charge_network ?? '')
+  const [notes, setNotes] = useState(session.notes ?? '')
+  const [perKwh, setPerKwh] = useState<string>(
+    session.cost_per_kwh_override_p !== null
+      ? String(session.cost_per_kwh_override_p)
+      : '',
+  )
+  const [totalOverride, setTotalOverride] = useState<string>(
+    session.total_cost_pence_override !== null
+      ? (session.total_cost_pence_override / 100).toFixed(2)
+      : '',
+  )
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setErr(null)
+    setSaving(true)
+    try {
+      const odoNum = odo.trim() === '' ? null : Number(odo)
+      const odoKm =
+        odoNum === null
+          ? null
+          : unit === 'mi'
+            ? miToKm(odoNum)
+            : odoNum
+      const body: SessionUpdateRequest = {
+        kwh_added: Number(kwh),
+        odometer_at_session_km: odoKm,
+        start_soc: Number(startSoc),
+        end_soc: Number(endSoc),
+        charging_type: chargingType,
+        charging_mode: chargingMode,
+        charge_network: network.trim() === '' ? null : network,
+        notes: notes.trim() === '' ? null : notes,
+        cost_per_kwh_override_p: perKwh.trim() === '' ? null : Number(perKwh),
+        total_cost_pence_override:
+          totalOverride.trim() === ''
+            ? null
+            : Math.round(Number(totalOverride) * 100),
+      }
+      await api.updateSession(session.id, body)
+      // Refetch via GET so the recomputed metrics payload comes along
+      // — the PUT response intentionally skips metrics.
+      const fresh = await api.getSession(session.id)
+      onSaved(fresh)
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inputCls =
+    'w-full rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900'
+
+  return (
+    <form
+      onSubmit={submit}
+      className="space-y-3 rounded border border-slate-200 p-3 text-sm dark:border-slate-700"
+      data-testid="session-edit-form"
+    >
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block">
+          <span className="text-xs uppercase text-slate-500">kWh added</span>
+          <input
+            className={inputCls}
+            type="number"
+            step="0.01"
+            min="0"
+            value={kwh}
+            onChange={(e) => setKwh(e.target.value)}
+            data-testid="edit-kwh"
+          />
+          {session.kwh_calculated !== null && (
+            <span className="mt-1 block text-[10px] text-slate-500">
+              Calculated from SoC: {session.kwh_calculated.toFixed(2)} kWh
+            </span>
+          )}
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase text-slate-500">
+            Odometer ({unit})
+          </span>
+          <input
+            className={inputCls}
+            type="number"
+            step="1"
+            min="0"
+            value={odo}
+            onChange={(e) => setOdo(e.target.value)}
+            data-testid="edit-odo"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase text-slate-500">Start SoC %</span>
+          <input
+            className={inputCls}
+            type="number"
+            min="0"
+            max="100"
+            value={startSoc}
+            onChange={(e) => setStartSoc(e.target.value)}
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase text-slate-500">End SoC %</span>
+          <input
+            className={inputCls}
+            type="number"
+            min="0"
+            max="100"
+            value={endSoc}
+            onChange={(e) => setEndSoc(e.target.value)}
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase text-slate-500">Charging type</span>
+          <select
+            className={inputCls}
+            value={chargingType}
+            onChange={(e) => setChargingType(e.target.value)}
+          >
+            <option value="ac">AC</option>
+            <option value="dc">DC</option>
+            <option value="unknown">Unknown</option>
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase text-slate-500">Charging mode</span>
+          <select
+            className={inputCls}
+            value={chargingMode}
+            onChange={(e) => setChargingMode(e.target.value)}
+          >
+            <option value="manual">Manual</option>
+            <option value="timer">Timer</option>
+            <option value="profile">Profile</option>
+            <option value="unknown">Unknown</option>
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase text-slate-500">Charge network</span>
+          <input
+            className={inputCls}
+            type="text"
+            value={network}
+            onChange={(e) => setNetwork(e.target.value)}
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase text-slate-500">
+            Per-kWh override (p)
+          </span>
+          <input
+            className={inputCls}
+            type="number"
+            step="0.01"
+            min="0"
+            value={perKwh}
+            onChange={(e) => setPerKwh(e.target.value)}
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase text-slate-500">
+            Total cost override (£)
+          </span>
+          <input
+            className={inputCls}
+            type="number"
+            step="0.01"
+            min="0"
+            value={totalOverride}
+            onChange={(e) => setTotalOverride(e.target.value)}
+          />
+        </label>
+      </div>
+      <label className="block">
+        <span className="text-xs uppercase text-slate-500">Notes</span>
+        <textarea
+          className={inputCls}
+          rows={2}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+      </label>
+      {err && (
+        <p role="alert" className="text-xs text-red-600">
+          {err}
+        </p>
+      )}
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded bg-indigo-600 px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+          data-testid="edit-save"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
 export default function SessionDetail() {
   const params = useParams<{ id: string }>()
   const sessionId = params.id ? Number(params.id) : null
@@ -268,6 +500,15 @@ export default function SessionDetail() {
       <p className="mb-6 text-sm text-slate-500">
         {session.date} · {session.start_soc}% → {session.end_soc}% ·{' '}
         {session.kwh_added.toFixed(2)} kWh
+        {session.kwh_calculated !== null &&
+          Math.abs(session.kwh_calculated - session.kwh_added) >= 0.01 && (
+            <span
+              className="ml-2 text-xs text-slate-400"
+              data-testid="kwh-calc-hint"
+            >
+              (calculated {session.kwh_calculated.toFixed(2)} kWh)
+            </span>
+          )}
       </p>
 
       <section className="mb-6">
@@ -330,21 +571,12 @@ export default function SessionDetail() {
       </section>
 
       <section>
-        <h2 className="mb-2 text-lg font-medium">Manual overlay</h2>
-        <dl className="space-y-2 text-sm">
-          <div>
-            <dt className="text-xs uppercase text-slate-500">Charge network</dt>
-            <dd>{session.charge_network ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="text-xs uppercase text-slate-500">User label</dt>
-            <dd>{session.user_label ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="text-xs uppercase text-slate-500">Notes</dt>
-            <dd>{session.notes ?? '—'}</dd>
-          </div>
-        </dl>
+        <h2 className="mb-2 text-lg font-medium">Edit session</h2>
+        <SessionEditForm
+          session={session}
+          unit={unit}
+          onSaved={(updated) => setSession(updated)}
+        />
       </section>
     </div>
   )

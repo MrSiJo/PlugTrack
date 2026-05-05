@@ -49,7 +49,6 @@ function formatCostPence(pence: number | null): string {
 }
 
 function locationLabel(s: ChargingSessionPayload): string {
-  if (s.user_label) return s.user_label
   if (s.location_name) return s.location_name
   if (s.location_id === null) return 'No location'
   return `Unlabelled · loc#${s.location_id}`

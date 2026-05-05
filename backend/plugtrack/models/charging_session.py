@@ -66,7 +66,16 @@ class ChargingSession(Base):
 
     start_soc: Mapped[int] = mapped_column(Integer, nullable=False)
     end_soc: Mapped[int] = mapped_column(Integer, nullable=False)
+    # `kwh_added` is the canonical figure used for cost computation. The
+    # synthesis worker initialises it from the SoC delta × battery
+    # capacity, but users typically overwrite it with the metered value
+    # from their EVSE/wallbox via the edit form.
     kwh_added: Mapped[float] = mapped_column(Float, nullable=False)
+    # `kwh_calculated` is the SoC-delta derivation, written by synthesis
+    # alongside `kwh_added` and never updated by user edits. We surface
+    # it next to the editable value so the user can compare metered vs
+    # battery-implied energy and notice big losses.
+    kwh_calculated: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # Distance snapshot at charge_start_at — every distance column ends
     # in `_km` per the spec's distance-unit rule.
