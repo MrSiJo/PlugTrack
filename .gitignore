@@ -127,3 +127,6 @@ www/
 # Node (additional)
 dist/
 .vite/
+
+# Brainstorming companion scratch
+.superpowers/
