@@ -6,7 +6,9 @@ import { api, type ChargingSessionPayload } from '@/api/client'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useSyncStore } from '@/stores/syncStore'
 
-function makeSession(over: Partial<ChargingSessionPayload> = {}): ChargingSessionPayload {
+function makeSession(
+  over: Partial<ChargingSessionPayload> = {},
+): ChargingSessionPayload {
   return {
     id: 1,
     user_id: 1,
@@ -43,20 +45,20 @@ function makeSession(over: Partial<ChargingSessionPayload> = {}): ChargingSessio
 describe('Sessions page', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
-    // Mock /api/settings so the useDistanceUnit hook's ensureLoaded
-    // doesn't throw "Invalid URL" in the jsdom env.
     vi.spyOn(api, 'getSettings').mockResolvedValue({})
-    // Reset settings so distance unit defaults to 'mi'.
     useSettingsStore.setState({ settings: {}, loaded: true })
+    useSyncStore.setState({
+      ...useSyncStore.getState(),
+      recentlyImportedSessionIds: [],
+    })
   })
 
-  it('renders source badge, distance, location pill, cost pill', async () => {
+  it('renders source badges and gradient cost', async () => {
     vi.spyOn(api, 'getSessions').mockResolvedValue([
-      makeSession({ source: 'manual', cost_basis: 'override_total', cost_pence: 1840 }),
+      makeSession({ source: 'manual', cost_pence: 1840 }),
       makeSession({
         id: 2,
         source: 'synthesis',
-        cost_basis: 'location_free',
         cost_pence: 0,
         location_id: 99,
       }),
@@ -72,41 +74,20 @@ describe('Sessions page', () => {
       expect(screen.getAllByTestId('session-row').length).toBe(2)
     })
 
-    // Source badges (one per session).
     expect(screen.getByTestId('source-badge-manual')).toBeInTheDocument()
     expect(screen.getByTestId('source-badge-synthesis')).toBeInTheDocument()
 
-    // Cost pills colour-coded by basis.
-    expect(screen.getByTestId('cost-pill-override_total')).toHaveTextContent('£18.40')
-    expect(screen.getByTestId('cost-pill-location_free')).toHaveTextContent('£0.00')
-
-    // Distance — default 'mi' unit. 12345 km ≈ 7671 mi
-    const distances = screen.getAllByTestId('distance')
-    expect(distances[0]).toHaveTextContent('mi')
-
-    // Location pill — first row has no location, second is unlabelled.
-    const pills = screen.getAllByTestId('location-pill')
-    expect(pills[0]).toHaveTextContent('No location')
-    expect(pills[1]).toHaveTextContent(/Unlabelled/)
+    const costs = screen.getAllByTestId('session-cost')
+    expect(costs[0]).toHaveTextContent('£18.40')
+    expect(costs[1]).toHaveTextContent('£0.00')
   })
 
-  it('renders distance in km when distance_unit setting is km', async () => {
-    useSettingsStore.setState({
-      settings: {
-        distance_unit: {
-          key: 'distance_unit',
-          value: 'km',
-          value_type: 'enum',
-          group_name: 'display',
-          label: 'Distance unit',
-          description: null,
-          is_secret: false,
-        },
-      },
-      loaded: true,
-    })
-
-    vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession()])
+  it('groups sessions by month with totals', async () => {
+    vi.spyOn(api, 'getSessions').mockResolvedValue([
+      makeSession({ id: 1, date: '2026-05-05', cost_pence: 400 }),
+      makeSession({ id: 2, date: '2026-05-01', cost_pence: 600 }),
+      makeSession({ id: 3, date: '2026-04-28', cost_pence: 800 }),
+    ])
 
     render(
       <MemoryRouter>
@@ -115,10 +96,12 @@ describe('Sessions page', () => {
     )
 
     await waitFor(() => {
-      const dist = screen.getByTestId('distance')
-      expect(dist).toHaveTextContent(/km/)
-      expect(dist).toHaveTextContent('12345')
+      expect(screen.getByText(/May 2026/)).toBeInTheDocument()
+      expect(screen.getByText(/Apr 2026/)).toBeInTheDocument()
     })
+
+    expect(screen.getByText(/2 sessions · £10\.00/)).toBeInTheDocument()
+    expect(screen.getByText(/1 session · £8\.00/)).toBeInTheDocument()
   })
 
   it('shows empty state when there are no sessions', async () => {
@@ -156,5 +139,4 @@ describe('Sessions page', () => {
       expect(rows[1]).toHaveAttribute('data-highlighted', 'true')
     })
   })
-
 })

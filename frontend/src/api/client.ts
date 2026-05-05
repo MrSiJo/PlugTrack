@@ -388,8 +388,16 @@ export const api = {
 
   // ----- Sessions -----
 
-  getSessions: (carId?: number): Promise<ChargingSessionPayload[]> => {
-    const path = carId !== undefined ? `/api/sessions?car_id=${carId}` : '/api/sessions'
+  getSessions: (
+    filtersOrCarId?: number | string,
+  ): Promise<ChargingSessionPayload[]> => {
+    let path = '/api/sessions'
+    if (typeof filtersOrCarId === 'number') {
+      path = `/api/sessions?car_id=${filtersOrCarId}`
+    } else if (typeof filtersOrCarId === 'string' && filtersOrCarId) {
+      // Caller provides a leading-`?` query string.
+      path = `/api/sessions${filtersOrCarId}`
+    }
     return fetchJSON<ChargingSessionPayload[]>(path)
   },
 
