@@ -18,6 +18,7 @@ function makeSession(over: Partial<ChargingSessionPayload> = {}): ChargingSessio
     start_soc: 20,
     end_soc: 80,
     kwh_added: 46.2,
+    kwh_calculated: null,
     odometer_at_session_km: 12345,
     charging_type: 'ac',
     charging_mode: 'manual',

@@ -412,6 +412,23 @@ class ProductionPollWorker:
         payload: dict,
         telemetry: VehicleState,
     ) -> int:
+        # Best-effort initial location stamp from the live cluster — gets
+        # corrected on close_plug_in once we have the full position
+        # window, but means the row isn't NULL-located mid-charge if the
+        # container restarts before the cable is unplugged.
+        initial_location_id = None
+        if telemetry.position is not None:
+            try:
+                async with self._db_sessionmaker() as loc_session:
+                    loc, _ = await find_or_create_location(
+                        loc_session, car.user_id,
+                        telemetry.position.lat, telemetry.position.lng,
+                    )
+                    await loc_session.commit()
+                    initial_location_id = loc.id
+            except Exception:  # noqa: BLE001
+                initial_location_id = None
+
         async with self._db_sessionmaker() as session:
             row = PlugInRecord(
                 user_id=car.user_id,
@@ -419,6 +436,7 @@ class ProductionPollWorker:
                 plug_in_at=payload["plug_in_at"],
                 plug_in_soc=int(payload["plug_in_soc"]),
                 plug_in_odometer_km=payload.get("plug_in_odometer_km"),
+                location_id=initial_location_id,
             )
             session.add(row)
             await session.commit()
@@ -454,12 +472,39 @@ class ProductionPollWorker:
     ) -> int:
         scratch = self._scratch.get(car.id)
         plug_in_id = scratch.plug_in_record_id if scratch is not None else None
+        # Recovery path: if scratch was wiped (container restart mid-charge),
+        # adopt the most-recent open plug-in record for this car so the
+        # session links to it instead of being orphaned.
+        if plug_in_id is None:
+            async with self._db_sessionmaker() as session:
+                stmt = (
+                    select(PlugInRecord)
+                    .where(
+                        PlugInRecord.car_id == car.id,
+                        PlugInRecord.plug_out_at.is_(None),
+                    )
+                    .order_by(PlugInRecord.plug_in_at.desc())
+                    .limit(1)
+                )
+                pir = (await session.execute(stmt)).scalar_one_or_none()
+                if pir is not None:
+                    plug_in_id = pir.id
+                    initial_location_id = pir.location_id
+                else:
+                    initial_location_id = None
+        else:
+            # Pull the plug-in record's location so the session inherits it.
+            async with self._db_sessionmaker() as session:
+                pir = await session.get(PlugInRecord, plug_in_id)
+                initial_location_id = pir.location_id if pir is not None else None
+
         charge_start_at: datetime = payload["charge_start_at"]
         async with self._db_sessionmaker() as session:
             row = ChargingSession(
                 user_id=car.user_id,
                 car_id=car.id,
                 plug_in_record_id=plug_in_id,
+                location_id=initial_location_id,
                 date=charge_start_at.date() if isinstance(charge_start_at, datetime) else date.today(),
                 charge_start_at=charge_start_at,
                 charge_end_at=None,
@@ -530,6 +575,7 @@ class ProductionPollWorker:
             row.interrupted = bool(payload.get("interrupted", False))
             kwh_added = max(0.0, (end_soc - start_soc) / 100.0 * float(car.battery_kwh))
             row.kwh_added = kwh_added
+            row.kwh_calculated = kwh_added
 
             # Cost computation. Use the linked location (via the
             # plug_in_record) when available.
@@ -631,6 +677,31 @@ class ProductionPollWorker:
     ) -> int:
         scratch = self._scratch.pop(car.id, None)
         plug_in_id = scratch.plug_in_record_id if scratch is not None else None
+        # Recovery: if scratch was wiped, find the most recent still-open
+        # plug-in record for this car so we close it properly + patch its
+        # sessions instead of leaving orphaned rows behind.
+        recovered_session_ids: list[int] = []
+        if plug_in_id is None:
+            async with self._db_sessionmaker() as session:
+                stmt = (
+                    select(PlugInRecord)
+                    .where(
+                        PlugInRecord.car_id == car.id,
+                        PlugInRecord.plug_out_at.is_(None),
+                    )
+                    .order_by(PlugInRecord.plug_in_at.desc())
+                    .limit(1)
+                )
+                pir = (await session.execute(stmt)).scalar_one_or_none()
+                if pir is not None:
+                    plug_in_id = pir.id
+                    sess_stmt = (
+                        select(ChargingSession.id)
+                        .where(ChargingSession.plug_in_record_id == plug_in_id)
+                    )
+                    recovered_session_ids = list(
+                        (await session.execute(sess_stmt)).scalars().all()
+                    )
         updated = 0
 
         # 1. Close the plug_in_record row.
@@ -656,33 +727,45 @@ class ProductionPollWorker:
                 },
             )
 
-        # 2. Run location clustering if any positions were observed.
+        # 2. Run location clustering. Prefer accumulated positions when
+        # we have them; fall back to telemetry's current GPS (recovery
+        # path when scratch was wiped) so we still patch the row.
         location_id: Optional[int] = None
         positions = scratch.positions if scratch is not None else []
-        if positions and plug_in_id is not None:
-            avg_lat = sum(p.lat for p in positions) / len(positions)
-            avg_lng = sum(p.lng for p in positions) / len(positions)
+        cluster_lat: Optional[float] = None
+        cluster_lng: Optional[float] = None
+        if positions:
+            cluster_lat = sum(p.lat for p in positions) / len(positions)
+            cluster_lng = sum(p.lng for p in positions) / len(positions)
+        elif telemetry.position is not None:
+            cluster_lat = telemetry.position.lat
+            cluster_lng = telemetry.position.lng
+
+        if cluster_lat is not None and cluster_lng is not None and plug_in_id is not None:
             was_created = False
             async with self._db_sessionmaker() as session:
                 location, was_created = await find_or_create_location(
-                    session, car.user_id, avg_lat, avg_lng
+                    session, car.user_id, cluster_lat, cluster_lng,
                 )
                 await session.commit()
                 location_id = location.id
 
-            # Patch the plug-in + every session opened in this window.
+            # Patch the plug-in + every session opened in this window
+            # (or recovered from DB when scratch was wiped).
+            session_ids_to_patch = (
+                scratch.session_ids if scratch is not None else recovered_session_ids
+            )
             async with self._db_sessionmaker() as session:
                 pir = await session.get(PlugInRecord, plug_in_id)
                 if pir is not None:
                     pir.location_id = location_id
-                if scratch is not None:
-                    for sid in scratch.session_ids:
-                        sess_row = await session.get(ChargingSession, sid)
-                        if sess_row is not None:
-                            sess_row.location_id = location_id
+                for sid in session_ids_to_patch:
+                    sess_row = await session.get(ChargingSession, sid)
+                    if sess_row is not None:
+                        sess_row.location_id = location_id
                 await session.commit()
 
-            for sid in (scratch.session_ids if scratch is not None else []):
+            for sid in session_ids_to_patch:
                 updated += 1
                 await self._publish(
                     job, "sync.session_updated",
@@ -698,7 +781,7 @@ class ProductionPollWorker:
             if was_created and location_id is not None:
                 user_id = car.user_id
                 asyncio.create_task(
-                    self._geocode_async(user_id, location_id, avg_lat, avg_lng)
+                    self._geocode_async(user_id, location_id, cluster_lat, cluster_lng)
                 )
 
         return updated

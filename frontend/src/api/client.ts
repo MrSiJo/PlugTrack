@@ -231,6 +231,7 @@ export interface ChargingSessionPayload {
   start_soc: number
   end_soc: number
   kwh_added: number
+  kwh_calculated: number | null
   odometer_at_session_km: number | null
   charging_type: string
   charging_mode: string
@@ -270,6 +271,7 @@ export interface SessionCreateRequest {
   start_soc: number
   end_soc: number
   kwh_added: number
+  odometer_at_session_km?: number | null
   charge_start_at?: string | null
   charge_end_at?: string | null
   location_id?: number | null

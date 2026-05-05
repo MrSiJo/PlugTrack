@@ -62,6 +62,7 @@ class SessionPayload(BaseModel):
     start_soc: int
     end_soc: int
     kwh_added: float
+    kwh_calculated: Optional[float] = None
     odometer_at_session_km: Optional[float]
     charging_type: str
     charging_mode: str
@@ -88,6 +89,7 @@ class SessionCreateRequest(BaseModel):
     start_soc: int = Field(ge=0, le=100)
     end_soc: int = Field(ge=0, le=100)
     kwh_added: float = Field(gt=0, lt=1000)
+    odometer_at_session_km: Optional[float] = Field(default=None, ge=0)
     charge_start_at: Optional[datetime] = None
     charge_end_at: Optional[datetime] = None
     location_id: Optional[int] = None
@@ -105,6 +107,7 @@ class SessionUpdateRequest(BaseModel):
     start_soc: Optional[int] = Field(default=None, ge=0, le=100)
     end_soc: Optional[int] = Field(default=None, ge=0, le=100)
     kwh_added: Optional[float] = Field(default=None, gt=0, lt=1000)
+    odometer_at_session_km: Optional[float] = Field(default=None, ge=0)
     charge_start_at: Optional[datetime] = None
     charge_end_at: Optional[datetime] = None
     location_id: Optional[int] = None
@@ -141,6 +144,7 @@ def _to_payload(
         start_soc=cs.start_soc,
         end_soc=cs.end_soc,
         kwh_added=cs.kwh_added,
+        kwh_calculated=cs.kwh_calculated,
         odometer_at_session_km=cs.odometer_at_session_km,
         charging_type=cs.charging_type,
         charging_mode=cs.charging_mode,
@@ -279,6 +283,7 @@ async def create_session(
         start_soc=body.start_soc,
         end_soc=body.end_soc,
         kwh_added=body.kwh_added,
+        odometer_at_session_km=body.odometer_at_session_km,
         charging_type=body.charging_type,
         charging_mode=body.charging_mode,
         location_id=body.location_id,
