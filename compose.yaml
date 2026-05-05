@@ -17,11 +17,16 @@ services:
       - .env
     environment:
       DATA_DIR: /app/data
+      # pycupra writes per-VIN model images to ./www/pycupra/. Pin the
+      # location so the API's /api/cars/:id/image route reads from the
+      # same place the worker writes to.
+      PYCUPRA_IMAGE_DIR: /app/www/pycupra
     ports:
       - "9278:9278"
     volumes:
       - /dockerdata/plugtrack/data:/app/data
       - /dockerdata/plugtrack/logs:/app/logs
+      - /dockerdata/plugtrack/www:/app/www
     restart: unless-stopped
     healthcheck:
       # Inherit the HEALTHCHECK baked into the image. Re-declared here

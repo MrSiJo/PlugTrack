@@ -8,15 +8,35 @@ single-user app shape better than soft-deleting.
 """
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
 from ...models import Car
+
+
+# pycupra hard-codes images at `<base>/pycupra/image_<vin>_<view>.png`
+# where `<base>` is `./www` relative to the worker's CWD when not running
+# inside Home Assistant. We resolve the same directory here. Override
+# with `PYCUPRA_IMAGE_DIR` for non-default deployments (e.g. compose
+# mounts /app/www to a host volume).
+_VALID_VIEWS = frozenset(
+    {"front", "front_cropped", "rear", "side", "top", "rbcCable", "rbcFront"}
+)
+
+
+def _image_dir() -> Path:
+    override = os.environ.get("PYCUPRA_IMAGE_DIR")
+    if override:
+        return Path(override)
+    return Path("www") / "pycupra"
 
 
 router = APIRouter(prefix="/api/cars", tags=["cars"])
@@ -210,6 +230,42 @@ async def _get_owned(session: AsyncSession, car_id: int, user_id: int) -> Car:
     if car is None:
         raise HTTPException(status_code=404, detail="car not found")
     return car
+
+
+@router.get("/{car_id}/image")
+async def get_car_image(
+    car_id: int,
+    request: Request,
+    view: str = Query(default="front_cropped"),
+    session: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    """Stream the locally-cached pycupra image for this car.
+
+    pycupra writes images on every model-image refresh to
+    `./www/pycupra/image_<VIN>_<view>.png` relative to the worker's CWD
+    (overridable via `PYCUPRA_IMAGE_DIR`). 404 when the file isn't on
+    disk yet — the frontend falls back to a placeholder.
+    """
+    user_id = _user_id(request)
+    if view not in _VALID_VIEWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"view must be one of {sorted(_VALID_VIEWS)}",
+        )
+    car = await _get_owned(session, car_id, user_id)
+    vin = car.vin  # decrypts on the fly
+    if not vin:
+        raise HTTPException(status_code=404, detail="car has no VIN")
+    file_path = _image_dir() / f"image_{vin}_{view}.png"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="image not cached yet")
+    return FileResponse(
+        path=file_path,
+        media_type="image/png",
+        # Browsers cache aggressively across a deploy if VIN+view is the
+        # only key, so add a weak validator from mtime.
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @router.get("/{car_id}", response_model=CarPayload)

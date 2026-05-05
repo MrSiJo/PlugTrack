@@ -388,6 +388,12 @@ export const api = {
   deleteCar: (id: number): Promise<void> =>
     fetchJSON<void>(`/api/cars/${id}`, { method: 'DELETE' }),
 
+  /** URL of the cached pycupra image for this car. Returns 404 when the
+   *  image isn't on disk yet (frontend renders a placeholder).
+   *  Not a fetch — this URL is fed straight to <img src="…">. */
+  carImageUrl: (id: number, view = 'front_cropped'): string =>
+    `/api/cars/${id}/image?view=${view}`,
+
   // ----- Sessions -----
 
   getSessions: (
