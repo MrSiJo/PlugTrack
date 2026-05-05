@@ -234,13 +234,25 @@ async def _apply_cost(
     cs.tariff_p_per_kwh = tariff
 
 
+_VALID_SOURCES = frozenset({"manual", "synthesis", "cariad"})
+
+
 @router.get("", response_model=list[SessionPayload])
 async def list_sessions(
     request: Request,
     car_id: Optional[int] = Query(default=None),
+    date_from: Optional[date_cls] = Query(default=None),
+    date_to: Optional[date_cls] = Query(default=None),
+    source: Optional[str] = Query(default=None),
+    location_id: Optional[int] = Query(default=None),
     session: AsyncSession = Depends(get_db),
 ) -> list[SessionPayload]:
     user_id = _user_id(request)
+    if source is not None and source not in _VALID_SOURCES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"source must be one of {sorted(_VALID_SOURCES)}",
+        )
     stmt = (
         select(ChargingSession, Location.name, Location.address)
         .join(Location, ChargingSession.location_id == Location.id, isouter=True)
@@ -248,6 +260,14 @@ async def list_sessions(
     )
     if car_id is not None:
         stmt = stmt.where(ChargingSession.car_id == car_id)
+    if date_from is not None:
+        stmt = stmt.where(ChargingSession.date >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(ChargingSession.date <= date_to)
+    if source is not None:
+        stmt = stmt.where(ChargingSession.source == source)
+    if location_id is not None:
+        stmt = stmt.where(ChargingSession.location_id == location_id)
     stmt = stmt.order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
     result = await session.execute(stmt)
     return [
