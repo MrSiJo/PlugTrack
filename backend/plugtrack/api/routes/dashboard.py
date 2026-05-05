@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
 from ...services.dashboard_service import dashboard_summary
+from ...services.dashboard_trend import compute_spend_trend
 
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -43,6 +44,26 @@ async def get_dashboard(
         session, user_id=user_id, orchestrator=orchestrator
     )
     return JSONResponse(content=_jsonify(summary.to_dict()))
+
+
+@router.get("/spend-trend")
+async def get_spend_trend(
+    request: Request,
+    days: int = 30,
+    session: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    if days < 1 or days > 365:
+        raise HTTPException(
+            status_code=400, detail="days must be between 1 and 365"
+        )
+    user_id = _user_id(request)
+    trend = await compute_spend_trend(session, user_id=user_id, days=days)
+    return JSONResponse(
+        content=[
+            {"date": d.date.isoformat(), "cost_pence": d.cost_pence}
+            for d in trend
+        ]
+    )
 
 
 def _jsonify(value: Any) -> Any:
