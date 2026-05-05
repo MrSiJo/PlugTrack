@@ -37,7 +37,7 @@ describe('App bootstrap routing', () => {
 
     render(<App />)
     expect(
-      await screen.findByRole('heading', { name: /welcome to plugtrack/i }),
+      await screen.findByRole('heading', { name: /^welcome$/i }),
     ).toBeInTheDocument()
   })
 
@@ -51,7 +51,7 @@ describe('App bootstrap routing', () => {
 
     render(<App />)
     expect(
-      await screen.findByRole('heading', { name: /sign in to plugtrack/i }),
+      await screen.findByRole('heading', { name: /^sign in$/i }),
     ).toBeInTheDocument()
   })
 

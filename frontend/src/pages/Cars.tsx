@@ -6,6 +6,8 @@ import {
   type CarCreateRequest,
   type DiscoveredVehicle,
 } from '@/api/client'
+import { Button } from '@/components/ui/button'
+import { PageHeader } from '@/components/ui/PageHeader'
 
 // `battery_kwh` and `nominal_efficiency_mi_per_kwh` are typed `number` on
 // the API but rendered with `value={... || ''}` so the input starts blank;
@@ -152,26 +154,24 @@ export default function CarsPage() {
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-6">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Cars</h1>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => void handleDiscover()}
-            disabled={discovering}
-            className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
-          >
-            {discovering ? 'Discovering…' : 'Discover from Cupra'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setCreating((v) => !v)}
-            className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900"
-          >
-            {creating ? 'Cancel' : 'Add car manually'}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Cars"
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleDiscover()}
+              disabled={discovering}
+            >
+              {discovering ? 'Discovering…' : 'Discover from Cupra'}
+            </Button>
+            <Button size="sm" onClick={() => setCreating((v) => !v)}>
+              {creating ? 'Cancel' : 'Add car manually'}
+            </Button>
+          </>
+        }
+      />
 
       {discovered && discovered.length > 0 && (
         <div className="mb-6 rounded border border-blue-300 bg-blue-50 p-4 dark:border-blue-700 dark:bg-blue-900/20">
