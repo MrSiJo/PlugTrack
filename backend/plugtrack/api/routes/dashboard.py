@@ -43,6 +43,10 @@ async def get_dashboard(
     summary = await dashboard_summary(
         session, user_id=user_id, orchestrator=orchestrator
     )
+    # `dashboard_summary` calls `mileage_tracking.get_status`, which may
+    # materialise a rolled-over period (writes new rows). Commit so that
+    # write is durable.
+    await session.commit()
     return JSONResponse(content=_jsonify(summary.to_dict()))
 
 

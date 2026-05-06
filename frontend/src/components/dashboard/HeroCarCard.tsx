@@ -1,10 +1,10 @@
 import { Zap } from 'lucide-react'
-import type { DashboardCarPanel } from '@/api/client'
+import type { DashboardCarPanel, DashboardMileageYear } from '@/api/client'
 import { Card } from '@/components/ui/Card'
 import { GradientNumber } from '@/components/ui/GradientNumber'
 import { Pill, type PillTone } from '@/components/ui/Pill'
 import { ProgressBar } from '@/components/ui/ProgressBar'
-import { useDistanceUnit } from '@/stores/settingsStore'
+import { useDistanceUnit, type DistanceUnit } from '@/stores/settingsStore'
 import { kmToMi } from '@/utils/distance'
 
 interface StateMeta {
@@ -164,6 +164,86 @@ export function HeroCarCard({ car }: HeroCarCardProps) {
           </span>
         </div>
       </div>
+
+      {car.mileage_year && (
+        <MileageYearTile mileage={car.mileage_year} unit={unit} />
+      )}
     </Card>
+  )
+}
+
+function convertKm(km: number, unit: DistanceUnit): number {
+  return unit === 'km' ? km : kmToMi(km)
+}
+
+function formatPeriodMonth(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString(undefined, {
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+}
+
+interface MileageYearTileProps {
+  mileage: DashboardMileageYear
+  unit: DistanceUnit
+}
+
+function MileageYearTile({ mileage, unit }: MileageYearTileProps) {
+  const usedKm = Math.max(
+    0,
+    mileage.current_odometer_km - mileage.opening_odometer_km,
+  )
+  const used = convertKm(usedKm, unit)
+  const target =
+    mileage.annual_mileage_target_km !== null
+      ? convertKm(mileage.annual_mileage_target_km, unit)
+      : null
+  const pct = target && target > 0 ? Math.min(100, (used / target) * 100) : null
+  const overLimit = target !== null && used > target
+
+  return (
+    <div
+      className="flex flex-col gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/40"
+      data-testid="car-mileage-year"
+    >
+      <div className="flex items-baseline justify-between gap-2 text-xs">
+        <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+          Mileage{' '}
+          <span className="normal-case tracking-normal text-slate-400 dark:text-slate-500">
+            {formatPeriodMonth(mileage.period_start_date)} →{' '}
+            {formatPeriodMonth(mileage.period_end_date)}
+          </span>
+        </span>
+        <span
+          className={
+            overLimit
+              ? 'font-semibold tabular-nums text-amber-600 dark:text-amber-400'
+              : 'font-semibold tabular-nums text-slate-700 dark:text-slate-200'
+          }
+        >
+          {Math.round(used).toLocaleString()}
+          {target !== null && (
+            <>
+              {' '}
+              <span className="font-normal text-slate-500 dark:text-slate-400">
+                / {Math.round(target).toLocaleString()}
+              </span>
+            </>
+          )}{' '}
+          {unit}
+        </span>
+      </div>
+      {pct !== null && (
+        <ProgressBar
+          value={pct}
+          gradient={!overLimit}
+          className="h-1.5"
+          aria-label="Annual mileage used"
+        />
+      )}
+    </div>
   )
 }

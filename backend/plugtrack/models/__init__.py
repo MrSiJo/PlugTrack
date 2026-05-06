@@ -1,5 +1,6 @@
 from .base import Base
 from .car import Car
+from .car_mileage_year import CarMileageYear
 from .car_state import CarStateSnapshot
 from .charging_session import ChargingSession
 from .location import Location
@@ -11,6 +12,7 @@ from .user import User
 __all__ = [
     "Base",
     "Car",
+    "CarMileageYear",
     "CarStateSnapshot",
     "ChargingSession",
     "Location",

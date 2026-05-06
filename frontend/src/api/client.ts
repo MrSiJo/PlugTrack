@@ -209,6 +209,38 @@ export interface DiscoveredVehicle {
 }
 
 // ---------------------------------------------------------------------------
+// Mileage tracking
+// ---------------------------------------------------------------------------
+
+export interface MileagePeriodPayload {
+  period_start_date: string
+  period_end_date: string
+  opening_odometer_km: number
+  closing_odometer_km: number | null
+  annual_mileage_target_km: number | null
+}
+
+export interface CurrentMileagePeriodPayload {
+  period_start_date: string
+  period_end_date: string
+  opening_odometer_km: number
+  current_odometer_km: number
+  annual_mileage_target_km: number | null
+}
+
+export interface MileageStatusPayload {
+  enabled: boolean
+  current_period: CurrentMileagePeriodPayload | null
+  history: MileagePeriodPayload[]
+}
+
+export interface MileageConfigRequest {
+  start_date: string
+  opening_miles: number
+  annual_mileage_target_miles?: number | null
+}
+
+// ---------------------------------------------------------------------------
 // Sessions + Locations
 // ---------------------------------------------------------------------------
 
@@ -394,6 +426,21 @@ export const api = {
   carImageUrl: (id: number, view = 'front_cropped'): string =>
     `/api/cars/${id}/image?view=${view}`,
 
+  getCarMileage: (carId: number): Promise<MileageStatusPayload> =>
+    fetchJSON<MileageStatusPayload>(`/api/cars/${carId}/mileage`),
+
+  setCarMileage: (
+    carId: number,
+    req: MileageConfigRequest,
+  ): Promise<MileageStatusPayload> =>
+    fetchJSON<MileageStatusPayload>(`/api/cars/${carId}/mileage`, {
+      method: 'PUT',
+      body: req,
+    }),
+
+  clearCarMileage: (carId: number): Promise<void> =>
+    fetchJSON<void>(`/api/cars/${carId}/mileage`, { method: 'DELETE' }),
+
   // ----- Sessions -----
 
   getSessions: (
@@ -530,6 +577,14 @@ export interface SyncStatusResponse {
 // Dashboard
 // ---------------------------------------------------------------------------
 
+export interface DashboardMileageYear {
+  period_start_date: string
+  period_end_date: string
+  opening_odometer_km: number
+  current_odometer_km: number
+  annual_mileage_target_km: number | null
+}
+
 export interface DashboardCarPanel {
   id: number
   make: string
@@ -547,6 +602,7 @@ export interface DashboardCarPanel {
   charging_power_kw: number | null
   target_soc: number | null
   nominal_efficiency_mi_per_kwh: number | null
+  mileage_year: DashboardMileageYear | null
 }
 
 export interface DashboardSessionRow {

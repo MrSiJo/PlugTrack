@@ -28,6 +28,7 @@ const baseCar: DashboardCarPanel = {
   charging_power_kw: 7.4,
   target_soc: 80,
   nominal_efficiency_mi_per_kwh: 4.2,
+  mileage_year: null,
 }
 
 describe('HeroCarCard', () => {
