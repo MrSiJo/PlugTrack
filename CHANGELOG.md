@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/MrSiJo/PlugTrack/compare/v2.2.0...v2.3.0) (2026-05-06)
+
+
+### Features
+
+* **cars:** add per-car annual mileage tracker ([59d8c6f](https://github.com/MrSiJo/PlugTrack/commit/59d8c6f173ee21c40e9be70b4e795d96000aa45b))
+
 ## [2.2.0](https://github.com/MrSiJo/PlugTrack/compare/v2.1.0...v2.2.0) (2026-05-05)
 
 
