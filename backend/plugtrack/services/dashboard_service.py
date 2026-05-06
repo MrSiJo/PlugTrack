@@ -27,6 +27,16 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Car, ChargingSession, Location
+from . import mileage_tracking
+
+
+@dataclass
+class MileageYearSummary:
+    period_start_date: date_cls
+    period_end_date: date_cls
+    opening_odometer_km: float
+    current_odometer_km: float
+    annual_mileage_target_km: Optional[float]
 
 
 @dataclass
@@ -49,6 +59,9 @@ class CarPanel:
     charging_power_kw: Optional[float] = None
     target_soc: Optional[int] = None
     nominal_efficiency_mi_per_kwh: Optional[float] = None
+    # Active annual mileage tracking period — null when the user hasn't
+    # enabled tracking on this car. See `services/mileage_tracking.py`.
+    mileage_year: Optional[MileageYearSummary] = None
 
 
 @dataclass
@@ -194,6 +207,23 @@ async def dashboard_summary(
                 location_name = loc_row.name
                 location_address = loc_row.address
 
+        # Mileage tracking — active period only. `get_status` materialises
+        # any anniversaries that have rolled over since the last visit;
+        # the caller (dashboard route) commits the resulting writes.
+        mileage_status = await mileage_tracking.get_status(
+            session, user_id=user_id, car_id=car.id
+        )
+        mileage_year: Optional[MileageYearSummary] = None
+        if mileage_status.current_period is not None:
+            cp = mileage_status.current_period
+            mileage_year = MileageYearSummary(
+                period_start_date=cp.period_start_date,
+                period_end_date=cp.period_end_date,
+                opening_odometer_km=cp.opening_odometer_km,
+                current_odometer_km=cp.current_odometer_km,
+                annual_mileage_target_km=cp.annual_mileage_target_km,
+            )
+
         summary.cars.append(
             CarPanel(
                 id=car.id,
@@ -212,6 +242,7 @@ async def dashboard_summary(
                 charging_power_kw=charging_power_kw,
                 target_soc=target_soc,
                 nominal_efficiency_mi_per_kwh=car.nominal_efficiency_mi_per_kwh,
+                mileage_year=mileage_year,
             )
         )
 

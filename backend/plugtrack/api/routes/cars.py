@@ -9,6 +9,7 @@ single-user app shape better than soft-deleting.
 from __future__ import annotations
 
 import os
+from datetime import date as date_cls
 from pathlib import Path
 from typing import Optional
 
@@ -20,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
 from ...models import Car
+from ...services import mileage_tracking
 
 
 # pycupra hard-codes images at `<base>/pycupra/image_<vin>_<view>.png`
@@ -309,5 +311,128 @@ async def delete_car(
     user_id = _user_id(request)
     car = await _get_owned(session, car_id, user_id)
     await session.delete(car)
+    await session.commit()
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Mileage tracking
+#
+# A user enables tracking by submitting a start date + opening odometer in
+# miles (and optionally an annual cap). Closing odometers are derived from
+# the latest `ChargingSession.odometer_at_session_km` at-or-before each
+# anniversary, so re-syncs and edits to existing sessions naturally feed
+# back into the historical totals.
+# ---------------------------------------------------------------------------
+
+
+class MileagePeriodPayload(BaseModel):
+    period_start_date: date_cls
+    period_end_date: date_cls
+    opening_odometer_km: float
+    closing_odometer_km: Optional[float] = None
+    annual_mileage_target_km: Optional[float] = None
+
+
+class CurrentMileagePeriodPayload(BaseModel):
+    period_start_date: date_cls
+    period_end_date: date_cls
+    opening_odometer_km: float
+    current_odometer_km: float
+    annual_mileage_target_km: Optional[float] = None
+
+
+class MileageStatusPayload(BaseModel):
+    enabled: bool
+    current_period: Optional[CurrentMileagePeriodPayload] = None
+    history: list[MileagePeriodPayload]
+
+
+class MileageConfigRequest(BaseModel):
+    start_date: date_cls
+    opening_miles: float = Field(ge=0, lt=1_000_000)
+    annual_mileage_target_miles: Optional[float] = Field(
+        default=None, gt=0, lt=1_000_000
+    )
+
+
+def _serialise_status(
+    status: mileage_tracking.MileageStatus,
+) -> MileageStatusPayload:
+    current = (
+        CurrentMileagePeriodPayload(
+            period_start_date=status.current_period.period_start_date,
+            period_end_date=status.current_period.period_end_date,
+            opening_odometer_km=status.current_period.opening_odometer_km,
+            current_odometer_km=status.current_period.current_odometer_km,
+            annual_mileage_target_km=status.current_period.annual_mileage_target_km,
+        )
+        if status.current_period is not None
+        else None
+    )
+    return MileageStatusPayload(
+        enabled=status.enabled,
+        current_period=current,
+        history=[
+            MileagePeriodPayload(
+                period_start_date=h.period_start_date,
+                period_end_date=h.period_end_date,
+                opening_odometer_km=h.opening_odometer_km,
+                closing_odometer_km=h.closing_odometer_km,
+                annual_mileage_target_km=h.annual_mileage_target_km,
+            )
+            for h in status.history
+        ],
+    )
+
+
+@router.get("/{car_id}/mileage", response_model=MileageStatusPayload)
+async def get_mileage(
+    car_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> MileageStatusPayload:
+    user_id = _user_id(request)
+    await _get_owned(session, car_id, user_id)
+    status = await mileage_tracking.get_status(
+        session, user_id=user_id, car_id=car_id
+    )
+    # `get_status` may have materialised a rollover, which writes new rows.
+    await session.commit()
+    return _serialise_status(status)
+
+
+@router.put("/{car_id}/mileage", response_model=MileageStatusPayload)
+async def put_mileage(
+    car_id: int,
+    request: Request,
+    body: MileageConfigRequest,
+    session: AsyncSession = Depends(get_db),
+) -> MileageStatusPayload:
+    user_id = _user_id(request)
+    await _get_owned(session, car_id, user_id)
+    status = await mileage_tracking.set_tracking(
+        session,
+        user_id=user_id,
+        car_id=car_id,
+        start_date=body.start_date,
+        opening_miles=body.opening_miles,
+        annual_mileage_target_miles=body.annual_mileage_target_miles,
+    )
+    await session.commit()
+    return _serialise_status(status)
+
+
+@router.delete("/{car_id}/mileage", status_code=204)
+async def delete_mileage(
+    car_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    user_id = _user_id(request)
+    await _get_owned(session, car_id, user_id)
+    await mileage_tracking.clear_tracking(
+        session, user_id=user_id, car_id=car_id
+    )
     await session.commit()
     return Response(status_code=204)

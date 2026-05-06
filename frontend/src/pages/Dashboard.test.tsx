@@ -25,6 +25,7 @@ function fixtureSummary(): DashboardSummary {
         charging_power_kw: null,
         target_soc: null,
         nominal_efficiency_mi_per_kwh: null,
+        mileage_year: null,
       },
       {
         id: 2,
@@ -43,6 +44,7 @@ function fixtureSummary(): DashboardSummary {
         charging_power_kw: null,
         target_soc: null,
         nominal_efficiency_mi_per_kwh: null,
+        mileage_year: null,
       },
     ],
     recent_sessions: [
