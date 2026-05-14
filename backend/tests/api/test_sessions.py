@@ -120,6 +120,89 @@ async def test_create_session_with_total_override(authed_client):
 
 
 @pytest.mark.asyncio
+async def test_create_session_derives_kwh_calculated_from_soc_delta(authed_client):
+    """Energy banked in the pack = (Δsoc/100) × battery_kwh.
+
+    Distinct from `kwh_added` (charger reading) so efficiency_percent
+    can mean something on a manual entry.
+    """
+    car_id = await _create_car(authed_client)
+    r = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 60,
+            "end_soc": 86,
+            "kwh_added": 18.0,  # charger reading
+            "total_cost_pence_override": 1199,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    # 77 kWh battery × 26 pp / 100 = 20.02 kWh banked.
+    assert body["kwh_calculated"] == pytest.approx(20.02, abs=0.01)
+    assert body["kwh_added"] == 18.0  # untouched
+
+
+@pytest.mark.asyncio
+async def test_update_session_recomputes_kwh_calculated_on_soc_change(authed_client):
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 60, "end_soc": 80,
+            "kwh_added": 18.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    sid = create.json()["id"]
+    # Initial: 20 pp × 77 / 100 = 15.4
+    assert create.json()["kwh_calculated"] == pytest.approx(15.4, abs=0.01)
+
+    # Adjust end_soc up to 90; kwh_calculated should track.
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"end_soc": 90},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200
+    # 30 pp × 77 / 100 = 23.1
+    assert upd.json()["kwh_calculated"] == pytest.approx(23.1, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_update_session_kwh_added_alone_leaves_kwh_calculated(authed_client):
+    """kwh_calculated tracks SoC, not the charger reading."""
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 60, "end_soc": 86,
+            "kwh_added": 18.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    sid = create.json()["id"]
+    original_calc = create.json()["kwh_calculated"]
+
+    # Adjust only kwh_added — the user corrected their charger reading.
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"kwh_added": 19.5},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200
+    assert upd.json()["kwh_calculated"] == original_calc
+    assert upd.json()["kwh_added"] == 19.5
+
+
+@pytest.mark.asyncio
 async def test_update_recomputes_cost_when_kwh_changes(authed_client):
     car_id = await _create_car(authed_client)
     create = await authed_client.post(

@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
-from ...models import ChargingSession, Location, Setting
+from ...models import Car, ChargingSession, Location, Setting
 from ...services.cost import compute_session_cost
 from ...services.session_metrics import compute_session_metrics
 
@@ -36,6 +36,31 @@ _COST_AFFECTING = frozenset(
         "total_cost_pence_override",
     }
 )
+
+# SoC fields that affect kwh_calculated (energy banked in the pack).
+# Distinct from `kwh_added` (the charger's delivered reading) so
+# efficiency_percent in SessionMetrics can mean something.
+_SOC_AFFECTING = frozenset({"start_soc", "end_soc"})
+
+
+async def _derive_kwh_calculated(
+    session: AsyncSession, cs: ChargingSession
+) -> None:
+    """Set cs.kwh_calculated from (Δsoc / 100) × car.battery_kwh.
+
+    No-op when SoC is missing or the car can't be found. Clamped to >=0
+    so a malformed entry (end < start) doesn't write a negative value.
+    """
+    if cs.start_soc is None or cs.end_soc is None:
+        return
+    car = await session.get(Car, cs.car_id)
+    if car is None:
+        return
+    delta = cs.end_soc - cs.start_soc
+    if delta < 0:
+        cs.kwh_calculated = 0.0
+        return
+    cs.kwh_calculated = round(delta / 100.0 * float(car.battery_kwh), 2)
 
 
 class SessionMetricsPayload(BaseModel):
@@ -349,6 +374,7 @@ async def create_session(
         user_label=body.user_label,
         source="manual",
     )
+    await _derive_kwh_calculated(session, cs)
     await _apply_cost(session, cs, user_id)
     session.add(cs)
     await session.commit()
@@ -398,9 +424,12 @@ async def update_session(
 
     data = body.model_dump(exclude_unset=True)
     cost_dirty = bool(_COST_AFFECTING & data.keys())
+    soc_dirty = bool(_SOC_AFFECTING & data.keys())
     for k, v in data.items():
         setattr(cs, k, v)
 
+    if soc_dirty:
+        await _derive_kwh_calculated(session, cs)
     if cost_dirty:
         await _apply_cost(session, cs, user_id)
 

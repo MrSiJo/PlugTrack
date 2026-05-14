@@ -203,6 +203,13 @@ async def _run(args: argparse.Namespace) -> None:
             "backfilled - the sync pipeline did not observe the cable-connected window"
         )
 
+        # kwh_calculated is the energy banked in the pack — derived
+        # from SoC delta × battery_kwh. Distinct from kwh_added (the
+        # charger's reading) so efficiency_percent in the UI means
+        # something. Clamp at zero if end_soc < start_soc.
+        soc_delta = max(0, args.end_soc - args.start_soc)
+        kwh_calculated = round(soc_delta / 100.0 * float(car.battery_kwh), 2)
+
         cs = ChargingSession(
             user_id=car.user_id,
             car_id=car.id,
@@ -214,7 +221,7 @@ async def _run(args: argparse.Namespace) -> None:
             start_soc=args.start_soc,
             end_soc=args.end_soc,
             kwh_added=args.kwh_added,
-            kwh_calculated=args.kwh_added,
+            kwh_calculated=kwh_calculated,
             odometer_at_session_km=args.odometer_km,
             charging_type=args.charging_type,
             charging_mode=args.charging_mode,
