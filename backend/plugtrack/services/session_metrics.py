@@ -26,7 +26,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import ChargingSession, Setting
+from ..models import Car, ChargingSession, Setting
 
 
 _LITRES_PER_UK_GALLON = 4.54609
@@ -48,6 +48,17 @@ class SessionMetrics:
     # When this session is itself a zero-mile follow-up, the id of the
     # anchor session that owns the comparison (so the UI can link).
     chain_anchor_id: Optional[int] = None
+    # Charge-mechanics metrics (derived; NULL when inputs are missing).
+    # range_added_miles = (Δsoc/100) × battery_kwh × nominal_mi_per_kwh.
+    # duration_minutes = (charge_end_at - charge_start_at), only when both set.
+    # average_power_kw = kwh_added / hours, only when duration is known.
+    # peak_power_kw = max kW from power_curve samples (synthesis-only).
+    # efficiency_percent = kwh_calculated / kwh_added * 100 when both present.
+    range_added_miles: Optional[float] = None
+    duration_minutes: Optional[int] = None
+    average_power_kw: Optional[float] = None
+    peak_power_kw: Optional[float] = None
+    efficiency_percent: Optional[float] = None
 
 
 def petrol_pence_per_mile(p_per_litre: float, mpg_uk: float) -> Optional[float]:
@@ -246,6 +257,12 @@ async def compute_session_metrics(
         petrol_mpg=petrol_mpg,
     )
 
+    # Charge-mechanics fields. Each is independently derived — a session
+    # missing one piece (e.g. no power_curve on a manual entry) still
+    # gets the others. Attach to `base` so it's surfaced even when the
+    # petrol-comparison branch returns early below.
+    await _attach_charge_mechanics(base, session, cs)
+
     if cs.odometer_at_session_km is None:
         return base
 
@@ -291,7 +308,7 @@ async def compute_session_metrics(
         if chain_has_cost:
             savings_p = petrol_equiv_p - chain_total
 
-    return SessionMetrics(
+    out = SessionMetrics(
         miles_since_previous=float(round(miles)),
         cost_per_mile_p=round(cost_per_mile_p, 2) if cost_per_mile_p is not None else None,
         petrol_ppm=round(ppm, 2) if ppm is not None else None,
@@ -303,3 +320,57 @@ async def compute_session_metrics(
         chain_total_cost_pence=chain_total if chain_has_cost else None,
         chain_anchor_id=None,
     )
+    await _attach_charge_mechanics(out, session, cs)
+    return out
+
+
+async def _attach_charge_mechanics(
+    metrics: SessionMetrics,
+    session: AsyncSession,
+    cs: ChargingSession,
+) -> None:
+    """Populate the charge-mechanics fields on `metrics` (in-place).
+
+    Each metric is derived independently; missing inputs leave that
+    metric None rather than skipping the rest.
+    """
+    # Range added — needs the car for battery_kwh + nominal efficiency.
+    if cs.end_soc is not None and cs.start_soc is not None:
+        delta_soc = cs.end_soc - cs.start_soc
+        if delta_soc > 0:
+            car = await session.get(Car, cs.car_id)
+            if car is not None:
+                kwh = (delta_soc / 100.0) * float(car.battery_kwh)
+                metrics.range_added_miles = round(
+                    kwh * float(car.nominal_efficiency_mi_per_kwh), 2
+                )
+
+    # Duration + average power — both need start + end timestamps.
+    if cs.charge_start_at is not None and cs.charge_end_at is not None:
+        seconds = (cs.charge_end_at - cs.charge_start_at).total_seconds()
+        if seconds > 0:
+            metrics.duration_minutes = int(round(seconds / 60.0))
+            if cs.kwh_added and cs.kwh_added > 0:
+                hours = seconds / 3600.0
+                metrics.average_power_kw = round(cs.kwh_added / hours, 1)
+
+    # Peak power — only present on synthesis sessions where the worker
+    # accumulated a power_curve.
+    if cs.power_curve:
+        try:
+            metrics.peak_power_kw = round(
+                max(float(sample[2]) for sample in cs.power_curve), 2
+            )
+        except (TypeError, ValueError, IndexError):
+            metrics.peak_power_kw = None
+
+    # Efficiency = energy banked in the pack / energy delivered by the
+    # charger. Surfaces cold-weather losses or sketchy meters.
+    if (
+        cs.kwh_calculated is not None
+        and cs.kwh_added is not None
+        and cs.kwh_added > 0
+    ):
+        metrics.efficiency_percent = round(
+            float(cs.kwh_calculated) / float(cs.kwh_added) * 100.0, 1
+        )

@@ -49,6 +49,15 @@ class SessionMetricsPayload(BaseModel):
     chain_session_ids: list[int] = []
     chain_total_cost_pence: Optional[int] = None
     chain_anchor_id: Optional[int] = None
+    # Charge-mechanics derived fields. Any may be None when inputs are
+    # missing — manual sessions typically have no power_curve so
+    # peak_power_kw is None; sessions without start/end timestamps have
+    # no duration or avg power.
+    range_added_miles: Optional[float] = None
+    duration_minutes: Optional[int] = None
+    average_power_kw: Optional[float] = None
+    peak_power_kw: Optional[float] = None
+    efficiency_percent: Optional[float] = None
 
 
 class SessionPayload(BaseModel):
@@ -368,6 +377,11 @@ async def get_session(
         chain_session_ids=metrics.chain_session_ids,
         chain_total_cost_pence=metrics.chain_total_cost_pence,
         chain_anchor_id=metrics.chain_anchor_id,
+        range_added_miles=metrics.range_added_miles,
+        duration_minutes=metrics.duration_minutes,
+        average_power_kw=metrics.average_power_kw,
+        peak_power_kw=metrics.peak_power_kw,
+        efficiency_percent=metrics.efficiency_percent,
     )
     return payload
 

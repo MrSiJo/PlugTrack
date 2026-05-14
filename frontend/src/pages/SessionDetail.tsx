@@ -213,6 +213,105 @@ function ChargeCurve({ samples }: ChargeCurveProps) {
   )
 }
 
+interface ChargeMechanicsProps {
+  metrics: SessionMetricsPayload
+  unit: 'mi' | 'km'
+  kwhAdded: number
+  kwhCalculated: number | null
+}
+
+function fmtDuration(minutes: number | null): string {
+  if (minutes === null) return '—'
+  if (minutes < 60) return `${minutes} min`
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return m === 0 ? `${h}h` : `${h}h ${m}m`
+}
+
+function fmtKw(v: number | null): string {
+  return v === null ? '—' : `${v.toFixed(1)} kW`
+}
+
+function fmtRange(miles: number | null, unit: 'mi' | 'km'): string {
+  if (miles === null) return '—'
+  return unit === 'mi'
+    ? `${miles.toFixed(0)} mi`
+    : `${(miles * 1.609344).toFixed(0)} km`
+}
+
+function ChargeMechanics({
+  metrics,
+  unit,
+  kwhAdded,
+  kwhCalculated,
+}: ChargeMechanicsProps) {
+  // Suppress the whole section if every field is None (e.g. a manual
+  // session with only SoC + kWh + cost — nothing useful to display).
+  const hasAny =
+    metrics.range_added_miles !== null
+    || metrics.duration_minutes !== null
+    || metrics.average_power_kw !== null
+    || metrics.peak_power_kw !== null
+    || metrics.efficiency_percent !== null
+  if (!hasAny) return null
+
+  return (
+    <section className="mb-6" data-testid="charge-mechanics">
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+        Charge mechanics
+      </h2>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile
+          label="Range added"
+          value={
+            <span data-testid="metric-range-added">
+              {fmtRange(metrics.range_added_miles, unit)}
+            </span>
+          }
+        />
+        <StatTile
+          label="Duration"
+          value={
+            <span data-testid="metric-duration">
+              {fmtDuration(metrics.duration_minutes)}
+            </span>
+          }
+        />
+        <StatTile
+          label="Avg power"
+          value={
+            <span data-testid="metric-avg-power">
+              {fmtKw(metrics.average_power_kw)}
+            </span>
+          }
+        />
+        <StatTile
+          label="Peak power"
+          value={
+            <span data-testid="metric-peak-power">
+              {fmtKw(metrics.peak_power_kw)}
+            </span>
+          }
+        />
+      </div>
+      {metrics.efficiency_percent !== null && (
+        <p
+          className="mt-3 text-[11px] text-slate-500 dark:text-slate-400"
+          data-testid="metric-efficiency"
+        >
+          Energy efficiency: <strong>{metrics.efficiency_percent.toFixed(1)}%</strong>
+          {kwhCalculated !== null && (
+            <>
+              {' '}(charger {kwhAdded.toFixed(1)} kWh → pack{' '}
+              {kwhCalculated.toFixed(1)} kWh)
+            </>
+          )}
+        </p>
+      )}
+    </section>
+  )
+}
+
 interface PetrolComparisonProps {
   metrics: SessionMetricsPayload
   unit: 'mi' | 'km'
@@ -808,6 +907,15 @@ export default function SessionDetail() {
             </Card>
           </section>
         )}
+
+      {session.metrics && (
+        <ChargeMechanics
+          metrics={session.metrics}
+          unit={unit}
+          kwhAdded={session.kwh_added}
+          kwhCalculated={session.kwh_calculated ?? null}
+        />
+      )}
 
       {session.metrics && (
         <section className="mb-6">

@@ -299,6 +299,11 @@ export interface SessionMetricsPayload {
   chain_session_ids: number[]
   chain_total_cost_pence: number | null
   chain_anchor_id: number | null
+  range_added_miles: number | null
+  duration_minutes: number | null
+  average_power_kw: number | null
+  peak_power_kw: number | null
+  efficiency_percent: number | null
 }
 
 export interface SessionCreateRequest {

@@ -35,7 +35,21 @@ def test_total_override_wins_over_everything():
     )
     assert cost_pence == 1840
     assert cost_basis == "override_total"
-    # No per-kwh override given — tariff is None.
+    # Tariff is derived from the total: 1840 / 21.5 = 85.58 p/kWh.
+    # Surfacing this lets the UI show "you paid ~85.6 p/kWh effective".
+    assert tariff == pytest.approx(85.58, abs=0.01)
+
+
+def test_total_override_tariff_none_when_kwh_zero():
+    """Guard against division-by-zero on degenerate sessions."""
+    cost_pence, cost_basis, tariff = compute_session_cost(
+        kwh_added=0.0,
+        location=None,
+        session_overrides={"total_cost_pence_override": 100},
+        settings_default_home_rate_p_per_kwh=HOME_RATE,
+    )
+    assert cost_pence == 100
+    assert cost_basis == "override_total"
     assert tariff is None
 
 
