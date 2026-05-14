@@ -36,7 +36,7 @@ import { useSyncStore } from '@/stores/syncStore'
 import { formatCurrency } from '@/utils/currency'
 import { useSetting } from '@/stores/settingsStore'
 
-type SourceFilter = 'all' | 'manual' | 'synthesis' | 'cariad'
+type SourceFilter = 'all' | 'manual' | 'synthesis' | 'cariad' | 'phantom'
 
 type DateRange = 'this_month' | 'last_30' | 'last_90' | 'this_year' | 'all'
 
@@ -58,6 +58,7 @@ const SOURCE_LABEL: Record<string, string> = {
   manual: 'Manual',
   synthesis: 'Cupra',
   cariad: 'Cariad',
+  phantom: 'Phantom',
 }
 
 function dateRangeBounds(range: DateRange): {
@@ -214,7 +215,7 @@ export default function Sessions() {
       />
 
       <div className="mb-4 flex flex-wrap gap-2" data-testid="source-tabs">
-        {(['all', 'manual', 'synthesis', 'cariad'] as SourceFilter[]).map(
+        {(['all', 'manual', 'synthesis', 'cariad', 'phantom'] as SourceFilter[]).map(
           (f) => (
             <button
               key={f}

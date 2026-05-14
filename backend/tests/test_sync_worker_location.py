@@ -437,3 +437,135 @@ async def test_geocoder_failure_leaves_address_null(
         assert loc.address is None
         assert loc.address_provider is None
         assert loc.address_fetched_at is None
+
+
+# ---------------------------------------------------------------------------
+# Visit tracking: close_plug_in increments Location.visit_count and stamps
+# Location.last_visited_at on the resolved cluster.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_close_plug_in_increments_visit_count(
+    seeded, test_sessionmaker, monkeypatch,
+):
+    bus = _RecordingBus()
+    car_id = seeded["car_id"]
+
+    # Seed an open plug-in + session for this window.
+    async with test_sessionmaker() as session:
+        pir = PlugInRecord(
+            user_id=seeded["user_id"], car_id=car_id,
+            plug_in_at=_ts(), plug_in_soc=40,
+        )
+        session.add(pir)
+        await session.commit()
+        await session.refresh(pir)
+        cs = ChargingSession(
+            user_id=seeded["user_id"], car_id=car_id,
+            plug_in_record_id=pir.id, date=_ts().date(),
+            charge_start_at=_ts(60), charge_end_at=_ts(3600),
+            start_soc=40, end_soc=80, kwh_added=30.8,
+            source="synthesis",
+        )
+        session.add(cs)
+        await session.commit()
+        await session.refresh(cs)
+        plug_in_id, session_id = pir.id, cs.id
+
+    pos = Position(lat=51.500, lng=-0.100, captured_at=_ts(60))
+    state = CarSyncState(
+        last_state="CHARGING_DONE", last_soc=80,
+        last_car_captured_timestamp=_ts(3600),
+    )
+    telemetry = _vehicle(
+        cable=False, charging=False, soc=80, captured_at=_ts(7200), position=None,
+    )
+
+    async def fetcher(_conn, _vid):
+        return telemetry
+
+    monkeypatch.setattr(sw, "get_geocoding_provider", lambda _s: NoOpProvider())
+
+    worker = _make_worker(test_sessionmaker, bus, fetcher)
+    worker._scratch[car_id] = _PlugInScratch(
+        plug_in_record_id=plug_in_id,
+        session_ids=[session_id],
+        positions=[pos],
+    )
+
+    job = SyncJob(job_id="j-visit", car_id=car_id, kind="periodic")
+    await worker.run(job, state)
+
+    async with test_sessionmaker() as session:
+        pir = await session.get(PlugInRecord, plug_in_id)
+        loc = await session.get(Location, pir.location_id)
+        assert loc.visit_count == 1
+        assert loc.last_visited_at is not None
+        # last_visited_at tracks the plug_out_at timestamp.
+        assert loc.last_visited_at.replace(tzinfo=None) == _ts(7200).replace(tzinfo=None)
+
+
+@pytest.mark.asyncio
+async def test_repeat_visits_increment_visit_count(
+    seeded, test_sessionmaker, monkeypatch,
+):
+    """Two plug-in cycles at the same location -> visit_count = 2."""
+    bus = _RecordingBus()
+    car_id = seeded["car_id"]
+    monkeypatch.setattr(sw, "get_geocoding_provider", lambda _s: NoOpProvider())
+
+    pos = Position(lat=51.500, lng=-0.100, captured_at=_ts(60))
+    telemetry = _vehicle(
+        cable=False, charging=False, soc=80, captured_at=_ts(7200), position=None,
+    )
+
+    async def fetcher(_conn, _vid):
+        return telemetry
+
+    worker = _make_worker(test_sessionmaker, bus, fetcher)
+
+    # ---- First visit ----
+    async with test_sessionmaker() as session:
+        pir1 = PlugInRecord(
+            user_id=seeded["user_id"], car_id=car_id,
+            plug_in_at=_ts(), plug_in_soc=40,
+        )
+        session.add(pir1)
+        await session.commit()
+        await session.refresh(pir1)
+        pir1_id = pir1.id
+
+    worker._scratch[car_id] = _PlugInScratch(
+        plug_in_record_id=pir1_id, session_ids=[], positions=[pos],
+    )
+    state = CarSyncState(
+        last_state="PLUGGED_IN", last_soc=80,
+        last_car_captured_timestamp=_ts(3600),
+    )
+    await worker.run(SyncJob(job_id="j-v1", car_id=car_id, kind="periodic"), state)
+
+    # ---- Second visit, same lat/lng -> same cluster ----
+    async with test_sessionmaker() as session:
+        pir2 = PlugInRecord(
+            user_id=seeded["user_id"], car_id=car_id,
+            plug_in_at=_ts(10_000), plug_in_soc=40,
+        )
+        session.add(pir2)
+        await session.commit()
+        await session.refresh(pir2)
+        pir2_id = pir2.id
+
+    worker._scratch[car_id] = _PlugInScratch(
+        plug_in_record_id=pir2_id, session_ids=[], positions=[pos],
+    )
+    state2 = CarSyncState(
+        last_state="PLUGGED_IN", last_soc=80,
+        last_car_captured_timestamp=_ts(11_000),
+    )
+    await worker.run(SyncJob(job_id="j-v2", car_id=car_id, kind="periodic"), state2)
+
+    async with test_sessionmaker() as session:
+        pir = await session.get(PlugInRecord, pir2_id)
+        loc = await session.get(Location, pir.location_id)
+        assert loc.visit_count == 2

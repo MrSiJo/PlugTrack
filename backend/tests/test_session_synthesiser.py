@@ -272,3 +272,78 @@ def test_first_poll_no_prev_timestamp_runs_normally() -> None:
     assert tr.state_observed == "IDLE"
     # no_change because no actual transition
     assert tr.no_change is True
+
+
+# ---------------------------------------------------------------------------
+# Phantom-session detection: IDLE → IDLE with a SoC jump above threshold.
+#
+# When the entire plug-in → charge → plug-out cycle fits between two
+# polls (or the cloud never reflected cable-connected during a public
+# charge), the state machine sees IDLE → IDLE and loses the session.
+# Detect by SoC delta and emit a phantom_session transition so the
+# worker can synthesise a placeholder row for the user to complete.
+# ---------------------------------------------------------------------------
+
+
+def test_idle_to_idle_with_soc_jump_emits_phantom() -> None:
+    sm = StateMachine()
+    prev = CarSyncState(
+        last_state="IDLE",
+        last_soc=60,
+        last_car_captured_timestamp=_ts(),
+    )
+    tel = _vehicle(cable=False, charging=False, soc=86, captured_at=_ts(1800))
+    tr = sm.step(prev, tel)
+    assert tr.phantom_session is not None
+    assert tr.phantom_session["start_soc"] == 60
+    assert tr.phantom_session["end_soc"] == 86
+    assert tr.phantom_session["charge_start_at"] == _ts()
+    assert tr.phantom_session["charge_end_at"] == _ts(1800)
+    assert tr.state_observed == "IDLE"
+    # phantom replaces the no_change fallthrough.
+    assert tr.no_change is False
+    assert tr.open_plug_in is None
+    assert tr.open_session is None
+
+
+def test_idle_to_idle_below_threshold_no_phantom() -> None:
+    """Small SoC ticks (regen, measurement noise) must NOT trigger phantom."""
+    sm = StateMachine()
+    prev = CarSyncState(
+        last_state="IDLE",
+        last_soc=60,
+        last_car_captured_timestamp=_ts(),
+    )
+    tel = _vehicle(cable=False, charging=False, soc=63, captured_at=_ts(60))
+    tr = sm.step(prev, tel)
+    assert tr.phantom_session is None
+    assert tr.no_change is True
+    assert tr.state_observed == "IDLE"
+
+
+def test_idle_to_idle_soc_decrease_no_phantom() -> None:
+    """SoC dropping (driving) is not a charge."""
+    sm = StateMachine()
+    prev = CarSyncState(
+        last_state="IDLE",
+        last_soc=60,
+        last_car_captured_timestamp=_ts(),
+    )
+    tel = _vehicle(cable=False, charging=False, soc=45, captured_at=_ts(60))
+    tr = sm.step(prev, tel)
+    assert tr.phantom_session is None
+    assert tr.no_change is True
+
+
+def test_idle_to_idle_no_prev_soc_no_phantom() -> None:
+    """First poll after boot with no prev.last_soc cannot detect a phantom."""
+    sm = StateMachine()
+    prev = CarSyncState(
+        last_state="IDLE",
+        last_soc=None,
+        last_car_captured_timestamp=_ts(),
+    )
+    tel = _vehicle(cable=False, charging=False, soc=80, captured_at=_ts(60))
+    tr = sm.step(prev, tel)
+    assert tr.phantom_session is None
+    assert tr.no_change is True

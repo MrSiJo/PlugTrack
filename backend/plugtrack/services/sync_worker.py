@@ -316,6 +316,13 @@ class ProductionPollWorker:
             updated += updated_count
             emitted.append("close_plug_in")
 
+        if transitions.phantom_session is not None:
+            await self._handle_phantom_session(
+                job, car, transitions.phantom_session,
+            )
+            opened += 1
+            emitted.append("phantom_session")
+
         # ---- Finalise the SyncRun ----
         final_status = "no_change" if transitions.no_change else "completed"
         async with self._db_sessionmaker() as session:
@@ -780,6 +787,13 @@ class ProductionPollWorker:
                     if resolved_loc is not None
                     else None
                 )
+                # Stamp the visit on the location row. The list/dashboard
+                # endpoints recompute aggregates from sessions, but the
+                # stored column matches reality too so direct queries
+                # don't lie.
+                if resolved_loc is not None:
+                    resolved_loc.visit_count = int(resolved_loc.visit_count or 0) + 1
+                    resolved_loc.last_visited_at = payload["plug_out_at"]
                 for sid in session_ids_to_patch:
                     sess_row = await session.get(ChargingSession, sid)
                     if sess_row is not None:
@@ -808,6 +822,77 @@ class ProductionPollWorker:
                 )
 
         return updated
+
+    async def _handle_phantom_session(
+        self,
+        job: SyncJob,
+        car: Car,
+        payload: dict,
+    ) -> None:
+        """Write a placeholder ChargingSession for an IDLE->IDLE SoC jump.
+
+        Confidence is low by construction: we never observed the cable,
+        the charger network, the actual start/end timestamps, or the
+        location. The row goes in as `source="phantom"`,
+        `interrupted=True`, `cost_basis="unknown"`, and `location_id=NULL`
+        so the user is prompted to complete it manually rather than the
+        cost-precedence rule silently attributing it to the home rate.
+        """
+        start_soc = int(payload["start_soc"])
+        end_soc = int(payload["end_soc"])
+        kwh_added = max(0.0, (end_soc - start_soc) / 100.0 * float(car.battery_kwh))
+        charge_start_at = payload.get("charge_start_at")
+        charge_end_at = payload.get("charge_end_at")
+
+        session_date = (
+            charge_end_at.date() if isinstance(charge_end_at, datetime) else date.today()
+        )
+
+        async with self._db_sessionmaker() as session:
+            row = ChargingSession(
+                user_id=car.user_id,
+                car_id=car.id,
+                plug_in_record_id=None,
+                location_id=None,
+                date=session_date,
+                charge_start_at=charge_start_at,
+                charge_end_at=charge_end_at,
+                start_soc=start_soc,
+                end_soc=end_soc,
+                kwh_added=kwh_added,
+                kwh_calculated=kwh_added,
+                charging_type="unknown",
+                charging_mode="unknown",
+                interrupted=True,
+                cost_pence=None,
+                cost_basis="unknown",
+                tariff_p_per_kwh=None,
+                source="phantom",
+                notes=(
+                    "auto-detected from SoC delta during IDLE poll - "
+                    "the cable-connected window was not observed. "
+                    "Set location, charge_network and cost manually."
+                ),
+            )
+            session.add(row)
+            await session.commit()
+            await session.refresh(row)
+            row_id = row.id
+
+        await self._publish(
+            job, "sync.phantom_session_created",
+            {
+                "session": {
+                    "id": row_id,
+                    "car_id": car.id,
+                    "start_soc": start_soc,
+                    "end_soc": end_soc,
+                    "kwh_added": kwh_added,
+                    "charge_start_at": charge_start_at,
+                    "charge_end_at": charge_end_at,
+                },
+            },
+        )
 
     async def _geocode_async(
         self,
