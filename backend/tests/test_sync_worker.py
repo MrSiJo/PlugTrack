@@ -522,6 +522,83 @@ async def test_production_poll_worker_function_facade(seeded, test_sessionmaker)
 
 
 # ---------------------------------------------------------------------------
+# Phantom-session detection: the worker writes a placeholder row when the
+# state machine flags an IDLE→IDLE SoC jump.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_phantom_session_writes_placeholder_row(seeded, test_sessionmaker):
+    bus = _RecordingBus()
+    car_id = seeded["car_id"]
+    # Car came online with a much higher SoC than we'd last seen — the
+    # entire charge happened off-poll. State stays IDLE.
+    state = CarSyncState(
+        last_state="IDLE",
+        last_soc=60,
+        last_car_captured_timestamp=_ts(),
+    )
+    telemetry = _vehicle(
+        cable=False, charging=False, soc=86, captured_at=_ts(1800),
+    )
+
+    async def fetcher(_conn, _vid):
+        return telemetry
+
+    worker = _make_worker(test_sessionmaker, bus, fetcher)
+    job = SyncJob(job_id="jp", car_id=car_id, kind="periodic")
+    new_state = await worker.run(job, state)
+
+    assert new_state.last_state == "IDLE"
+    assert new_state.last_soc == 86
+
+    async with test_sessionmaker() as session:
+        rows = (await session.execute(select(ChargingSession))).scalars().all()
+        assert len(rows) == 1
+        cs = rows[0]
+        assert cs.source == "phantom"
+        assert cs.start_soc == 60
+        assert cs.end_soc == 86
+        # 26 pp * 77 kWh / 100 = 20.02 kWh
+        assert abs(cs.kwh_added - 20.02) < 0.01
+        # SQLite strips tz info on round-trip; compare against the naive form.
+        assert cs.charge_start_at.replace(tzinfo=None) == _ts().replace(tzinfo=None)
+        assert cs.charge_end_at.replace(tzinfo=None) == _ts(1800).replace(tzinfo=None)
+        assert cs.plug_in_record_id is None
+        assert cs.location_id is None
+        assert cs.cost_pence is None
+        assert cs.cost_basis == "unknown"
+        assert cs.interrupted is True
+        assert cs.charging_type == "unknown"
+
+    assert "sync.phantom_session_created" in bus.event_names()
+
+
+@pytest.mark.asyncio
+async def test_phantom_below_threshold_writes_nothing(seeded, test_sessionmaker):
+    bus = _RecordingBus()
+    car_id = seeded["car_id"]
+    state = CarSyncState(
+        last_state="IDLE", last_soc=60, last_car_captured_timestamp=_ts(),
+    )
+    # 60 → 63 = 3 pp, below the 5 pp threshold.
+    telemetry = _vehicle(cable=False, charging=False, soc=63, captured_at=_ts(60))
+
+    async def fetcher(_conn, _vid):
+        return telemetry
+
+    worker = _make_worker(test_sessionmaker, bus, fetcher)
+    job = SyncJob(job_id="jp2", car_id=car_id, kind="periodic")
+    await worker.run(job, state)
+
+    async with test_sessionmaker() as session:
+        rows = (await session.execute(select(ChargingSession))).scalars().all()
+        assert rows == []
+
+    assert "sync.phantom_session_created" not in bus.event_names()
+
+
+# ---------------------------------------------------------------------------
 # clear_cached_connections is exposed.
 # ---------------------------------------------------------------------------
 

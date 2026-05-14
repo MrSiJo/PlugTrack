@@ -142,7 +142,7 @@ async def _lifespan(app: FastAPI):
     # dashboard shows last-known battery/range/state immediately on
     # cold start (before the first periodic sync fires).
     from sqlalchemy import select as _select
-    from .models import CarStateSnapshot
+    from .models import CarStateSnapshot, PlugInRecord
     rehydrated_car_ids: list[int] = []
     async with db_module.SessionLocal() as session:
         snaps = (
@@ -160,6 +160,25 @@ async def _lifespan(app: FastAPI):
             st.last_location_id = snap.last_location_id
             st.last_car_captured_timestamp = snap.last_car_captured_timestamp
             rehydrated_car_ids.append(snap.car_id)
+
+            # Orphan-plug-in watchdog: if the snapshot says we're IDLE,
+            # any open PlugInRecord for this car is the leftover of an
+            # unplug missed across a restart. Close it conservatively at
+            # the snapshot's last-known timestamp + SoC so the row stops
+            # haunting subsequent state transitions.
+            if st.last_state == "IDLE":
+                orphans = (
+                    await session.execute(
+                        _select(PlugInRecord).where(
+                            PlugInRecord.car_id == snap.car_id,
+                            PlugInRecord.plug_out_at.is_(None),
+                        )
+                    )
+                ).scalars().all()
+                for pir in orphans:
+                    pir.plug_out_at = snap.last_car_captured_timestamp
+                    pir.plug_out_soc = snap.last_soc
+        await session.commit()
 
     async def _scheduled_sync(car_id: int) -> None:
         await app.state.sync_orchestrator.sync_car(car_id, kind="periodic")

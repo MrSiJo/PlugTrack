@@ -240,7 +240,7 @@ async def _apply_cost(
     cs.tariff_p_per_kwh = tariff
 
 
-_VALID_SOURCES = frozenset({"manual", "synthesis", "cariad"})
+_VALID_SOURCES = frozenset({"manual", "synthesis", "cariad", "phantom"})
 
 
 @router.get("", response_model=list[SessionPayload])

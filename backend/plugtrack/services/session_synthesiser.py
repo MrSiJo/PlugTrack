@@ -15,6 +15,18 @@ from ..plugins.pycupra.models import VehicleState
 from .sync_orchestrator import CarSyncState
 
 
+# Minimum SoC delta (percentage points) for the IDLE→IDLE phantom-charge
+# detector to fire. The Cupra Connect cloud sometimes never reflects
+# cable-connected during a public charge (DC rapids away from home, car
+# cell coverage gaps), or the whole plug-in cycle fits between two polls.
+# In those cases prev.last_state stays IDLE, new_state is also IDLE, and
+# only the SoC has moved. A jump >= this threshold synthesises a
+# placeholder "phantom" session the user can complete by hand. Below the
+# threshold we treat the delta as regen / measurement noise / cabin
+# preconditioning artefacts and stay silent.
+PHANTOM_SOC_DELTA_THRESHOLD: int = 5
+
+
 # Known charging_state_raw enum values per pycupra observations + docs.
 KNOWN_CHARGING_STATES: frozenset[str] = frozenset(
     {
@@ -44,6 +56,10 @@ class Transitions:
     open_session: Optional[dict[str, Any]] = None
     close_session: Optional[dict[str, Any]] = None
     error_session: Optional[dict[str, Any]] = None
+    # IDLE→IDLE with SoC jump above PHANTOM_SOC_DELTA_THRESHOLD.
+    # Worker handles this as a single insert: a placeholder session with
+    # source="phantom", interrupted=True, no plug-in linkage, no cost.
+    phantom_session: Optional[dict[str, Any]] = None
     no_change: bool = False
     unknown_state: Optional[str] = None
     state_observed: Optional[str] = None  # post-transition state for cadence
@@ -217,6 +233,27 @@ class StateMachine:
                     "end_soc": telemetry.battery_level,
                     "interrupted": True,
                 }
+            return tr
+
+        # ---- IDLE → IDLE with SoC jump → phantom session ----
+        # When the cloud never reflected cable-connected during a public
+        # charge, or the whole cycle fits between two polls, prev and
+        # new both stay IDLE while the battery has visibly filled. Emit
+        # a placeholder session the user can complete; bracket it with
+        # the two captured-at timestamps as a best-effort guess.
+        if (
+            prev_state == "IDLE"
+            and new_state == "IDLE"
+            and prev.last_soc is not None
+            and telemetry.battery_level is not None
+            and telemetry.battery_level - prev.last_soc >= PHANTOM_SOC_DELTA_THRESHOLD
+        ):
+            tr.phantom_session = {
+                "start_soc": prev.last_soc,
+                "end_soc": telemetry.battery_level,
+                "charge_start_at": prev.last_car_captured_timestamp,
+                "charge_end_at": telemetry.car_captured_timestamp,
+            }
             return tr
 
         # ---- No actual transition ----
