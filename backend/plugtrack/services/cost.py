@@ -27,6 +27,13 @@ spec — `total_cost_pence_override` wins (sets `cost_pence` and
 `cost_basis='override_total'`), but we PRESERVE
 `cost_per_kwh_override_p` as the returned `tariff_p_per_kwh` so the
 SessionDetail breakdown widget can show "rate × kWh + £x fees".
+
+Total-only override: when only `total_cost_pence_override` is set we
+DERIVE `tariff_p_per_kwh = total / kwh_added` (rounded to 2dp) so the
+effective rate is surfaced to the user. Public chargers often only
+print the total on the receipt, and this lets PlugTrack still answer
+"what did I pay per kWh" without the user having to do the maths.
+Returns `None` when `kwh_added == 0` to avoid division by zero.
 """
 from __future__ import annotations
 
@@ -56,12 +63,17 @@ def compute_session_cost(
     total_override = session_overrides.get("total_cost_pence_override")
     per_kwh_override = session_overrides.get("cost_per_kwh_override_p")
 
-    # Mixed override: total wins for `cost_pence` / `cost_basis`, but
-    # the per-kWh override is preserved as the tariff snapshot.
+    # Total wins for `cost_pence` / `cost_basis`. Tariff resolution:
+    #   - per-kWh override given too → use that (mixed-override case).
+    #   - else → derive from the total (effective p/kWh display).
+    #   - kwh_added is zero → None to avoid division-by-zero.
     if total_override is not None:
-        tariff_for_breakdown = (
-            float(per_kwh_override) if per_kwh_override is not None else None
-        )
+        if per_kwh_override is not None:
+            tariff_for_breakdown: Optional[float] = float(per_kwh_override)
+        elif kwh_added > 0:
+            tariff_for_breakdown = round(float(total_override) / float(kwh_added), 2)
+        else:
+            tariff_for_breakdown = None
         return int(total_override), "override_total", tariff_for_breakdown
 
     if per_kwh_override is not None:
