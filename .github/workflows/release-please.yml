@@ -22,6 +22,8 @@ name: Release please
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - scripts/**
   workflow_dispatch:
 
 permissions:

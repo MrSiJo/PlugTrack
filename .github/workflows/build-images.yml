@@ -29,6 +29,7 @@ on:
       - .pre-commit-config.yaml
       - .release-please-manifest.json
       - release-please-config.json
+      - scripts/**
   pull_request:
     branches: [main]
     paths:
