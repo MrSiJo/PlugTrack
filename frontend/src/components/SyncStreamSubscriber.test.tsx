@@ -39,6 +39,7 @@ describe('SyncStreamSubscriber', () => {
           last_error: null,
           active_job_id: 'job-xyz',
           consecutive_failures: 0,
+          auth_invalid: false,
         },
         '2': {
           last_state: 'IDLE',
@@ -47,6 +48,7 @@ describe('SyncStreamSubscriber', () => {
           last_error: null,
           active_job_id: null,
           consecutive_failures: 0,
+          auth_invalid: false,
         },
       },
     })
@@ -69,6 +71,37 @@ describe('SyncStreamSubscriber', () => {
     // EventSource closed on unmount.
     expect(closeSpy).toHaveBeenCalled()
     expect(useSyncStore.getState().currentJobsByCarId[1]).toBeUndefined()
+  })
+
+  it('surfaces auth_invalid from the status snapshot into the banner store', async () => {
+    // A silent periodic failure: no active job to stream, but the snapshot
+    // reports the car as auth_invalid. The subscriber must seed
+    // lastErrorByCarId so AuthFailureBanner lights up without waiting for a
+    // user-watched force-sync.
+    vi.spyOn(api, 'getSyncStatus').mockResolvedValue({
+      cars: {
+        '1': {
+          last_state: 'IDLE',
+          last_soc: 79,
+          next_poll_at: null,
+          last_error: 'credentials_invalid',
+          active_job_id: null,
+          consecutive_failures: 461,
+          auth_invalid: true,
+        },
+      },
+    })
+
+    const { unmount } = render(<SyncStreamSubscriber />)
+
+    await waitFor(() => {
+      expect(useSyncStore.getState().lastErrorByCarId[1]).toBe(
+        'credentials_invalid',
+      )
+    })
+    // No stream opened — there was no active job.
+    expect(constructed.length).toBe(0)
+    unmount()
   })
 
   it('renders nothing on 401 (not logged in)', async () => {

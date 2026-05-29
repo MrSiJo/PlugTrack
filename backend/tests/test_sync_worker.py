@@ -607,3 +607,44 @@ def test_clear_cached_connections_is_idempotent():
     # Should never raise even if cache is already empty.
     clear_cached_connections()
     clear_cached_connections()
+
+
+# ---------------------------------------------------------------------------
+# Fetch-time ProviderAuthError is classified as credentials_invalid.
+#
+# The 403-on-garage / "No vehicles found" case reaches the worker as a
+# ProviderAuthError from the adapter. It must be treated as an auth failure
+# (auth_invalid + credentials_invalid), NOT bucketed as generic "network" —
+# otherwise the scheduler keeps polling a dead endpoint and nothing surfaces.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fetch_provider_auth_error_sets_auth_invalid(seeded, test_sessionmaker):
+    from plugtrack.plugins.pycupra.models import ProviderAuthError
+
+    bus = _RecordingBus()
+    car_id = seeded["car_id"]
+
+    async def failing_fetcher(_conn, _vid):
+        raise ProviderAuthError("No vehicles were found for given account!")
+
+    worker = _make_worker(test_sessionmaker, bus, failing_fetcher)
+    state = CarSyncState(last_state="IDLE")
+    job = SyncJob(job_id="auth-fetch-1", car_id=car_id, kind="periodic")
+    new_state = await worker.run(job, state)
+
+    assert new_state.auth_invalid is True
+    assert new_state.last_error == "credentials_invalid"
+    assert new_state.consecutive_failures == 1
+
+    # The sync.failed event must carry credentials_invalid so the UI banner
+    # (which keys off that reason) lights up.
+    failed = bus.first("sync.failed")
+    assert failed.data["reason"] == "credentials_invalid"
+
+    # And the persisted SyncRun row records it as credentials_invalid.
+    async with test_sessionmaker() as session:
+        run = (await session.execute(select(SyncRun))).scalars().all()[-1]
+        assert run.status == "failed"
+        assert run.error_reason == "credentials_invalid"

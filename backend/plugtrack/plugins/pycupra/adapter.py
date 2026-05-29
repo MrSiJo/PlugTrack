@@ -16,8 +16,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 from pycupra import Connection  # type: ignore[import-untyped]
+from pycupra.exceptions import (  # type: ignore[import-untyped]
+    PyCupraConfigException,
+    PyCupraLoginFailedException,
+)
 
-from .models import Credentials, Position, VehicleState
+from .models import Credentials, Position, ProviderAuthError, VehicleState
 
 
 def _utcnow() -> datetime:
@@ -157,7 +161,17 @@ async def fetch_vehicle_state(connection: Connection, vehicle_id: str) -> Vehicl
     """
     # `get_vehicles()` populates `connection._vehicles` and returns a bool.
     # The actual Vehicle objects live on `_vehicles` (list in pycupra v0.2.x).
-    await connection.get_vehicles()
+    #
+    # A 403 on the garage endpoint (e.g. Cupra's 2026-05-20 API change vs
+    # an outdated pycupra) surfaces here as PyCupraConfigException
+    # ("No vehicles were found for given account!"), and a rejected token as
+    # PyCupraLoginFailedException. Both are authorization failures, not
+    # transient network errors — re-raise as ProviderAuthError so the worker
+    # flags auth_invalid and stops the scheduler hammering a dead endpoint.
+    try:
+        await connection.get_vehicles()
+    except (PyCupraConfigException, PyCupraLoginFailedException) as exc:
+        raise ProviderAuthError(str(exc)) from exc
     raw = getattr(connection, "_vehicles", None)
     if isinstance(raw, dict):
         candidates = list(raw.values())

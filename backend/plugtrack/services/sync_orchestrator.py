@@ -214,11 +214,20 @@ class SyncOrchestrator:
             state.active_job_id = job.job_id
             self._active_jobs[car_id] = job
 
+            failures_before = state.consecutive_failures
             try:
                 await self._poll_worker(job, state)
                 job.complete()
-                state.consecutive_failures = 0
-                state.last_error = None
+                # The production worker never raises — it records its own
+                # failure on the returned state (consecutive_failures bumped,
+                # last_error set, auth_invalid flipped). Only reset the
+                # counter for simple workers that DON'T manage it themselves,
+                # detected by the counter not having grown during this run.
+                # Otherwise a worker-reported failure would be silently wiped
+                # (no backoff, nothing for the UI to surface).
+                if state.consecutive_failures <= failures_before:
+                    state.consecutive_failures = 0
+                    state.last_error = None
             except Exception as exc:  # noqa: BLE001 — surface to job handle
                 job.fail("worker_error", str(exc))
                 state.consecutive_failures += 1

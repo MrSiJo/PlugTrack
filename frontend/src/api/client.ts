@@ -572,6 +572,7 @@ export interface CarSyncStatus {
   last_error: string | null
   active_job_id: string | null
   consecutive_failures: number
+  auth_invalid: boolean
 }
 
 export interface SyncStatusResponse {
