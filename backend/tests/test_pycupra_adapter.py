@@ -165,3 +165,45 @@ async def test_force_refresh_passes_through_to_connection():
 
     assert result is True
     connection.setRefresh.assert_awaited_once_with("TESTVIN0000000001")
+
+
+# ---------------------------------------------------------------------------
+# pycupra exception → ProviderAuthError translation
+#
+# A 403 on the garage endpoint surfaces as PyCupraConfigException
+# ("No vehicles were found for given account!"). That is an authorization
+# failure, not a transient network error, so the adapter re-raises it as
+# ProviderAuthError for the worker to classify as credentials_invalid.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fetch_translates_no_vehicles_to_provider_auth_error():
+    from pycupra.exceptions import PyCupraConfigException
+
+    from plugtrack.plugins.pycupra.models import ProviderAuthError
+
+    connection = MagicMock()
+    connection.get_vehicles = AsyncMock(
+        side_effect=PyCupraConfigException(
+            "No vehicles were found for given account!"
+        )
+    )
+
+    with pytest.raises(ProviderAuthError):
+        await fetch_vehicle_state(connection, "TESTVIN0000000001")
+
+
+@pytest.mark.asyncio
+async def test_fetch_translates_login_failed_to_provider_auth_error():
+    from pycupra.exceptions import PyCupraLoginFailedException
+
+    from plugtrack.plugins.pycupra.models import ProviderAuthError
+
+    connection = MagicMock()
+    connection.get_vehicles = AsyncMock(
+        side_effect=PyCupraLoginFailedException("token rejected")
+    )
+
+    with pytest.raises(ProviderAuthError):
+        await fetch_vehicle_state(connection, "TESTVIN0000000001")

@@ -18,6 +18,7 @@ export default function SyncStreamSubscriber() {
   const startStream = useSyncStore((s) => s.startStream)
   const stopAllStreams = useSyncStore((s) => s.stopAllStreams)
   const setStatus = useSyncStore((s) => s.setStatus)
+  const setError = useSyncStore((s) => s.setError)
 
   useEffect(() => {
     let cancelled = false
@@ -33,6 +34,12 @@ export default function SyncStreamSubscriber() {
             lastSoc: snapshot.last_soc,
             nextPollAt: snapshot.next_poll_at,
           })
+          // Surface silent periodic auth failures: a car can be paused in
+          // auth_invalid with no active job to stream, so seed the error
+          // store from the snapshot so AuthFailureBanner shows immediately.
+          if (snapshot.auth_invalid && snapshot.last_error) {
+            setError(carId, snapshot.last_error)
+          }
           if (snapshot.active_job_id) {
             const streamUrl = `/api/sync/stream/${snapshot.active_job_id}`
             startStream(carId, snapshot.active_job_id, streamUrl, 'periodic')

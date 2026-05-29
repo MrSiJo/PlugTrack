@@ -38,7 +38,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..models import Car, ChargingSession, Location, PlugInRecord, SyncRun
-from ..plugins.pycupra.models import Position, VehicleState
+from ..plugins.pycupra.models import Position, ProviderAuthError, VehicleState
 from .cost import compute_session_cost
 from .event_bus import EventBus, SyncEvent
 from .geocoding import get_provider as get_geocoding_provider
@@ -183,7 +183,7 @@ class ProductionPollWorker:
         # ---- Authenticate + fetch telemetry ----
         try:
             connection = await self._adapter_provider(car)
-        except _AuthError as exc:
+        except (_AuthError, ProviderAuthError) as exc:
             await self._fail_run(sync_run_id, "credentials_invalid", str(exc))
             await self._publish(
                 job, "sync.failed",
@@ -218,7 +218,7 @@ class ProductionPollWorker:
 
         try:
             telemetry = await self._fetch(connection, car.provider_vehicle_id)
-        except _AuthError as exc:
+        except (_AuthError, ProviderAuthError) as exc:
             await self._fail_run(sync_run_id, "credentials_invalid", str(exc))
             await self._publish(
                 job, "sync.failed",

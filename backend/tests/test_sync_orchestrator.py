@@ -126,6 +126,29 @@ async def test_successful_sync_resets_failure_counter() -> None:
 
 
 @pytest.mark.asyncio
+async def test_worker_managed_failure_state_survives() -> None:
+    """A worker that records its own failure (never raising) must not have
+    its consecutive_failures / last_error clobbered by the orchestrator's
+    success path. The production poll-worker swallows errors and reports
+    them via the returned state, so the orchestrator must defer to it.
+    """
+    async def self_reporting_failure(job: SyncJob, state: CarSyncState) -> CarSyncState:
+        # Mimic the production worker: never raises, records its own failure.
+        state.consecutive_failures += 1
+        state.last_error = "credentials_invalid"
+        state.auth_invalid = True
+        return state
+
+    orch = SyncOrchestrator(poll_worker=self_reporting_failure)
+    await orch.sync_car(1)
+    s = orch.get_state(1)
+    assert s is not None
+    assert s.consecutive_failures == 1, "worker-recorded failure was clobbered"
+    assert s.last_error == "credentials_invalid"
+    assert s.auth_invalid is True
+
+
+@pytest.mark.asyncio
 async def test_active_job_clears_after_completion() -> None:
     async def quick(job: SyncJob, state: CarSyncState) -> None:
         return None

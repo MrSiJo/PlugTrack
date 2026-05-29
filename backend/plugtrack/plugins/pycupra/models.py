@@ -11,6 +11,19 @@ from datetime import datetime
 from typing import Optional
 
 
+class ProviderAuthError(Exception):
+    """Raised by the adapter when the provider rejects an authenticated
+    request for authorization reasons (not transient network failures).
+
+    The canonical case is a 403 on the garage endpoint, which pycupra
+    surfaces as `PyCupraConfigException("No vehicles were found for given
+    account!")`. The worker treats this like an auth failure
+    (`credentials_invalid`): it sets `auth_invalid`, stops the scheduler
+    re-polling, and surfaces a banner in the UI — rather than silently
+    bucketing it as `network` and hammering the endpoint indefinitely.
+    """
+
+
 @dataclass(frozen=True)
 class Position:
     """A single GPS position snapshot."""
