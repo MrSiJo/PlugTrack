@@ -75,3 +75,7 @@ class VehicleState:
     electric_range_km: Optional[int]
     position: Optional[Position]
     car_captured_timestamp: datetime
+    charging_mode_raw: Optional[str] = None
+    battery_care: Optional[bool] = None
+    max_charge_current: Optional[str] = None
+    charging_estimated_end_at: Optional[datetime] = None
