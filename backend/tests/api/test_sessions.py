@@ -443,6 +443,67 @@ async def test_label_location_recomputes_only_home_rate_sessions(
 
 
 @pytest.mark.asyncio
+async def test_session_payload_exposes_charge_context(authed_client):
+    """GET /api/sessions/{id} returns battery_care + max_charge_current."""
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    sid = create.json()["id"]
+    body = create.json()
+    # Fields present on the response, default null for a manual session.
+    assert "battery_care" in body
+    assert "max_charge_current" in body
+    assert body["battery_care"] is None
+    assert body["max_charge_current"] is None
+
+    got = (await authed_client.get(f"/api/sessions/{sid}")).json()
+    assert "battery_care" in got
+    assert "max_charge_current" in got
+
+
+@pytest.mark.asyncio
+async def test_update_session_accepts_charge_context(authed_client):
+    """PUT accepts battery_care + max_charge_current and persists them."""
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    sid = create.json()["id"]
+
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"battery_care": True, "max_charge_current": "maximum"},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200, upd.text
+    body = upd.json()
+    assert body["battery_care"] is True
+    assert body["max_charge_current"] == "maximum"
+
+    # Survives a reload.
+    got = (await authed_client.get(f"/api/sessions/{sid}")).json()
+    assert got["battery_care"] is True
+    assert got["max_charge_current"] == "maximum"
+
+
+@pytest.mark.asyncio
 async def test_override_columns_survive_unrelated_updates(authed_client):
     """Updating non-cost fields must not clobber the override columns."""
     from sqlalchemy import select
