@@ -111,6 +111,9 @@ docs/project/*
 docs/
 .env.probe
 
+# Local screenshots (charge-history / app captures) — personal data, never commit.
+snapshots/
+
 # v2 rebuild — legacy Flask app preserved on disk for reference, not tracked
 legacy/
 
