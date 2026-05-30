@@ -290,6 +290,37 @@ async def test_dashboard_summary_orchestrator_overrides_battery(test_sessionmake
 
 
 @pytest.mark.asyncio
+async def test_car_panel_includes_live_charge_context(test_sessionmaker):
+    user = await _make_user(test_sessionmaker)
+    car = await _make_car(test_sessionmaker, user.id)
+    await _make_session(
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=date(2026, 5, 1),
+        kwh=5.0,
+        cost_pence=40,
+        end_soc=50,
+    )
+
+    orch = SyncOrchestrator()
+    state = orch.ensure_state(car.id)
+    state.last_state = "CHARGING"
+    state.last_soc = 60
+    state.last_battery_care = True
+    state.last_max_charge_current = "maximum"
+    state.last_charging_estimated_end_at = _utcnow() + timedelta(hours=2)
+
+    async with test_sessionmaker() as session:
+        summary = await dashboard_summary(session, user.id, orchestrator=orch)
+
+    panel = summary.cars[0]
+    assert panel.battery_care is True
+    assert panel.max_charge_current == "maximum"
+    assert panel.charging_estimated_end_at is not None
+
+
+@pytest.mark.asyncio
 async def test_dashboard_summary_excludes_other_users(test_sessionmaker):
     alice = await _make_user(test_sessionmaker, username="alice")
     bob = await _make_user(test_sessionmaker, username="bob")
