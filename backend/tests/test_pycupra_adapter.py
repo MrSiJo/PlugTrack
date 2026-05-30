@@ -225,3 +225,38 @@ def test_vehiclestate_has_charge_context_fields_defaulting_none():
     assert vs.battery_care is None
     assert vs.max_charge_current is None
     assert vs.charging_estimated_end_at is None
+
+
+# ---------------------------------------------------------------------------
+# Task 2: charge-context coercion helpers + adapter reads
+# ---------------------------------------------------------------------------
+
+
+class _FakeVehicle:
+    def __init__(self, **attrs):
+        self._a = attrs
+
+    def __getattr__(self, name):
+        if name in self._a:
+            return self._a[name]
+        if name.startswith("is_") and name.endswith("_supported"):
+            return name[3:-10] in self._a
+        raise AttributeError(name)
+
+
+def test_normalise_charging_mode():
+    from plugtrack.plugins.pycupra.adapter import _normalise_charging_mode
+    assert _normalise_charging_mode("Timer") == "timer"      # property is capitalised
+    assert _normalise_charging_mode("manual") == "manual"
+    assert _normalise_charging_mode("profile") == "profile"
+    assert _normalise_charging_mode("Scheduled") == "unknown"  # not a session mode
+    assert _normalise_charging_mode(None) == "unknown"
+
+
+def test_coerce_optional_datetime_handles_aware_and_bad():
+    import datetime as dt
+    from plugtrack.plugins.pycupra.adapter import _coerce_optional_datetime
+    aware = dt.datetime(2026, 5, 30, 8, 0, tzinfo=dt.timezone.utc)
+    assert _coerce_optional_datetime(aware) == aware
+    assert _coerce_optional_datetime("not-a-date") is None
+    assert _coerce_optional_datetime(None) is None
