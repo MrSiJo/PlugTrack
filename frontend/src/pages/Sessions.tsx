@@ -61,6 +61,27 @@ const SOURCE_LABEL: Record<string, string> = {
   phantom: 'Phantom',
 }
 
+const MODE_LABEL: Record<string, string> = {
+  manual: 'Manual',
+  timer: 'Timer',
+  profile: 'Profile',
+}
+
+const TYPE_LABEL: Record<string, string> = {
+  ac: 'AC',
+  dc: 'DC',
+}
+
+/** Build a "Timer · AC"-style hint from mode/type, omitting unknown parts. */
+function chargeHint(mode: string, type: string): string | null {
+  const parts: string[] = []
+  const modeLabel = MODE_LABEL[mode]
+  if (modeLabel) parts.push(modeLabel)
+  const typeLabel = TYPE_LABEL[type]
+  if (typeLabel) parts.push(typeLabel)
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
 function dateRangeBounds(range: DateRange): {
   date_from?: string
   date_to?: string
@@ -103,6 +124,7 @@ function SessionRow({ session, highlighted, currency }: SessionRowProps) {
   const tariff = session.tariff_p_per_kwh
     ? `@ ${session.tariff_p_per_kwh.toFixed(0)}p`
     : null
+  const hint = chargeHint(session.charging_mode, session.charging_type)
   return (
     <Link
       to={`/sessions/${session.id}`}
@@ -124,6 +146,7 @@ function SessionRow({ session, highlighted, currency }: SessionRowProps) {
         <p className="truncate text-xs text-slate-500 dark:text-slate-400">
           {session.kwh_added.toFixed(1)} kWh
           {tariff && <span> {tariff}</span>}
+          {hint && <span> · {hint}</span>}
         </p>
       </div>
       <div className="flex flex-col items-end gap-1">
