@@ -774,3 +774,53 @@ async def test_batch_savings_uses_full_history_not_input_window(test_sessionmake
 async def test_batch_savings_empty_rows_returns_empty(test_sessionmaker):
     async with test_sessionmaker() as s:
         assert await compute_savings_for_sessions(s, []) == {}
+
+
+@pytest.mark.asyncio
+async def test_measured_anchor_does_not_absorb_later_null_odometer_charge(
+    test_sessionmaker,
+):
+    """Regression: a measured anchor must NOT fold a *later* odometer-less
+    manual charge into its chain.
+
+    Before the fix the forward chain absorbed every subsequent
+    NULL-odometer session, double-counting its cost against the anchor's
+    miles AND on its own estimate row — the production -£13.08 bug. Since
+    the energy-estimate fallback landed, most charges are manual (no
+    odometer), so a null no longer means "didn't move since the anchor";
+    such sessions are independent estimates.
+    """
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s)
+        s.add(Setting(key="petrol_price_p_per_litre", value="150.0", value_type="float", group_name="cost", label="x", description=None, default_value="150.0"))
+        s.add(Setting(key="petrol_mpg", value="50.0", value_type="float", group_name="cost", label="x", description=None, default_value="50.0"))
+        # Prior reading so the anchor has a measured span.
+        s.add(_session(id=1, date=date(2026, 1, 1), odo_km=900.0, cost_pence=50))
+        # Anchor: measured span, cost 1000p.
+        s.add(_session(id=2, date=date(2026, 1, 3), odo_km=1000.0, cost_pence=1000))
+        # Later independent manual charge — NO odometer, weeks later.
+        s.add(ChargingSession(
+            id=3, user_id=1, car_id=1, date=date(2026, 1, 20),
+            start_soc=60, end_soc=90, kwh_added=12.0, kwh_calculated=12.0,
+            odometer_at_session_km=None, cost_pence=300,
+            cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+
+        anchor = await s.get(ChargingSession, 2)
+        m_anchor = await compute_session_metrics(s, anchor)
+        # Anchor's chain is itself only — the later null charge is excluded.
+        assert m_anchor.chain_session_ids == [2]
+        assert m_anchor.chain_total_cost_pence == 1000
+        assert m_anchor.comparison_basis == "measured"
+
+        # The later manual charge stands on its own as an estimate.
+        later = await s.get(ChargingSession, 3)
+        m_later = await compute_session_metrics(s, later)
+        assert m_later.comparison_basis == "estimated"
+
+        # Batch agrees with single for both rows.
+        batch = await compute_savings_for_sessions(s, [anchor, later])
+        assert batch[2] == (m_anchor.savings_vs_petrol_p, m_anchor.comparison_basis)
+        assert batch[3] == (m_later.savings_vs_petrol_p, m_later.comparison_basis)
