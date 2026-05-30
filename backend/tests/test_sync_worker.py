@@ -55,6 +55,10 @@ def _vehicle(
     power_kw: float | None = None,
     captured_at: datetime | None = None,
     position: Position | None = None,
+    charging_mode_raw: str | None = None,
+    battery_care: bool | None = None,
+    max_charge_current: str | None = None,
+    charging_estimated_end_at: datetime | None = None,
 ) -> VehicleState:
     return VehicleState(
         battery_level=soc,
@@ -74,6 +78,10 @@ def _vehicle(
         electric_range_km=200,
         position=position,
         car_captured_timestamp=captured_at or _ts(),
+        charging_mode_raw=charging_mode_raw,
+        battery_care=battery_care,
+        max_charge_current=max_charge_current,
+        charging_estimated_end_at=charging_estimated_end_at,
     )
 
 
@@ -248,6 +256,72 @@ async def test_plugged_in_to_charging_opens_session(seeded, test_sessionmaker):
         assert sessions[0].charge_end_at is None
 
     assert "sync.session_opened" in bus.event_names()
+
+
+@pytest.mark.asyncio
+async def test_open_session_persists_context(seeded, test_sessionmaker):
+    """The opened ChargingSession carries battery_care + max_charge_current
+    from the synthesised payload, and the persisted CarStateSnapshot carries
+    the live charge-context fields from telemetry."""
+    bus = _RecordingBus()
+    car_id = seeded["car_id"]
+
+    # Pre-seed: we're already PLUGGED_IN with an open plug_in_record.
+    async with test_sessionmaker() as session:
+        pir = PlugInRecord(
+            user_id=seeded["user_id"],
+            car_id=car_id,
+            plug_in_at=_ts(),
+            plug_in_soc=40,
+        )
+        session.add(pir)
+        await session.commit()
+        await session.refresh(pir)
+        plug_in_id = pir.id
+
+    state = CarSyncState(
+        last_state="PLUGGED_IN",
+        last_soc=40,
+        last_car_captured_timestamp=_ts(),
+    )
+    est_end = _ts(7200)
+    telemetry = _vehicle(
+        cable=True, charging=True, soc=41, raw="charging",
+        power_kw=7.0, captured_at=_ts(120),
+        charging_mode_raw="timer", battery_care=True,
+        max_charge_current="maximum", charging_estimated_end_at=est_end,
+    )
+
+    async def fetcher(_conn, _vid):
+        return telemetry
+
+    worker = _make_worker(test_sessionmaker, bus, fetcher)
+    from plugtrack.services.sync_worker import _PlugInScratch
+    worker._scratch[car_id] = _PlugInScratch(plug_in_record_id=plug_in_id)
+
+    job = SyncJob(job_id="j-ctx", car_id=car_id, kind="periodic")
+    await worker.run(job, state)
+
+    async with test_sessionmaker() as session:
+        sessions = (await session.execute(select(ChargingSession))).scalars().all()
+        assert len(sessions) == 1
+        row = sessions[0]
+        assert row.battery_care is True
+        assert row.max_charge_current == "maximum"
+        assert row.charging_mode == "timer"
+
+    # And the CarStateSnapshot persists the live context fields.
+    from plugtrack.models import CarStateSnapshot
+    async with test_sessionmaker() as session:
+        snap = await session.get(CarStateSnapshot, car_id)
+        assert snap is not None
+        assert snap.last_battery_care is True
+        assert snap.last_max_charge_current == "maximum"
+        assert snap.last_charging_estimated_end_at is not None
+        assert (
+            snap.last_charging_estimated_end_at.replace(tzinfo=None)
+            == est_end.replace(tzinfo=None)
+        )
 
 
 @pytest.mark.asyncio
