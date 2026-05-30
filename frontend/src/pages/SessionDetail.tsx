@@ -393,45 +393,64 @@ function ChargeContext({ session }: ChargeContextProps) {
 interface PetrolComparisonProps {
   metrics: SessionMetricsPayload
   unit: 'mi' | 'km'
-  currentSessionId: number
 }
 
-function PetrolComparison({
-  metrics,
-  unit,
-  currentSessionId,
-}: PetrolComparisonProps) {
+function PetrolComparison({ metrics, unit }: PetrolComparisonProps) {
   const settingsConfigured =
     metrics.petrol_price_p_per_litre !== null && metrics.petrol_mpg !== null
-  const hasMiles =
+  // miles_since_previous is the energy-estimated range (drives the Distance tile).
+  const hasEstimatedMiles =
     metrics.miles_since_previous !== null && metrics.miles_since_previous > 0
-  const isChainFollowup = metrics.chain_anchor_id !== null
   const isEstimated = metrics.comparison_basis === 'estimated'
-  // `~` prefix on estimate-derived figures (energy × efficiency), but not
-  // on the pure-settings petrol cost/mile.
+  // `~` prefix on estimate-derived figures (energy × efficiency).
   const approx = isEstimated ? '~' : ''
-  const chainPartners = metrics.chain_session_ids.filter(
-    (id) => id !== currentSessionId,
-  )
-  const distanceDisplay =
+
+  // Formatted energy-estimated distance for the Distance tile.
+  const estimatedDistanceDisplay =
     metrics.miles_since_previous === null
       ? '—'
       : unit === 'mi'
         ? `${metrics.miles_since_previous.toFixed(0)} mi`
         : `${(metrics.miles_since_previous * 1.609344).toFixed(0)} km`
 
+  // Formatted genuine odometer-measured distance (informational only).
+  const measuredDistanceDisplay =
+    metrics.measured_miles_since_previous === null
+      ? null
+      : unit === 'mi'
+        ? `${metrics.measured_miles_since_previous.toFixed(0)} mi`
+        : `${(metrics.measured_miles_since_previous * 1.609344).toFixed(0)} km`
+
   const savings = metrics.savings_vs_petrol_p
   const savingsPositive = savings !== null && savings > 0
-  const savingsHero =
-    savings === null
-      ? '—'
-      : `${approx}${savings > 0 ? '+' : ''}${fmtPence(savings)}`
-  const savingsAccent =
-    savings === null
-      ? 'text-slate-400'
-      : savings > 0
-        ? 'text-gradient-electric'
-        : 'text-rose-500 dark:text-rose-300'
+
+  // Arrow + colour savings hero — no +/- sign.
+  const renderSavingsHero = () => {
+    if (savings === null) {
+      return (
+        <span
+          className="text-3xl font-bold tabular-nums tracking-tight text-slate-400"
+          data-testid="metric-savings"
+        >
+          —
+        </span>
+      )
+    }
+    const cheaper = savings > 0
+    const magnitude = Math.abs(savings)
+    const arrow = cheaper ? '↓' : '↑'
+    const colourCls = cheaper
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : 'text-rose-600 dark:text-rose-400'
+    return (
+      <span
+        className={`text-3xl font-bold tabular-nums tracking-tight ${colourCls}`}
+        data-testid="metric-savings"
+      >
+        {approx}{arrow} {fmtPence(magnitude)}
+      </span>
+    )
+  }
 
   const renderEmpty = (body: string, testid?: string) => (
     <Card className="p-4 text-sm" data-testid={testid ?? 'petrol-comparison'}>
@@ -450,31 +469,7 @@ function PetrolComparison({
     )
   }
 
-  if (isChainFollowup) {
-    return (
-      <Card className="p-4 text-sm" data-testid="petrol-comparison">
-        <p className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-          Petrol comparison
-        </p>
-        <p
-          className="mt-2 text-xs text-slate-500 dark:text-slate-400"
-          data-testid="chain-followup"
-        >
-          No miles travelled since the last session — this charge is part of
-          an ongoing top-up chain. The combined comparison lives on{' '}
-          <Link
-            to={`/sessions/${metrics.chain_anchor_id}`}
-            className="text-cyan-600 hover:underline dark:text-cyan-300"
-          >
-            session #{metrics.chain_anchor_id}
-          </Link>
-          .
-        </p>
-      </Card>
-    )
-  }
-
-  if (!hasMiles) {
+  if (!hasEstimatedMiles) {
     return renderEmpty('Needs energy or odometer data to compare.')
   }
 
@@ -489,7 +484,7 @@ function PetrolComparison({
             <span
               className="cursor-help rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
               data-testid="estimated-badge"
-              title="Estimated from this charge's energy × your car's real-world efficiency (from its odometer history, or the configured nominal if none yet). Add an odometer reading to this and the previous charge for an exact figure."
+              title="Estimated from this charge's energy × your car's real-world efficiency (from its odometer history, or the configured nominal if none yet)."
             >
               Estimated
             </span>
@@ -507,16 +502,9 @@ function PetrolComparison({
           <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
             {savingsPositive ? 'Saved vs petrol' : 'Spent over petrol'}
           </span>
-          <span
-            className={`text-3xl font-bold tabular-nums tracking-tight ${savingsAccent}`}
-            data-testid="metric-savings"
-          >
-            {savingsHero}
-          </span>
+          {renderSavingsHero()}
           <span className="text-xs text-slate-500 dark:text-slate-400">
-            {isEstimated
-              ? `over ~${distanceDisplay} of estimated range`
-              : `over ${distanceDisplay} since last charge`}
+            over ~{estimatedDistanceDisplay} of estimated range
           </span>
         </div>
       </Card>
@@ -524,9 +512,9 @@ function PetrolComparison({
       {/* KPI tile row */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile
-          label="Distance"
+          label="Estimated range"
           value={
-            <span data-testid="metric-miles">{`${approx}${distanceDisplay}`}</span>
+            <span data-testid="metric-miles">{`${approx}${estimatedDistanceDisplay}`}</span>
           }
         />
         <StatTile
@@ -555,25 +543,15 @@ function PetrolComparison({
         />
       </div>
 
-      {chainPartners.length > 0 && (
+      {/* Odometer-measured distance — informational only, distinct from the
+          energy-estimated range that feeds savings. */}
+      {measuredDistanceDisplay !== null && (
         <p
           className="mt-3 text-[11px] text-slate-500 dark:text-slate-400"
-          data-testid="chain-anchor"
+          data-testid="measured-distance-info"
         >
-          Includes top-up charges from{' '}
-          {chainPartners.map((id, i) => (
-            <span key={id}>
-              {i > 0 && ', '}
-              <Link
-                to={`/sessions/${id}`}
-                className="text-cyan-600 hover:underline dark:text-cyan-300"
-              >
-                #{id}
-              </Link>
-            </span>
-          ))}{' '}
-          · combined EV cost{' '}
-          <strong>{fmtPence(metrics.chain_total_cost_pence)}</strong>.
+          Odometer reading: {measuredDistanceDisplay} driven since last
+          odometer reading.
         </p>
       )}
     </div>
@@ -1048,7 +1026,6 @@ export default function SessionDetail() {
           <PetrolComparison
             metrics={session.metrics}
             unit={unit}
-            currentSessionId={session.id}
           />
         </section>
       )}

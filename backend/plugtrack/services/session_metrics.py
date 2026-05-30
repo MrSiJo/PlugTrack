@@ -5,18 +5,25 @@ is a `SessionMetrics` describing miles travelled since the previous
 session, the EV cost per mile, and the savings vs an equivalent petrol
 trip.
 
-Charging-chain handling: when consecutive sessions for the same car
-have the same odometer (or no odometer), they form a "chain" — the car
-hasn't moved between them. We attribute the *combined* EV cost of the
-chain to the **first session in the chain**, because that is the one
-that has the miles span. Subsequent zero-mile sessions in the chain
-return their own metrics with `chain_anchor_id` pointing back to the
-anchor so the UI can link to it.
+Per-charge energy-based model: every session is judged on its own energy
+alone. The formula is:
 
-Why this shape: the user only ever sees one petrol-vs-EV comparison per
-movement cycle, but every session in the chain knows where its
-contribution went. Lifetime totals are unaffected — they sum
-`cost_pence` directly from the rows.
+    eff   = observed_mi_per_kwh (calibrated from the car's odometer
+            history via Method B) or car.nominal_efficiency_mi_per_kwh
+    energy = kwh_calculated if not None else kwh_added
+    miles  = energy * eff
+    petrol_equivalent_p = round(miles * ppm)
+    saved_vs_petrol_p   = petrol_equivalent_p - cost_pence
+    comparison_basis    = "estimated"
+
+This means each charge is self-contained — no double-counting across
+interleaved charges, and list + detail always agree.
+
+The odometer reading is still used to calibrate `eff` via
+`_observed_mi_per_kwh`. It is also surfaced as an informational
+`measured_miles_since_previous` field on the detail page (the genuine
+odometer span vs the previous odometer-bearing session) but it does NOT
+feed savings.
 """
 from __future__ import annotations
 
@@ -42,14 +49,15 @@ class SessionMetrics:
     savings_vs_petrol_p: Optional[int]
     petrol_price_p_per_litre: Optional[float]
     petrol_mpg: Optional[float]
-    # How the comparison was derived: "measured" (odometer span),
-    # "estimated" (energy × efficiency fallback), or None (no comparison).
+    # How the comparison was derived: "estimated" (energy × efficiency) or
+    # None (no comparison — missing energy, efficiency, or petrol settings).
     comparison_basis: Optional[str] = None
-    # Chain wiring.
+    # Chain wiring — kept for API consumers that read these fields; the
+    # savings logic no longer populates them (all savings are per-charge
+    # energy-based now), so chain_session_ids defaults to [session_id] and
+    # chain_total_cost_pence / chain_anchor_id are always None.
     chain_session_ids: list[int] = field(default_factory=list)
     chain_total_cost_pence: Optional[int] = None
-    # When this session is itself a zero-mile follow-up, the id of the
-    # anchor session that owns the comparison (so the UI can link).
     chain_anchor_id: Optional[int] = None
     # Charge-mechanics metrics (derived; NULL when inputs are missing).
     # range_added_miles = (Δsoc/100) × battery_kwh × nominal_mi_per_kwh.
@@ -62,6 +70,12 @@ class SessionMetrics:
     average_power_kw: Optional[float] = None
     peak_power_kw: Optional[float] = None
     efficiency_percent: Optional[float] = None
+    # Genuine odometer-measured span to the previous odometer-bearing
+    # session — informational only, does not feed savings.
+    measured_miles_since_previous: Optional[float] = None
+    # The charge rate (p/kWh) above which this charge costs more than an
+    # equivalent petrol trip. None when ppm or efficiency is unavailable.
+    breakeven_p_per_kwh: Optional[float] = None
 
 
 def petrol_pence_per_mile(p_per_litre: float, mpg_uk: float) -> Optional[float]:
@@ -69,35 +83,6 @@ def petrol_pence_per_mile(p_per_litre: float, mpg_uk: float) -> Optional[float]:
     if p_per_litre <= 0 or mpg_uk <= 0:
         return None
     return (p_per_litre * _LITRES_PER_UK_GALLON) / mpg_uk
-
-
-async def _previous_session(
-    session: AsyncSession,
-    *,
-    car_id: int,
-    user_id: int,
-    current_session_id: int,
-    current_date,
-) -> Optional[ChargingSession]:
-    """Most recent prior session for this car (any odometer state)."""
-    stmt = (
-        select(ChargingSession)
-        .where(
-            ChargingSession.user_id == user_id,
-            ChargingSession.car_id == car_id,
-            ChargingSession.id != current_session_id,
-        )
-        .where(
-            (ChargingSession.date < current_date)
-            | (
-                (ChargingSession.date == current_date)
-                & (ChargingSession.id < current_session_id)
-            )
-        )
-        .order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
-        .limit(1)
-    )
-    return (await session.execute(stmt)).scalar_one_or_none()
 
 
 async def _previous_session_with_odometer(
@@ -109,8 +94,7 @@ async def _previous_session_with_odometer(
     current_date,
 ) -> Optional[ChargingSession]:
     """Most recent prior session for this car that *has* an odometer
-    reading. Used for the miles-span computation; we want the chain to
-    span back to whichever older session last logged a reading.
+    reading. Used for the measured-span computation (informational).
     """
     stmt = (
         select(ChargingSession)
@@ -131,92 +115,6 @@ async def _previous_session_with_odometer(
         .limit(1)
     )
     return (await session.execute(stmt)).scalar_one_or_none()
-
-
-async def _forward_zero_mile_chain(
-    session: AsyncSession,
-    *,
-    anchor: ChargingSession,
-) -> list[ChargingSession]:
-    """Walk *forward* in time from `anchor` collecting every subsequent
-    session for the same car whose odometer *equals* the anchor's — i.e.
-    genuine same-place top-ups before the car next moved. Stops at the
-    first session where the odometer has advanced.
-
-    Null-odometer sessions are NOT absorbed: since the energy-estimate
-    fallback landed, every manual charge lacks an odometer, so a null no
-    longer implies "didn't move since the anchor". Such sessions are
-    independent and get their own estimated comparison instead of being
-    folded (and double-counted) into this chain.
-    """
-    stmt = (
-        select(ChargingSession)
-        .where(
-            ChargingSession.user_id == anchor.user_id,
-            ChargingSession.car_id == anchor.car_id,
-            ChargingSession.id != anchor.id,
-        )
-        .where(
-            (ChargingSession.date > anchor.date)
-            | (
-                (ChargingSession.date == anchor.date)
-                & (ChargingSession.id > anchor.id)
-            )
-        )
-        .order_by(ChargingSession.date.asc(), ChargingSession.id.asc())
-    )
-    rows = (await session.execute(stmt)).scalars().all()
-    out: list[ChargingSession] = []
-    for r in rows:
-        if r.odometer_at_session_km is None:
-            # Independent manual charge — excluded from the chain.
-            continue
-        # Stop at the first session that has actually moved past anchor.
-        if (
-            anchor.odometer_at_session_km is not None
-            and float(r.odometer_at_session_km)
-            > float(anchor.odometer_at_session_km)
-        ):
-            break
-        out.append(r)
-    return out
-
-
-async def _walk_back_to_anchor(
-    session: AsyncSession,
-    *,
-    cs: ChargingSession,
-) -> Optional[ChargingSession]:
-    """Walk *backwards* through prior sessions for this car until we
-    find one whose odometer is strictly less than `cs.odometer_at_session_km`
-    (meaning the car had moved between that session and this one).
-    Returns the anchor session — i.e. the first one *after* the gap.
-
-    Used when `cs` itself has zero-mile span, so we can point the UI at
-    whichever earlier session is the chain anchor.
-    """
-    if cs.odometer_at_session_km is None:
-        return None
-    cur = cs
-    while True:
-        prev = await _previous_session(
-            session,
-            car_id=cur.car_id,
-            user_id=cur.user_id,
-            current_session_id=cur.id,
-            current_date=cur.date,
-        )
-        if prev is None:
-            return None
-        if prev.odometer_at_session_km is None:
-            cur = prev
-            continue
-        if float(prev.odometer_at_session_km) < float(cs.odometer_at_session_km):
-            # `cur` is the first session at the current odometer reading
-            # — that's our anchor (the one with miles since *its*
-            # predecessor).
-            return cur
-        cur = prev
 
 
 def _is_before(a: ChargingSession, b: ChargingSession) -> bool:
@@ -244,111 +142,6 @@ def _previous_with_odometer_in_memory(
         else:
             break
     return found
-
-
-def _previous_in_memory(
-    history: list[ChargingSession], cs: ChargingSession
-) -> Optional[ChargingSession]:
-    """In-memory equivalent of `_previous_session`: the most recent prior
-    session (by date, id) for the same car, any odometer state."""
-    found: Optional[ChargingSession] = None
-    for s in history:
-        if s.id == cs.id:
-            continue
-        if _is_before(s, cs):
-            found = s
-        else:
-            break
-    return found
-
-
-def _forward_zero_mile_chain_in_memory(
-    history: list[ChargingSession], anchor: ChargingSession
-) -> list[ChargingSession]:
-    """In-memory equivalent of `_forward_zero_mile_chain`: walk forward in
-    time from `anchor` collecting every subsequent session whose odometer
-    *equals* the anchor's, stopping at the first that advanced. Null-
-    odometer sessions are excluded (independent manual charges), not
-    absorbed — matching the DB-backed version.
-    """
-    out: list[ChargingSession] = []
-    for r in history:
-        if r.id == anchor.id:
-            continue
-        if not _is_before(anchor, r):
-            continue
-        if r.odometer_at_session_km is None:
-            # Independent manual charge — excluded from the chain.
-            continue
-        if (
-            anchor.odometer_at_session_km is not None
-            and float(r.odometer_at_session_km)
-            > float(anchor.odometer_at_session_km)
-        ):
-            break
-        out.append(r)
-    return out
-
-
-def _walk_back_to_anchor_in_memory(
-    history: list[ChargingSession], cs: ChargingSession
-) -> Optional[ChargingSession]:
-    """In-memory equivalent of `_walk_back_to_anchor`: walk backwards until
-    a prior session has an odometer strictly less than `cs`'s, returning
-    the first session after that gap (the chain anchor)."""
-    if cs.odometer_at_session_km is None:
-        return None
-    cur = cs
-    while True:
-        prev = _previous_in_memory(history, cur)
-        if prev is None:
-            return None
-        if prev.odometer_at_session_km is None:
-            cur = prev
-            continue
-        if float(prev.odometer_at_session_km) < float(cs.odometer_at_session_km):
-            return cur
-        cur = prev
-
-
-def _measured_savings(
-    cs: ChargingSession,
-    prev: ChargingSession,
-    chain: list[ChargingSession],
-    *,
-    ppm: Optional[float],
-) -> tuple[Optional[float], Optional[int], Optional[float], Optional[int], int, bool]:
-    """Pure measured-span computation shared by the detail and batch paths.
-
-    Given the anchor `cs`, its previous-with-odometer `prev`, and the
-    forward zero-mile `chain` (which includes `cs` as its first element),
-    return:
-        (miles, cost_per_mile_p, petrol_equiv_p, savings_p,
-         chain_total, chain_has_cost)
-    """
-    span_km = (
-        float(cs.odometer_at_session_km) - float(prev.odometer_at_session_km)
-    )
-    miles = span_km / _KM_PER_MILE
-
-    chain_total = 0
-    chain_has_cost = False
-    for row in chain:
-        if row.cost_pence is not None:
-            chain_total += int(row.cost_pence)
-            chain_has_cost = True
-
-    cost_per_mile_p: Optional[float] = None
-    petrol_equiv_p: Optional[int] = None
-    savings_p: Optional[int] = None
-    if chain_has_cost and miles > 0:
-        cost_per_mile_p = chain_total / miles
-    if ppm is not None:
-        petrol_equiv_p = int(round(miles * ppm))
-        if chain_has_cost:
-            savings_p = petrol_equiv_p - chain_total
-
-    return miles, cost_per_mile_p, petrol_equiv_p, savings_p, chain_total, chain_has_cost
 
 
 async def _float_setting(session: AsyncSession, key: str) -> Optional[float]:
@@ -435,10 +228,13 @@ async def _estimate_from_energy(
     ppm: Optional[float],
     observed_eff: Optional[float],
 ) -> SessionMetrics:
-    """Energy-based fallback comparison: estimate the distance this charge
+    """Per-charge energy-based comparison: estimate the distance this charge
     buys from `energy × efficiency`, where efficiency is the car's observed
     real-world mi/kWh (Method B) or the static nominal when no clean
     measured leg exists.
+
+    Sets `miles_since_previous` (energy-estimated miles), `comparison_basis`
+    ("estimated" when computable), and breakeven_p_per_kwh.
 
     Returns `base` unchanged (basis stays None) when the estimate isn't
     computable — zero/None energy or no efficiency.
@@ -475,6 +271,9 @@ async def _estimate_from_energy(
     base.petrol_equivalent_cost_p = petrol_equiv_p
     base.savings_vs_petrol_p = savings_p
     base.comparison_basis = "estimated"
+    # Break-even rate: the charge rate above which EV costs more than petrol.
+    if ppm is not None:
+        base.breakeven_p_per_kwh = round(ppm * float(eff), 2)
     return base
 
 
@@ -483,18 +282,20 @@ async def compute_session_metrics(
 ) -> SessionMetrics:
     """Compute petrol-comparison metrics for a single session.
 
-    Three cases:
+    All savings are per-charge energy-based:
+      eff   = observed_mi_per_kwh (calibrated from odometer history) or nominal
+      energy = kwh_calculated if not None else kwh_added
+      miles  = energy × eff
+      petrol_equivalent_p = round(miles × ppm)
+      saved_vs_petrol_p   = petrol_equivalent_p - cost_pence
+      comparison_basis    = "estimated"
 
-    1. **Anchor session** — `cs` has an odometer that's ahead of the
-       previous-with-odometer session. Miles span is computed; the
-       petrol comparison uses the *combined* cost of `cs` + every
-       subsequent zero-mile session as the EV-side number.
-    2. **Zero-mile follow-up** — `cs` has no movement since the most
-       recent session. Walk back to the anchor and return a metrics
-       record with `chain_anchor_id` set so the UI can render
-       "part of an ongoing chain — see #N".
-    3. **Insufficient data** — no prior odometer at all, or settings
-       missing. Everything is None.
+    `comparison_basis` is None only when energy is missing/zero, no
+    efficiency is available, or petrol settings are unset.
+
+    `measured_miles_since_previous` is set as an informational field when a
+    previous odometer-bearing session exists — it is the genuine span and does
+    NOT feed savings.
     """
     petrol_p_per_litre = await _float_setting(session, "petrol_price_p_per_litre")
     petrol_mpg = await _float_setting(session, "petrol_mpg")
@@ -520,84 +321,38 @@ async def compute_session_metrics(
     # petrol-comparison branch returns early below.
     await _attach_charge_mechanics(base, session, cs)
 
-    if cs.odometer_at_session_km is None:
-        # No odometer on this session — fall back to an energy estimate.
-        car = await session.get(Car, cs.car_id)
-        observed_eff = (
-            await _observed_mi_per_kwh(
-                session,
-                car_id=cs.car_id,
-                user_id=cs.user_id,
-                battery_kwh=float(car.battery_kwh),
-            )
-            if car is not None
-            else None
+    # Load car once — needed for observed efficiency and estimate.
+    car = await session.get(Car, cs.car_id)
+    observed_eff = (
+        await _observed_mi_per_kwh(
+            session,
+            car_id=cs.car_id,
+            user_id=cs.user_id,
+            battery_kwh=float(car.battery_kwh),
         )
-        return await _estimate_from_energy(
-            cs, car, base, ppm=ppm, observed_eff=observed_eff
-        )
-
-    prev = await _previous_session_with_odometer(
-        session,
-        car_id=cs.car_id,
-        user_id=cs.user_id,
-        current_session_id=cs.id,
-        current_date=cs.date,
+        if car is not None
+        else None
     )
-    if prev is None:
-        # Odometer present but no prior-with-odometer — energy estimate.
-        car = await session.get(Car, cs.car_id)
-        observed_eff = (
-            await _observed_mi_per_kwh(
-                session,
-                car_id=cs.car_id,
-                user_id=cs.user_id,
-                battery_kwh=float(car.battery_kwh),
-            )
-            if car is not None
-            else None
+
+    # Informational: genuine odometer span to the previous odometer-bearing
+    # session — does NOT feed savings.
+    if cs.odometer_at_session_km is not None:
+        prev_with_odo = await _previous_session_with_odometer(
+            session,
+            car_id=cs.car_id,
+            user_id=cs.user_id,
+            current_session_id=cs.id,
+            current_date=cs.date,
         )
-        return await _estimate_from_energy(
-            cs, car, base, ppm=ppm, observed_eff=observed_eff
-        )
+        if prev_with_odo is not None:
+            span_km = float(cs.odometer_at_session_km) - float(prev_with_odo.odometer_at_session_km)
+            if span_km > 0:
+                base.measured_miles_since_previous = round(span_km / _KM_PER_MILE, 2)
 
-    span_km = float(cs.odometer_at_session_km) - float(prev.odometer_at_session_km)
-    # Treat sub-mile odometer drift as zero — the car telemetry rounds to
-    # 1 km and manual entries are typically integers, so a 1 km gap can
-    # mean "didn't move, just rounded differently". Below 1 mi rounds to
-    # zero anyway; clamping here keeps the chain logic consistent.
-    if span_km < _KM_PER_MILE:
-        anchor = await _walk_back_to_anchor(session, cs=cs)
-        base.chain_anchor_id = anchor.id if anchor is not None else None
-        return base
-
-    # `cs` is the anchor of its own chain. Sum its cost with every
-    # subsequent zero-mile session for the same car.
-    chain = [cs] + await _forward_zero_mile_chain(session, anchor=cs)
-    (
-        miles,
-        cost_per_mile_p,
-        petrol_equiv_p,
-        savings_p,
-        chain_total,
-        chain_has_cost,
-    ) = _measured_savings(cs, prev, chain, ppm=ppm)
-
-    out = SessionMetrics(
-        miles_since_previous=float(round(miles)),
-        cost_per_mile_p=round(cost_per_mile_p, 2) if cost_per_mile_p is not None else None,
-        petrol_ppm=round(ppm, 2) if ppm is not None else None,
-        petrol_equivalent_cost_p=petrol_equiv_p,
-        savings_vs_petrol_p=savings_p,
-        petrol_price_p_per_litre=petrol_p_per_litre,
-        petrol_mpg=petrol_mpg,
-        comparison_basis="measured",
-        chain_session_ids=[row.id for row in chain],
-        chain_total_cost_pence=chain_total if chain_has_cost else None,
-        chain_anchor_id=None,
+    # Per-charge energy-based savings — uniform for every row.
+    return await _estimate_from_energy(
+        cs, car, base, ppm=ppm, observed_eff=observed_eff
     )
-    await _attach_charge_mechanics(out, session, cs)
-    return out
 
 
 async def _attach_charge_mechanics(
@@ -658,56 +413,62 @@ def _estimate_savings_in_memory(
     *,
     ppm: Optional[float],
     observed_eff: Optional[float],
-) -> tuple[Optional[int], Optional[str]]:
-    """Pure energy-estimate equivalent of `_estimate_from_energy`, returning
-    only `(saved_vs_petrol_p, comparison_basis)`. Mirrors that function's
-    branches exactly so the batch list and the detail page agree.
+) -> tuple[Optional[int], Optional[str], Optional[float]]:
+    """Pure energy-estimate computation returning
+    `(saved_vs_petrol_p, comparison_basis, breakeven_p_per_kwh)`.
 
-    Basis is "estimated" whenever the distance estimate is computable
-    (energy > 0 and an efficiency is available); savings is None within an
-    estimated row when settings or cost are missing — matching the detail
-    path, which sets basis "estimated" but leaves `savings_vs_petrol_p`
-    None in those cases.
+    Mirrors `_estimate_from_energy`'s branches exactly so the batch list
+    and the detail page agree.
+
+    `comparison_basis` is "estimated" whenever the distance estimate is
+    computable (energy > 0 and an efficiency is available); savings is
+    None within an estimated row when settings or cost are missing —
+    matching the detail path. `breakeven_p_per_kwh` = ppm × eff, or None
+    when either is unavailable.
     """
     if car is None:
-        return None, None
+        return None, None, None
     eff = observed_eff if observed_eff is not None else car.nominal_efficiency_mi_per_kwh
     energy_kwh = (
         cs.kwh_calculated if cs.kwh_calculated is not None else cs.kwh_added
     )
     if not energy_kwh or energy_kwh <= 0:
-        return None, None
+        return None, None, None
     if eff is None:
-        return None, None
+        return None, None, None
 
     est_miles = float(energy_kwh) * float(eff)
 
     savings_p: Optional[int] = None
+    breakeven: Optional[float] = None
     if ppm is not None:
         petrol_equiv_p = int(round(est_miles * ppm))
         if cs.cost_pence is not None:
             savings_p = petrol_equiv_p - int(cs.cost_pence)
-    return savings_p, "estimated"
+        breakeven = round(ppm * float(eff), 2)
+    return savings_p, "estimated", breakeven
 
 
 async def compute_savings_for_sessions(
     session: AsyncSession, rows: list[ChargingSession]
-) -> dict[int, tuple[Optional[int], Optional[str]]]:
-    """Batch petrol-savings for a set of sessions, keyed by session id.
+) -> dict[int, tuple[Optional[int], Optional[str], Optional[float]]]:
+    """Batch per-charge energy-based savings for a set of sessions, keyed
+    by session id.
 
-    Returns `{ session_id: (saved_vs_petrol_p, comparison_basis) }` where
-    `comparison_basis` is "measured" | "estimated" | None and
-    `saved_vs_petrol_p` is Optional[int].
+    Returns `{ session_id: (saved_vs_petrol_p, comparison_basis,
+    breakeven_p_per_kwh) }` where:
+      - `comparison_basis` is "estimated" | None
+      - `saved_vs_petrol_p` is Optional[int]
+      - `breakeven_p_per_kwh` is Optional[float]
 
-    The numbers are byte-for-byte the same as `compute_session_metrics`
-    would return for each row's `savings_vs_petrol_p` / `comparison_basis`,
-    because both paths share `_measured_savings` /
-    `_estimate_savings_in_memory` and the same precedence
-    (measured → estimated → none). The batch version avoids per-session
-    queries by loading each car's FULL history once and deriving the
-    previous-with-odometer / forward-chain in memory.
+    Every row uses the per-charge energy estimate (no measured-span branch).
+    The batch version avoids per-session queries by loading each car's FULL
+    history once and deriving observed efficiency in memory.
+
+    The numbers for `(saved_vs_petrol_p, comparison_basis)` are consistent
+    with what `compute_session_metrics` returns for each row.
     """
-    out: dict[int, tuple[Optional[int], Optional[str]]] = {}
+    out: dict[int, tuple[Optional[int], Optional[str], Optional[float]]] = {}
     if not rows:
         return out
 
@@ -730,16 +491,6 @@ async def compute_savings_for_sessions(
         user_id = car_rows[0].user_id
         car = await session.get(Car, car_id)
 
-        stmt = (
-            select(ChargingSession)
-            .where(
-                ChargingSession.user_id == user_id,
-                ChargingSession.car_id == car_id,
-            )
-            .order_by(ChargingSession.date.asc(), ChargingSession.id.asc())
-        )
-        history = list((await session.execute(stmt)).scalars().all())
-
         observed_eff = (
             await _observed_mi_per_kwh(
                 session,
@@ -755,7 +506,6 @@ async def compute_savings_for_sessions(
             out[cs.id] = _savings_for_row(
                 cs,
                 car=car,
-                history=history,
                 ppm=ppm,
                 observed_eff=observed_eff,
             )
@@ -767,35 +517,12 @@ def _savings_for_row(
     cs: ChargingSession,
     *,
     car: Optional[Car],
-    history: list[ChargingSession],
     ppm: Optional[float],
     observed_eff: Optional[float],
-) -> tuple[Optional[int], Optional[str]]:
-    """Derive `(saved_vs_petrol_p, comparison_basis)` for one row using the
-    in-memory per-car history. Same precedence as
-    `compute_session_metrics`: measured → estimated → none.
+) -> tuple[Optional[int], Optional[str], Optional[float]]:
+    """Derive `(saved_vs_petrol_p, comparison_basis, breakeven_p_per_kwh)`
+    for one row using the per-charge energy estimate.
     """
-    # No odometer at all → energy estimate.
-    if cs.odometer_at_session_km is None:
-        return _estimate_savings_in_memory(
-            cs, car, ppm=ppm, observed_eff=observed_eff
-        )
-
-    prev = _previous_with_odometer_in_memory(history, cs)
-    if prev is None:
-        # Odometer present but no prior-with-odometer → energy estimate.
-        return _estimate_savings_in_memory(
-            cs, car, ppm=ppm, observed_eff=observed_eff
-        )
-
-    span_km = (
-        float(cs.odometer_at_session_km) - float(prev.odometer_at_session_km)
+    return _estimate_savings_in_memory(
+        cs, car, ppm=ppm, observed_eff=observed_eff
     )
-    if span_km < _KM_PER_MILE:
-        # Zero-mile follow-up — the comparison belongs to the anchor.
-        # Detail path returns base (savings None, basis None) here.
-        return None, None
-
-    chain = [cs] + _forward_zero_mile_chain_in_memory(history, cs)
-    _, _, _, savings_p, _, _ = _measured_savings(cs, prev, chain, ppm=ppm)
-    return savings_p, "measured"
