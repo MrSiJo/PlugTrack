@@ -207,3 +207,21 @@ async def test_fetch_translates_login_failed_to_provider_auth_error():
 
     with pytest.raises(ProviderAuthError):
         await fetch_vehicle_state(connection, "TESTVIN0000000001")
+
+
+def test_vehiclestate_has_charge_context_fields_defaulting_none():
+    import datetime as dt
+    from plugtrack.plugins.pycupra.models import VehicleState
+    now = dt.datetime.now(dt.timezone.utc)
+    vs = VehicleState(
+        battery_level=50, charging=False, charging_state=False,
+        charging_state_raw="", charging_power=None, charging_time_left=None,
+        target_soc=None, charging_cable_connected=False,
+        charging_cable_locked=None, external_power=None, energy_flow=None,
+        vehicle_online=True, last_connected=now, distance_km=None,
+        electric_range_km=None, position=None, car_captured_timestamp=now,
+    )
+    assert vs.charging_mode_raw is None
+    assert vs.battery_care is None
+    assert vs.max_charge_current is None
+    assert vs.charging_estimated_end_at is None
