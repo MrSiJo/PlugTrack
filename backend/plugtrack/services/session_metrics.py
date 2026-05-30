@@ -42,6 +42,9 @@ class SessionMetrics:
     savings_vs_petrol_p: Optional[int]
     petrol_price_p_per_litre: Optional[float]
     petrol_mpg: Optional[float]
+    # How the comparison was derived: "measured" (odometer span),
+    # "estimated" (energy × efficiency fallback), or None (no comparison).
+    comparison_basis: Optional[str] = None
     # Chain wiring.
     chain_session_ids: list[int] = field(default_factory=list)
     chain_total_cost_pence: Optional[int] = None
@@ -221,6 +224,121 @@ async def _float_setting(session: AsyncSession, key: str) -> Optional[float]:
         return None
 
 
+async def _observed_mi_per_kwh(
+    session: AsyncSession,
+    *,
+    car_id: int,
+    user_id: int,
+    battery_kwh: float,
+) -> Optional[float]:
+    """The car's real-world mi/kWh from its measured (odometer-having)
+    history. Energy is the energy *consumed while driving*, derived from
+    SoC drops between consecutive charges — not energy added, which would
+    fold in charging losses.
+
+    Aggregates miles ÷ SoC-consumed-kWh across the car's advancing
+    odometer legs. Returns None when there's no clean measured leg or the
+    result is outside the plausible [1.0, 8.0] band (→ nominal fallback).
+    """
+    stmt = (
+        select(ChargingSession)
+        .where(
+            ChargingSession.user_id == user_id,
+            ChargingSession.car_id == car_id,
+        )
+        .order_by(ChargingSession.date.asc(), ChargingSession.id.asc())
+    )
+    sessions = list((await session.execute(stmt)).scalars().all())
+    odo = [s for s in sessions if s.odometer_at_session_km is not None]
+
+    total_miles = 0.0
+    total_consumed_kwh = 0.0
+    for i in range(len(odo) - 1):
+        a = odo[i]
+        b = odo[i + 1]
+        if float(b.odometer_at_session_km) <= float(a.odometer_at_session_km):
+            # No advance (chain/dup) — skip this leg.
+            continue
+        leg_miles = (
+            float(b.odometer_at_session_km) - float(a.odometer_at_session_km)
+        ) / _KM_PER_MILE
+        # Chronological span of sessions from A..B inclusive.
+        start = sessions.index(a)
+        end = sessions.index(b)
+        seg = sessions[start : end + 1]
+        leg_consumed = 0.0
+        for x, y in zip(seg, seg[1:]):
+            # SoC dropped between charges. Per-pair max(0, drop) guards the
+            # SoC-rise anomaly (unlogged charging): a noisy pair contributes
+            # 0 rather than corrupting the leg.
+            drop = x.end_soc - y.start_soc
+            leg_consumed += max(0.0, drop) / 100.0 * battery_kwh
+        if leg_consumed <= 0:
+            # Can't attribute consumption — skip the leg.
+            continue
+        total_miles += leg_miles
+        total_consumed_kwh += leg_consumed
+
+    if total_consumed_kwh <= 0 or total_miles <= 0:
+        return None
+    observed = total_miles / total_consumed_kwh
+    if not (1.0 <= observed <= 8.0):
+        # Implausible — fall back to the static nominal.
+        return None
+    return observed
+
+
+async def _estimate_from_energy(
+    cs: ChargingSession,
+    car: Optional[Car],
+    base: SessionMetrics,
+    *,
+    ppm: Optional[float],
+    observed_eff: Optional[float],
+) -> SessionMetrics:
+    """Energy-based fallback comparison: estimate the distance this charge
+    buys from `energy × efficiency`, where efficiency is the car's observed
+    real-world mi/kWh (Method B) or the static nominal when no clean
+    measured leg exists.
+
+    Returns `base` unchanged (basis stays None) when the estimate isn't
+    computable — zero/None energy or no efficiency.
+    """
+    if car is None:
+        return base
+    eff = observed_eff if observed_eff is not None else car.nominal_efficiency_mi_per_kwh
+    energy_kwh = (
+        cs.kwh_calculated if cs.kwh_calculated is not None else cs.kwh_added
+    )
+    if not energy_kwh or energy_kwh <= 0:
+        return base
+    if eff is None:
+        # Defensive — nominal_efficiency_mi_per_kwh is NOT NULL.
+        return base
+
+    est_miles = float(energy_kwh) * float(eff)
+
+    cost_per_mile_p: Optional[float] = None
+    petrol_equiv_p: Optional[int] = None
+    savings_p: Optional[int] = None
+
+    if cs.cost_pence is not None and est_miles > 0:
+        cost_per_mile_p = int(cs.cost_pence) / est_miles
+    if ppm is not None:
+        petrol_equiv_p = int(round(est_miles * ppm))
+        if cs.cost_pence is not None:
+            savings_p = petrol_equiv_p - int(cs.cost_pence)
+
+    base.miles_since_previous = float(round(est_miles))
+    base.cost_per_mile_p = (
+        round(cost_per_mile_p, 2) if cost_per_mile_p is not None else None
+    )
+    base.petrol_equivalent_cost_p = petrol_equiv_p
+    base.savings_vs_petrol_p = savings_p
+    base.comparison_basis = "estimated"
+    return base
+
+
 async def compute_session_metrics(
     session: AsyncSession, cs: ChargingSession
 ) -> SessionMetrics:
@@ -264,7 +382,21 @@ async def compute_session_metrics(
     await _attach_charge_mechanics(base, session, cs)
 
     if cs.odometer_at_session_km is None:
-        return base
+        # No odometer on this session — fall back to an energy estimate.
+        car = await session.get(Car, cs.car_id)
+        observed_eff = (
+            await _observed_mi_per_kwh(
+                session,
+                car_id=cs.car_id,
+                user_id=cs.user_id,
+                battery_kwh=float(car.battery_kwh),
+            )
+            if car is not None
+            else None
+        )
+        return await _estimate_from_energy(
+            cs, car, base, ppm=ppm, observed_eff=observed_eff
+        )
 
     prev = await _previous_session_with_odometer(
         session,
@@ -274,7 +406,21 @@ async def compute_session_metrics(
         current_date=cs.date,
     )
     if prev is None:
-        return base
+        # Odometer present but no prior-with-odometer — energy estimate.
+        car = await session.get(Car, cs.car_id)
+        observed_eff = (
+            await _observed_mi_per_kwh(
+                session,
+                car_id=cs.car_id,
+                user_id=cs.user_id,
+                battery_kwh=float(car.battery_kwh),
+            )
+            if car is not None
+            else None
+        )
+        return await _estimate_from_energy(
+            cs, car, base, ppm=ppm, observed_eff=observed_eff
+        )
 
     span_km = float(cs.odometer_at_session_km) - float(prev.odometer_at_session_km)
     # Treat sub-mile odometer drift as zero — the car telemetry rounds to
@@ -316,6 +462,7 @@ async def compute_session_metrics(
         savings_vs_petrol_p=savings_p,
         petrol_price_p_per_litre=petrol_p_per_litre,
         petrol_mpg=petrol_mpg,
+        comparison_basis="measured",
         chain_session_ids=[row.id for row in chain],
         chain_total_cost_pence=chain_total if chain_has_cost else None,
         chain_anchor_id=None,
