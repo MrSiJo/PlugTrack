@@ -44,6 +44,12 @@ class CarSyncState:
     last_electric_range_km: Optional[int] = None
     last_charging_power_kw: Optional[float] = None
     last_target_soc: Optional[int] = None
+    # Charge-context live fields surfaced on the dashboard. battery_care +
+    # max_charge_current are reported regardless of charging state; the
+    # estimated end time is only meaningful while CHARGING.
+    last_battery_care: Optional[bool] = None
+    last_max_charge_current: Optional[str] = None
+    last_charging_estimated_end_at: Optional[datetime] = None
     # Phase 5.4: when auth fails (`reason="credentials_invalid"`), the
     # worker flips this to True. The scheduler skips further syncs for
     # the car until the user re-saves cupra_* settings, which clears
