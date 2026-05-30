@@ -55,6 +55,10 @@ class CarSyncState:
     # the car until the user re-saves cupra_* settings, which clears
     # the flag and triggers an immediate sync.
     auth_invalid: bool = False
+    # Most-recent odometer reading in km (populated from telemetry.distance_km
+    # on every poll). Used by the session synthesiser's IDLE→IDLE unconfirmed
+    # detection to distinguish regen from a real charge via odometer movement.
+    last_odometer_km: Optional[int] = None
 
 
 @dataclass
@@ -151,6 +155,7 @@ class SyncOrchestrator:
             out[car_id] = {
                 "last_state": st.last_state,
                 "last_soc": st.last_soc,
+                "last_odometer_km": st.last_odometer_km,
                 "next_poll_at": st.next_poll_at.isoformat() if st.next_poll_at else None,
                 "last_error": st.last_error,
                 "active_job_id": st.active_job_id,

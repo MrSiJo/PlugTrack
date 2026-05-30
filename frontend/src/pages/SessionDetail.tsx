@@ -12,13 +12,14 @@
  * - Edit form, gated behind an "Edit" toggle.
  */
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Info } from 'lucide-react'
 import {
   ApiError,
   api,
   type ChargingSessionPayload,
   type CostBasis,
+  type SessionConfirmRequest,
   type SessionMetricsPayload,
   type SessionUpdateRequest,
 } from '@/api/client'
@@ -817,10 +818,192 @@ function SessionEditForm({ session, unit, onSaved }: EditFormProps) {
   )
 }
 
+interface UnconfirmedActionPanelProps {
+  session: ChargingSessionPayload
+  onConfirmed: (updated: ChargingSessionPayload) => void
+  onDiscarded: () => void
+}
+
+/**
+ * Shown when session.source === 'unconfirmed'.
+ *
+ * Pre-fills suggested location and cost fields (from the row itself — the
+ * backend populates location_id at creation via clustering). The user can
+ * accept or correct them before confirming. A "Discard" button deletes the
+ * draft via the existing DELETE route.
+ */
+function UnconfirmedActionPanel({
+  session,
+  onConfirmed,
+  onDiscarded,
+}: UnconfirmedActionPanelProps) {
+  const [kwh, setKwh] = useState<string>(
+    session.kwh_calculated !== null
+      ? session.kwh_calculated.toFixed(2)
+      : session.kwh_added !== 0
+        ? session.kwh_added.toFixed(2)
+        : '',
+  )
+  const [perKwh, setPerKwh] = useState<string>(
+    session.cost_per_kwh_override_p !== null
+      ? String(session.cost_per_kwh_override_p)
+      : '',
+  )
+  const [totalOverride, setTotalOverride] = useState<string>(
+    session.total_cost_pence_override !== null
+      ? (session.total_cost_pence_override / 100).toFixed(2)
+      : '',
+  )
+  const [notes, setNotes] = useState<string>(session.notes ?? '')
+  const [confirming, setConfirming] = useState(false)
+  const [discarding, setDiscarding] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const inputCls =
+    'w-full rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900'
+
+  const handleConfirm = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setErr(null)
+    setConfirming(true)
+    try {
+      const body: SessionConfirmRequest = {}
+      if (kwh.trim() !== '') body.kwh_added = Number(kwh)
+      if (perKwh.trim() !== '') body.cost_per_kwh_override_p = Number(perKwh)
+      if (totalOverride.trim() !== '')
+        body.total_cost_pence_override = Math.round(Number(totalOverride) * 100)
+      if (notes.trim() !== '') body.notes = notes.trim()
+      // Always send location_id to preserve the pre-filled suggestion (may be null).
+      body.location_id = session.location_id
+      const updated = await api.confirmSession(session.id, body)
+      onConfirmed(updated)
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Failed to confirm')
+    } finally {
+      setConfirming(false)
+    }
+  }
+
+  const handleDiscard = async () => {
+    if (!window.confirm('Discard this unconfirmed charge? This cannot be undone.')) return
+    setErr(null)
+    setDiscarding(true)
+    try {
+      await api.deleteSession(session.id)
+      onDiscarded()
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Failed to discard')
+    } finally {
+      setDiscarding(false)
+    }
+  }
+
+  return (
+    <section
+      className="mb-6 rounded border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950/20"
+      data-testid="unconfirmed-panel"
+    >
+      <h2 className="mb-1 text-sm font-semibold text-amber-800 dark:text-amber-300">
+        Unconfirmed charge — review and confirm
+      </h2>
+      <p className="mb-3 text-xs text-amber-700 dark:text-amber-400">
+        This charge was auto-detected from a SoC delta between polls. Review
+        the pre-filled values, correct if needed, then confirm to add it to
+        your history — or discard if it is a false positive.
+      </p>
+      {session.kwh_calculated !== null && (
+        <p className="mb-3 text-xs text-slate-600 dark:text-slate-400">
+          Estimated energy from SoC delta:{' '}
+          <strong>{session.kwh_calculated.toFixed(2)} kWh</strong>
+        </p>
+      )}
+      <form onSubmit={handleConfirm} className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs uppercase text-slate-500">kWh added</span>
+            <input
+              className={inputCls}
+              type="number"
+              step="0.01"
+              min="0"
+              value={kwh}
+              onChange={(e) => setKwh(e.target.value)}
+              data-testid="confirm-kwh"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs uppercase text-slate-500">
+              Per-kWh override (p)
+            </span>
+            <input
+              className={inputCls}
+              type="number"
+              step="0.01"
+              min="0"
+              value={perKwh}
+              onChange={(e) => setPerKwh(e.target.value)}
+              data-testid="confirm-per-kwh"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs uppercase text-slate-500">
+              Total cost override (£)
+            </span>
+            <input
+              className={inputCls}
+              type="number"
+              step="0.01"
+              min="0"
+              value={totalOverride}
+              onChange={(e) => setTotalOverride(e.target.value)}
+              data-testid="confirm-total-override"
+            />
+          </label>
+        </div>
+        <label className="block">
+          <span className="text-xs uppercase text-slate-500">Notes</span>
+          <textarea
+            className={inputCls}
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            data-testid="confirm-notes"
+          />
+        </label>
+        {err && (
+          <p role="alert" className="text-xs text-red-600">
+            {err}
+          </p>
+        )}
+        <div className="flex items-center gap-2">
+          <button
+            type="submit"
+            disabled={confirming || discarding}
+            className="rounded bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 hover:bg-emerald-700"
+            data-testid="confirm-charge-btn"
+          >
+            {confirming ? 'Confirming…' : 'Confirm charge'}
+          </button>
+          <button
+            type="button"
+            disabled={confirming || discarding}
+            onClick={handleDiscard}
+            className="rounded border border-rose-300 px-4 py-1.5 text-sm font-medium text-rose-700 disabled:opacity-50 hover:bg-rose-50 dark:border-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/20"
+            data-testid="discard-charge-btn"
+          >
+            {discarding ? 'Discarding…' : 'Discard'}
+          </button>
+        </div>
+      </form>
+    </section>
+  )
+}
+
 export default function SessionDetail() {
   const params = useParams<{ id: string }>()
   const sessionId = params.id ? Number(params.id) : null
   const unit = useDistanceUnit()
+  const navigate = useNavigate()
 
   const [session, setSession] = useState<ChargingSessionPayload | null>(null)
   const [loading, setLoading] = useState(true)
@@ -864,13 +1047,17 @@ export default function SessionDetail() {
       ? 'amber'
       : session.source === 'cariad'
         ? 'purple'
-        : 'cyan'
+        : session.source === 'unconfirmed'
+          ? 'slate'
+          : 'cyan'
   const sourceLabel =
     session.source === 'manual'
       ? 'Manual'
       : session.source === 'cariad'
         ? 'Cariad'
-        : 'Cupra'
+        : session.source === 'unconfirmed'
+          ? 'Unconfirmed'
+          : 'Cupra'
   const titleLocation = session.location_name ?? 'Session'
   const subtitleParts = [
     session.date,
@@ -990,6 +1177,7 @@ export default function SessionDetail() {
           </div>
         </Card>
         {session.kwh_calculated !== null &&
+          session.source !== 'unconfirmed' &&
           Math.abs(session.kwh_calculated - session.kwh_added) >= 0.01 && (
             <p
               className="mb-6 text-xs text-slate-400"
@@ -998,6 +1186,18 @@ export default function SessionDetail() {
               Calculated from SoC delta: {session.kwh_calculated.toFixed(2)} kWh
             </p>
           )}
+
+        {session.source === 'unconfirmed' && (
+          <UnconfirmedActionPanel
+            session={session}
+            onConfirmed={(updated) => {
+              setSession(updated)
+            }}
+            onDiscarded={() => {
+              navigate('/sessions')
+            }}
+          />
+        )}
 
         {session.power_curve && session.power_curve.length > 0 && (
           <section className="mb-6">

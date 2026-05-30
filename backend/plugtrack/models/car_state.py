@@ -31,6 +31,9 @@ class CarStateSnapshot(Base):
     )
     last_state: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     last_soc: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Odometer (km) at the last poll — feeds the unconfirmed-charge detector's
+    # regen-vs-charge corroboration, so it must survive a container restart.
+    last_odometer_km: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     last_target_soc: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     last_electric_range_km: Mapped[Optional[int]] = mapped_column(
         Integer, nullable=True

@@ -200,4 +200,43 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         description="GPS coords within this radius of an existing location are treated as the same place.",
         default_value="100",
     ),
+    # Unconfirmed (SoC-delta) charge detection — tiered, odometer-corroborated
+    CatalogueEntry(
+        key="unconfirmed_soc_delta_threshold",
+        value_type="int",
+        group_name="detection",
+        label="SoC delta threshold (percentage points)",
+        description=(
+            "Minimum SoC rise between two consecutive IDLE polls needed to "
+            "consider the gap a charge. Rises below this are treated as regen "
+            "/ measurement noise / preconditioning. Default 5."
+        ),
+        default_value="5",
+    ),
+    CatalogueEntry(
+        key="unconfirmed_regen_ceiling",
+        value_type="int",
+        group_name="detection",
+        label="Regen ceiling (percentage points)",
+        description=(
+            "SoC rises at or above this threshold are always treated as a "
+            "charge, even if the odometer moved (regen cannot add this many "
+            "percentage points). Rises below this band require the car to have "
+            "been stationary. Default 15."
+        ),
+        default_value="15",
+    ),
+    CatalogueEntry(
+        key="unconfirmed_stationary_tolerance_km",
+        value_type="int",
+        group_name="detection",
+        label="Stationary tolerance (km)",
+        description=(
+            "Maximum odometer movement between two IDLE polls that still "
+            "counts as 'stationary'. Rises in the delta-threshold–regen-ceiling "
+            "band where the car moved more than this are suppressed (ambiguous "
+            "regen vs charge). Default 1."
+        ),
+        default_value="1",
+    ),
 )

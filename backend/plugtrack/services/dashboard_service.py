@@ -293,11 +293,15 @@ async def dashboard_summary(
         )
 
     # ---- Lifetime totals ----
+    # Unconfirmed rows are excluded until the user promotes them (spec §4).
     totals_stmt = select(
         func.coalesce(func.sum(ChargingSession.kwh_added), 0.0),
         func.coalesce(func.sum(ChargingSession.cost_pence), 0),
         func.count(ChargingSession.id),
-    ).where(ChargingSession.user_id == user_id)
+    ).where(
+        ChargingSession.user_id == user_id,
+        ChargingSession.source != "unconfirmed",
+    )
     kwh_sum, cost_sum, sessions_count = (await session.execute(totals_stmt)).one()
 
     # Distance proxy: per-car (max - min) odometer span, summed.
@@ -333,6 +337,7 @@ async def dashboard_summary(
     # Rank by how many charges happened at each location. Locations with zero
     # charging sessions are excluded (HAVING), so a clustered-but-never-charged
     # spot doesn't show up with a "0 charges / £0" row.
+    # Unconfirmed rows are excluded from counts/totals until promoted (spec §4).
     charge_count_col = func.count(ChargingSession.id)
     loc_stmt = (
         select(
@@ -344,7 +349,8 @@ async def dashboard_summary(
         )
         .join(
             ChargingSession,
-            ChargingSession.location_id == Location.id,
+            (ChargingSession.location_id == Location.id)
+            & (ChargingSession.source != "unconfirmed"),
             isouter=True,
         )
         .where(Location.user_id == user_id)

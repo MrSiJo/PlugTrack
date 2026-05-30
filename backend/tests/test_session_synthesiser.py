@@ -327,75 +327,174 @@ def test_first_poll_no_prev_timestamp_runs_normally() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phantom-session detection: IDLE → IDLE with a SoC jump above threshold.
+# Unconfirmed-session detection: IDLE → IDLE with a SoC jump above threshold.
 #
 # When the entire plug-in → charge → plug-out cycle fits between two
 # polls (or the cloud never reflected cable-connected during a public
 # charge), the state machine sees IDLE → IDLE and loses the session.
-# Detect by SoC delta and emit a phantom_session transition so the
+# Detect by SoC delta and emit an unconfirmed_session transition so the
 # worker can synthesise a placeholder row for the user to complete.
+#
+# Tiered rule (Δ = end_soc − start_soc):
+#   Δ < soc_delta_threshold (default 5)          → ignore (regen/noise)
+#   soc_delta_threshold ≤ Δ < regen_ceiling (15) → fire ONLY if stationary
+#   Δ ≥ regen_ceiling                            → always fire
 # ---------------------------------------------------------------------------
 
 
-def test_idle_to_idle_with_soc_jump_emits_phantom() -> None:
+def test_idle_to_idle_with_soc_jump_emits_unconfirmed() -> None:
+    """Large Δ (≥ regen_ceiling) with stationary odometer fires with odometer_moved=False."""
     sm = StateMachine()
     prev = CarSyncState(
         last_state="IDLE",
         last_soc=60,
         last_car_captured_timestamp=_ts(),
+        last_odometer_km=12345,
     )
-    tel = _vehicle(cable=False, charging=False, soc=86, captured_at=_ts(1800))
+    # odo unchanged → stationary; Δ=26 → above regen ceiling
+    tel = _vehicle(cable=False, charging=False, soc=86, odo=12345, captured_at=_ts(1800))
     tr = sm.step(prev, tel)
-    assert tr.phantom_session is not None
-    assert tr.phantom_session["start_soc"] == 60
-    assert tr.phantom_session["end_soc"] == 86
-    assert tr.phantom_session["charge_start_at"] == _ts()
-    assert tr.phantom_session["charge_end_at"] == _ts(1800)
+    assert tr.unconfirmed_session is not None
+    assert tr.unconfirmed_session["start_soc"] == 60
+    assert tr.unconfirmed_session["end_soc"] == 86
+    assert tr.unconfirmed_session["charge_start_at"] == _ts()
+    assert tr.unconfirmed_session["charge_end_at"] == _ts(1800)
+    assert tr.unconfirmed_session["odometer_moved"] is False
     assert tr.state_observed == "IDLE"
-    # phantom replaces the no_change fallthrough.
+    # unconfirmed replaces the no_change fallthrough.
     assert tr.no_change is False
     assert tr.open_plug_in is None
     assert tr.open_session is None
 
 
-def test_idle_to_idle_below_threshold_no_phantom() -> None:
-    """Small SoC ticks (regen, measurement noise) must NOT trigger phantom."""
+def test_idle_to_idle_below_threshold_no_unconfirmed() -> None:
+    """Δ below threshold (regen/noise) must NOT trigger unconfirmed session."""
     sm = StateMachine()
     prev = CarSyncState(
         last_state="IDLE",
         last_soc=60,
         last_car_captured_timestamp=_ts(),
+        last_odometer_km=12345,
     )
-    tel = _vehicle(cable=False, charging=False, soc=63, captured_at=_ts(60))
+    tel = _vehicle(cable=False, charging=False, soc=63, odo=12345, captured_at=_ts(60))
     tr = sm.step(prev, tel)
-    assert tr.phantom_session is None
+    assert tr.unconfirmed_session is None
     assert tr.no_change is True
     assert tr.state_observed == "IDLE"
 
 
-def test_idle_to_idle_soc_decrease_no_phantom() -> None:
+def test_idle_to_idle_soc_decrease_no_unconfirmed() -> None:
     """SoC dropping (driving) is not a charge."""
     sm = StateMachine()
     prev = CarSyncState(
         last_state="IDLE",
         last_soc=60,
         last_car_captured_timestamp=_ts(),
+        last_odometer_km=12345,
     )
-    tel = _vehicle(cable=False, charging=False, soc=45, captured_at=_ts(60))
+    tel = _vehicle(cable=False, charging=False, soc=45, odo=12400, captured_at=_ts(60))
     tr = sm.step(prev, tel)
-    assert tr.phantom_session is None
+    assert tr.unconfirmed_session is None
     assert tr.no_change is True
 
 
-def test_idle_to_idle_no_prev_soc_no_phantom() -> None:
-    """First poll after boot with no prev.last_soc cannot detect a phantom."""
+def test_idle_to_idle_no_prev_soc_no_unconfirmed() -> None:
+    """First poll after boot with no prev.last_soc cannot detect an unconfirmed session."""
     sm = StateMachine()
     prev = CarSyncState(
         last_state="IDLE",
         last_soc=None,
         last_car_captured_timestamp=_ts(),
+        last_odometer_km=12345,
     )
-    tel = _vehicle(cable=False, charging=False, soc=80, captured_at=_ts(60))
+    tel = _vehicle(cable=False, charging=False, soc=80, odo=12345, captured_at=_ts(60))
     tr = sm.step(prev, tel)
-    assert tr.phantom_session is None
+    assert tr.unconfirmed_session is None
     assert tr.no_change is True
+
+
+# ---------------------------------------------------------------------------
+# Tiered detection rule tests
+# ---------------------------------------------------------------------------
+
+
+def test_mid_band_stationary_fires() -> None:
+    """Δ in mid-band (5–14pp) with unchanged odometer → fire (stationary = not regen)."""
+    sm = StateMachine()
+    prev = CarSyncState(
+        last_state="IDLE",
+        last_soc=60,
+        last_car_captured_timestamp=_ts(),
+        last_odometer_km=12345,
+    )
+    # Δ = 10 (in mid-band), odometer unchanged
+    tel = _vehicle(cable=False, charging=False, soc=70, odo=12345, captured_at=_ts(600))
+    tr = sm.step(prev, tel)
+    assert tr.unconfirmed_session is not None
+    assert tr.unconfirmed_session["start_soc"] == 60
+    assert tr.unconfirmed_session["end_soc"] == 70
+    assert tr.unconfirmed_session["odometer_moved"] is False
+
+
+def test_mid_band_moved_suppressed() -> None:
+    """Δ in mid-band with odometer moved → suppress (ambiguous regen vs charge)."""
+    sm = StateMachine()
+    prev = CarSyncState(
+        last_state="IDLE",
+        last_soc=60,
+        last_car_captured_timestamp=_ts(),
+        last_odometer_km=12345,
+    )
+    # Δ = 10 (mid-band), odometer moved 30 km → suppress
+    tel = _vehicle(cable=False, charging=False, soc=70, odo=12375, captured_at=_ts(600))
+    tr = sm.step(prev, tel)
+    assert tr.unconfirmed_session is None
+    assert tr.no_change is True
+
+
+def test_ceiling_band_moved_fires_with_odometer_moved_true() -> None:
+    """Δ ≥ regen_ceiling with odometer moved → fire, odometer_moved=True."""
+    sm = StateMachine()
+    prev = CarSyncState(
+        last_state="IDLE",
+        last_soc=40,
+        last_car_captured_timestamp=_ts(),
+        last_odometer_km=12000,
+    )
+    # Δ = 20 (≥ 15 ceiling), odometer moved 50 km → always fires
+    tel = _vehicle(cable=False, charging=False, soc=60, odo=12050, captured_at=_ts(3600))
+    tr = sm.step(prev, tel)
+    assert tr.unconfirmed_session is not None
+    assert tr.unconfirmed_session["odometer_moved"] is True
+
+
+def test_none_odometer_mid_band_suppressed() -> None:
+    """Mid-band Δ with None odometer → cannot confirm stationary → suppress."""
+    sm = StateMachine()
+    prev = CarSyncState(
+        last_state="IDLE",
+        last_soc=60,
+        last_car_captured_timestamp=_ts(),
+        last_odometer_km=None,  # unknown
+    )
+    # Δ = 10 (mid-band), no odometer data
+    tel = _vehicle(cable=False, charging=False, soc=70, odo=None, captured_at=_ts(600))
+    tr = sm.step(prev, tel)
+    assert tr.unconfirmed_session is None
+    assert tr.no_change is True
+
+
+def test_none_odometer_ceiling_band_fires_with_odometer_moved_false() -> None:
+    """Ceiling-band Δ with None odometer → always fires, odometer_moved=False (unknown)."""
+    sm = StateMachine()
+    prev = CarSyncState(
+        last_state="IDLE",
+        last_soc=40,
+        last_car_captured_timestamp=_ts(),
+        last_odometer_km=None,  # unknown
+    )
+    # Δ = 20 (≥ 15 ceiling), odometer unknown
+    tel = _vehicle(cable=False, charging=False, soc=60, odo=None, captured_at=_ts(3600))
+    tr = sm.step(prev, tel)
+    assert tr.unconfirmed_session is not None
+    assert tr.unconfirmed_session["odometer_moved"] is False

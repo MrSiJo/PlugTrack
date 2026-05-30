@@ -325,6 +325,123 @@ async def test_car_panel_includes_live_charge_context(test_sessionmaker):
 
 
 @pytest.mark.asyncio
+async def test_dashboard_totals_exclude_unconfirmed(test_sessionmaker):
+    """Unconfirmed rows contribute zero to lifetime totals until promoted.
+
+    One manual session (should count) + one unconfirmed session (should not).
+    Flipping the unconfirmed row's source to 'manual' must make it count.
+    """
+    user = await _make_user(test_sessionmaker)
+    car = await _make_car(test_sessionmaker, user.id)
+    today = date(2026, 5, 1)
+
+    await _make_session(
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=today,
+        kwh=10.0,
+        cost_pence=150,
+        source="manual",
+    )
+    unconf = await _make_session(
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=today,
+        kwh=5.0,
+        cost_pence=80,
+        source="unconfirmed",
+    )
+
+    async with test_sessionmaker() as session:
+        summary = await dashboard_summary(session, user.id)
+
+    # Only the manual session contributes.
+    totals = summary.lifetime_totals
+    assert totals.sessions_count == 1
+    assert totals.kwh == pytest.approx(10.0)
+    assert totals.cost_pence == 150
+
+    # After promotion: flip source to 'manual' and check both rows count.
+    async with test_sessionmaker() as session:
+        cs = await session.get(ChargingSession, unconf.id)
+        cs.source = "manual"
+        await session.commit()
+
+    async with test_sessionmaker() as session:
+        summary2 = await dashboard_summary(session, user.id)
+
+    totals2 = summary2.lifetime_totals
+    assert totals2.sessions_count == 2
+    assert totals2.kwh == pytest.approx(15.0)
+    assert totals2.cost_pence == 230
+
+
+@pytest.mark.asyncio
+async def test_top_locations_exclude_unconfirmed(test_sessionmaker):
+    """Unconfirmed rows do not appear in top-locations charge counts or totals.
+
+    A location with only unconfirmed sessions must be absent from top_locations
+    (HAVING count > 0 excludes it). A mixed location shows only confirmed counts.
+    """
+    user = await _make_user(test_sessionmaker)
+    car = await _make_car(test_sessionmaker, user.id)
+    home = await _make_location(test_sessionmaker, user.id, name="Home")
+    rapid = await _make_location(test_sessionmaker, user.id, name="Rapid")
+
+    today = date(2026, 5, 1)
+    # Home: one confirmed + one unconfirmed session.
+    await _make_session(
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=today,
+        kwh=20.0,
+        cost_pence=150,
+        location_id=home.id,
+        source="manual",
+    )
+    await _make_session(
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=today,
+        kwh=10.0,
+        cost_pence=800,
+        location_id=home.id,
+        source="unconfirmed",
+    )
+    # Rapid: only an unconfirmed session — must not appear in top_locations.
+    await _make_session(
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=today,
+        kwh=15.0,
+        cost_pence=1200,
+        location_id=rapid.id,
+        source="unconfirmed",
+    )
+
+    async with test_sessionmaker() as session:
+        summary = await dashboard_summary(session, user.id)
+
+    names = [loc.name for loc in summary.top_locations]
+    # Rapid has only unconfirmed sessions → excluded.
+    assert "Rapid" not in names
+    # Home has one confirmed session → appears.
+    assert "Home" in names
+
+    home_stat = next(loc for loc in summary.top_locations if loc.name == "Home")
+    # charge_count counts only the confirmed session.
+    assert home_stat.charge_count == 1
+    # Totals reflect only the confirmed session's energy and cost.
+    assert home_stat.total_kwh == pytest.approx(20.0)
+    assert home_stat.total_cost_pence == 150
+
+
+@pytest.mark.asyncio
 async def test_dashboard_summary_excludes_other_users(test_sessionmaker):
     alice = await _make_user(test_sessionmaker, username="alice")
     bob = await _make_user(test_sessionmaker, username="bob")

@@ -108,7 +108,7 @@ class _RecordingBus(EventBus):
 
 @pytest_asyncio.fixture
 async def seeded(test_sessionmaker):
-    """Insert one user + one car + the home-rate setting."""
+    """Insert one user + one car + the home-rate setting + detection thresholds."""
     async with test_sessionmaker() as session:
         user = User(username="alice", password_hash="x")
         session.add(user)
@@ -137,6 +137,25 @@ async def seeded(test_sessionmaker):
                 is_secret=False,
             )
         )
+        # Detection threshold settings — seed catalogue defaults so the worker
+        # can always read them without falling back to hard-coded defaults.
+        for key, value in [
+            ("unconfirmed_soc_delta_threshold", "5"),
+            ("unconfirmed_regen_ceiling", "15"),
+            ("unconfirmed_stationary_tolerance_km", "1"),
+        ]:
+            session.add(
+                Setting(
+                    key=key,
+                    value=value,
+                    value_type="int",
+                    group_name="detection",
+                    label=key,
+                    description=None,
+                    default_value=value,
+                    is_secret=False,
+                )
+            )
         await session.commit()
         await session.refresh(car)
     return {"user_id": user.id, "car_id": car.id}
@@ -604,24 +623,70 @@ async def test_production_poll_worker_function_facade(seeded, test_sessionmaker)
 
 
 # ---------------------------------------------------------------------------
-# Phantom-session detection: the worker writes a placeholder row when the
-# state machine flags an IDLE→IDLE SoC jump.
+# Unconfirmed-session detection: the worker writes a placeholder row when
+# the state machine flags an IDLE→IDLE SoC jump.
 # ---------------------------------------------------------------------------
 
 
+def _vehicle_with_odo(
+    *,
+    cable: bool,
+    charging: bool,
+    soc: int,
+    captured_at,
+    distance_km: int = 12345,
+    position=None,
+) -> VehicleState:
+    """Variant of _vehicle that allows explicit distance_km for odometer tests."""
+    return VehicleState(
+        battery_level=soc,
+        charging=charging,
+        charging_state=charging,
+        charging_state_raw="",
+        charging_power=None,
+        charging_time_left=None,
+        target_soc=80,
+        charging_cable_connected=cable,
+        charging_cable_locked=cable,
+        external_power=cable,
+        energy_flow=None,
+        vehicle_online=True,
+        last_connected=captured_at,
+        distance_km=distance_km,
+        electric_range_km=200,
+        position=position,
+        car_captured_timestamp=captured_at,
+        charging_mode_raw=None,
+        battery_care=None,
+        max_charge_current=None,
+        charging_estimated_end_at=None,
+    )
+
+
 @pytest.mark.asyncio
-async def test_phantom_session_writes_placeholder_row(seeded, test_sessionmaker):
+async def test_unconfirmed_session_writes_placeholder_row(seeded, test_sessionmaker):
+    """An IDLE→IDLE SoC jump above the regen ceiling creates an unconfirmed row.
+
+    The row must have:
+      - source='unconfirmed'
+      - kwh_added=None (never metered)
+      - kwh_calculated from SoC-delta × battery capacity
+      - cost_pence=None, cost_basis='unknown'
+      - no plug_in_record linkage
+    """
     bus = _RecordingBus()
     car_id = seeded["car_id"]
-    # Car came online with a much higher SoC than we'd last seen — the
-    # entire charge happened off-poll. State stays IDLE.
+    # Car came online with a much higher SoC (≥15pp jump → regen_ceiling band,
+    # always fire regardless of odometer). State stays IDLE.
     state = CarSyncState(
         last_state="IDLE",
         last_soc=60,
         last_car_captured_timestamp=_ts(),
+        last_odometer_km=12345,
     )
-    telemetry = _vehicle(
+    telemetry = _vehicle_with_odo(
         cable=False, charging=False, soc=86, captured_at=_ts(1800),
+        distance_km=12345,  # stationary — odometer unchanged
     )
 
     async def fetcher(_conn, _vid):
@@ -633,38 +698,54 @@ async def test_phantom_session_writes_placeholder_row(seeded, test_sessionmaker)
 
     assert new_state.last_state == "IDLE"
     assert new_state.last_soc == 86
+    # last_odometer_km should be updated to current poll value.
+    assert new_state.last_odometer_km == 12345
 
     async with test_sessionmaker() as session:
         rows = (await session.execute(select(ChargingSession))).scalars().all()
         assert len(rows) == 1
         cs = rows[0]
-        assert cs.source == "phantom"
+        assert cs.source == "unconfirmed"
         assert cs.start_soc == 60
         assert cs.end_soc == 86
-        # 26 pp * 77 kWh / 100 = 20.02 kWh
-        assert abs(cs.kwh_added - 20.02) < 0.01
+        # 26 pp * 77 kWh / 100 = 20.02 kWh as the SoC-delta estimate.
+        assert cs.kwh_calculated is not None
+        assert abs(cs.kwh_calculated - 20.02) < 0.01
+        # kwh_added is pre-populated from kwh_calculated (schema requires non-null).
+        # The confirm endpoint can override it with the user's metered value.
+        assert cs.kwh_added is not None
+        assert abs(cs.kwh_added - cs.kwh_calculated) < 0.001
         # SQLite strips tz info on round-trip; compare against the naive form.
         assert cs.charge_start_at.replace(tzinfo=None) == _ts().replace(tzinfo=None)
         assert cs.charge_end_at.replace(tzinfo=None) == _ts(1800).replace(tzinfo=None)
         assert cs.plug_in_record_id is None
-        assert cs.location_id is None
         assert cs.cost_pence is None
         assert cs.cost_basis == "unknown"
         assert cs.interrupted is True
         assert cs.charging_type == "unknown"
 
-    assert "sync.phantom_session_created" in bus.event_names()
+    assert "sync.unconfirmed_session_created" in bus.event_names()
+    evt = bus.first("sync.unconfirmed_session_created")
+    # Event carries kwh_calculated (the SoC-delta estimate).
+    assert evt.data["session"]["kwh_calculated"] is not None
+    assert evt.data["session"]["kwh_calculated"] > 0
+    assert evt.data["session"]["odometer_moved"] is False
 
 
 @pytest.mark.asyncio
-async def test_phantom_below_threshold_writes_nothing(seeded, test_sessionmaker):
+async def test_unconfirmed_session_below_threshold_writes_nothing(seeded, test_sessionmaker):
+    """A SoC rise below the 5pp threshold is ignored (regen/noise)."""
     bus = _RecordingBus()
     car_id = seeded["car_id"]
     state = CarSyncState(
         last_state="IDLE", last_soc=60, last_car_captured_timestamp=_ts(),
+        last_odometer_km=12345,
     )
     # 60 → 63 = 3 pp, below the 5 pp threshold.
-    telemetry = _vehicle(cable=False, charging=False, soc=63, captured_at=_ts(60))
+    telemetry = _vehicle_with_odo(
+        cable=False, charging=False, soc=63, captured_at=_ts(60),
+        distance_km=12345,
+    )
 
     async def fetcher(_conn, _vid):
         return telemetry
@@ -677,7 +758,146 @@ async def test_phantom_below_threshold_writes_nothing(seeded, test_sessionmaker)
         rows = (await session.execute(select(ChargingSession))).scalars().all()
         assert rows == []
 
-    assert "sync.phantom_session_created" not in bus.event_names()
+    assert "sync.unconfirmed_session_created" not in bus.event_names()
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_session_suggested_location_from_clustering(
+    seeded, test_sessionmaker
+):
+    """When the poll has a position, find_or_create_location is called and the
+    resulting location_id is stored on the row AS A SUGGESTION. Cost stays null."""
+    bus = _RecordingBus()
+    car_id = seeded["car_id"]
+    state = CarSyncState(
+        last_state="IDLE",
+        last_soc=50,
+        last_car_captured_timestamp=_ts(),
+        last_odometer_km=10000,
+    )
+    pos = Position(lat=51.5074, lng=-0.1278, captured_at=_ts(3600))
+    # 26pp jump, ≥ regen_ceiling — always fires.
+    telemetry = _vehicle_with_odo(
+        cable=False, charging=False, soc=76, captured_at=_ts(3600),
+        distance_km=10000, position=pos,
+    )
+
+    async def fetcher(_conn, _vid):
+        return telemetry
+
+    worker = _make_worker(test_sessionmaker, bus, fetcher)
+    job = SyncJob(job_id="jp-loc", car_id=car_id, kind="periodic")
+    await worker.run(job, state)
+
+    async with test_sessionmaker() as session:
+        rows = (await session.execute(select(ChargingSession))).scalars().all()
+        assert len(rows) == 1
+        cs = rows[0]
+        assert cs.source == "unconfirmed"
+        # Location was suggested from clustering.
+        assert cs.location_id is not None
+        # But cost was NOT calculated — stays null.
+        assert cs.cost_pence is None
+        assert cs.cost_basis == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_session_dedup_suppressed_when_overlap(
+    seeded, test_sessionmaker
+):
+    """If an existing synced/manual session covers the same SoC range and time
+    window, no unconfirmed row is created and no event is emitted."""
+    bus = _RecordingBus()
+    car_id = seeded["car_id"]
+
+    # Pre-seed a synced session that covers the same window.
+    async with test_sessionmaker() as session:
+        existing = ChargingSession(
+            user_id=seeded["user_id"],
+            car_id=car_id,
+            date=_ts().date(),
+            charge_start_at=_ts(100),
+            charge_end_at=_ts(1700),
+            start_soc=55,
+            end_soc=82,
+            kwh_added=20.0,
+            charging_type="ac",
+            charging_mode="unknown",
+            source="synthesis",  # "synthesis" counts as an observed session
+        )
+        session.add(existing)
+        await session.commit()
+
+    state = CarSyncState(
+        last_state="IDLE",
+        last_soc=60,
+        last_car_captured_timestamp=_ts(),
+        last_odometer_km=12345,
+    )
+    # SoC 60→86 would normally fire (26pp ≥ regen_ceiling).
+    telemetry = _vehicle_with_odo(
+        cable=False, charging=False, soc=86, captured_at=_ts(1800),
+        distance_km=12345,
+    )
+
+    async def fetcher(_conn, _vid):
+        return telemetry
+
+    worker = _make_worker(test_sessionmaker, bus, fetcher)
+    job = SyncJob(job_id="jp-dup", car_id=car_id, kind="periodic")
+    await worker.run(job, state)
+
+    async with test_sessionmaker() as session:
+        rows = (await session.execute(select(ChargingSession))).scalars().all()
+        # Only the pre-seeded row; no new unconfirmed row created.
+        assert len(rows) == 1
+        assert rows[0].source == "synthesis"
+
+    assert "sync.unconfirmed_session_created" not in bus.event_names()
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_session_conflation_note_when_odometer_moved(
+    seeded, test_sessionmaker
+):
+    """When odometer_moved is True (≥regen_ceiling + car drove), the row's
+    notes include a conflation warning."""
+    bus = _RecordingBus()
+    car_id = seeded["car_id"]
+
+    # SoC jump ≥ 15pp (regen_ceiling) with significant odometer movement.
+    # The synthesiser should fire with odometer_moved=True.
+    state = CarSyncState(
+        last_state="IDLE",
+        last_soc=50,
+        last_car_captured_timestamp=_ts(),
+        last_odometer_km=10000,
+    )
+    # 50→80 = 30pp, ≥ regen_ceiling → always fires even though odo moved 50km.
+    telemetry = _vehicle_with_odo(
+        cable=False, charging=False, soc=80, captured_at=_ts(7200),
+        distance_km=10050,  # car drove 50 km between polls → odometer_moved=True
+    )
+
+    async def fetcher(_conn, _vid):
+        return telemetry
+
+    worker = _make_worker(test_sessionmaker, bus, fetcher)
+    job = SyncJob(job_id="jp-conflate", car_id=car_id, kind="periodic")
+    await worker.run(job, state)
+
+    async with test_sessionmaker() as session:
+        rows = (await session.execute(select(ChargingSession))).scalars().all()
+        assert len(rows) == 1
+        cs = rows[0]
+        assert cs.source == "unconfirmed"
+        # Conflation warning must appear in notes.
+        assert cs.notes is not None
+        assert "may combine multiple charges" in cs.notes
+
+    assert "sync.unconfirmed_session_created" in bus.event_names()
+    evt = bus.first("sync.unconfirmed_session_created")
+    assert evt.data["session"]["odometer_moved"] is True
 
 
 # ---------------------------------------------------------------------------
