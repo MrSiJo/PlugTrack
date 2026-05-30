@@ -31,6 +31,9 @@ def _vehicle(
     power_kw: float | None = None,
     odo: int | None = 12345,
     captured_at: datetime | None = None,
+    charging_mode_raw: str | None = None,
+    battery_care: bool | None = None,
+    max_charge_current: str | None = None,
 ) -> VehicleState:
     return VehicleState(
         battery_level=soc,
@@ -50,6 +53,9 @@ def _vehicle(
         electric_range_km=200,
         position=None,
         car_captured_timestamp=captured_at or _ts(),
+        charging_mode_raw=charging_mode_raw,
+        battery_care=battery_care,
+        max_charge_current=max_charge_current,
     )
 
 
@@ -86,6 +92,52 @@ def test_plugged_in_to_charging() -> None:
     assert tr.open_session["charging_type"] == "ac"
     assert tr.close_session is None
     assert tr.state_observed == "CHARGING"
+
+
+def test_open_session_payload_carries_charging_mode_and_context() -> None:
+    """PLUGGED_IN → CHARGING open payload carries mode + context from telemetry."""
+    sm = StateMachine()
+    prev = CarSyncState(
+        last_state="PLUGGED_IN", last_soc=40, last_car_captured_timestamp=_ts()
+    )
+    tel = _vehicle(
+        cable=True,
+        charging=True,
+        soc=41,
+        raw="charging",
+        power_kw=7.0,
+        captured_at=_ts(60),
+        charging_mode_raw="timer",
+        battery_care=True,
+        max_charge_current="maximum",
+    )
+    tr = sm.step(prev, tel)
+    assert tr.open_session is not None
+    open_payload = tr.open_session
+    assert open_payload["charging_mode"] == "timer"
+    assert open_payload["battery_care"] is True
+    assert open_payload["max_charge_current"] == "maximum"
+
+
+def test_open_session_payload_charging_mode_defaults_unknown() -> None:
+    """When telemetry carries no mode, payload falls back to 'unknown'."""
+    sm = StateMachine()
+    prev = CarSyncState(
+        last_state="PLUGGED_IN", last_soc=40, last_car_captured_timestamp=_ts()
+    )
+    tel = _vehicle(
+        cable=True,
+        charging=True,
+        soc=41,
+        raw="charging",
+        power_kw=7.0,
+        captured_at=_ts(60),
+    )
+    tr = sm.step(prev, tel)
+    assert tr.open_session is not None
+    assert tr.open_session["charging_mode"] == "unknown"
+    assert tr.open_session["battery_care"] is None
+    assert tr.open_session["max_charge_current"] is None
 
 
 def test_charging_to_charging_done() -> None:

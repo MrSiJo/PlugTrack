@@ -161,7 +161,9 @@ class StateMachine:
                 "charge_start_at": telemetry.car_captured_timestamp,
                 "start_soc": telemetry.battery_level,
                 "charging_type": _charging_type_from_power(telemetry.charging_power),
-                "charging_mode": "unknown",
+                "charging_mode": telemetry.charging_mode_raw or "unknown",
+                "battery_care": telemetry.battery_care,
+                "max_charge_current": telemetry.max_charge_current,
                 "odometer_at_session_km": telemetry.distance_km,
             }
             return tr
@@ -172,7 +174,9 @@ class StateMachine:
                 "charge_start_at": telemetry.car_captured_timestamp,
                 "start_soc": telemetry.battery_level,
                 "charging_type": _charging_type_from_power(telemetry.charging_power),
-                "charging_mode": "unknown",
+                "charging_mode": telemetry.charging_mode_raw or "unknown",
+                "battery_care": telemetry.battery_care,
+                "max_charge_current": telemetry.max_charge_current,
                 "odometer_at_session_km": telemetry.distance_km,
             }
             return tr
@@ -195,7 +199,9 @@ class StateMachine:
                 "charge_start_at": telemetry.car_captured_timestamp,
                 "start_soc": start_soc,
                 "charging_type": _charging_type_from_power(telemetry.charging_power),
-                "charging_mode": "unknown",
+                "charging_mode": telemetry.charging_mode_raw or "unknown",
+                "battery_care": telemetry.battery_care,
+                "max_charge_current": telemetry.max_charge_current,
                 "odometer_at_session_km": telemetry.distance_km,
             }
             tr.close_session = {
@@ -213,7 +219,9 @@ class StateMachine:
                 "charge_start_at": telemetry.car_captured_timestamp,
                 "start_soc": telemetry.battery_level,
                 "charging_type": _charging_type_from_power(telemetry.charging_power),
-                "charging_mode": "unknown",
+                "charging_mode": telemetry.charging_mode_raw or "unknown",
+                "battery_care": telemetry.battery_care,
+                "max_charge_current": telemetry.max_charge_current,
                 "odometer_at_session_km": telemetry.distance_km,
             }
             return tr
