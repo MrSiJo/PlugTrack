@@ -27,6 +27,9 @@ const baseCar: DashboardCarPanel = {
   electric_range_km: 320,
   charging_power_kw: 7.4,
   target_soc: 80,
+  battery_care: null,
+  max_charge_current: null,
+  charging_estimated_end_at: null,
   nominal_efficiency_mi_per_kwh: 4.2,
   mileage_year: null,
 }
