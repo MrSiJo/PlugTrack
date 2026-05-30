@@ -120,6 +120,52 @@ describe('Sessions page', () => {
     })
   })
 
+  it('renders a "Timer · AC" mode/type hint in the row subtext', async () => {
+    vi.spyOn(api, 'getSessions').mockResolvedValue([
+      makeSession({
+        id: 1,
+        source: 'synthesis',
+        charging_mode: 'timer',
+        charging_type: 'ac',
+      }),
+    ])
+
+    render(
+      <MemoryRouter>
+        <Sessions />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('session-row')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText(/Timer · AC/)).toBeInTheDocument()
+  })
+
+  it('omits the mode/type hint when both are unknown', async () => {
+    vi.spyOn(api, 'getSessions').mockResolvedValue([
+      makeSession({
+        id: 1,
+        source: 'manual',
+        charging_mode: 'unknown',
+        charging_type: 'unknown',
+      }),
+    ])
+
+    render(
+      <MemoryRouter>
+        <Sessions />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('session-row')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText(/Timer|Manual ·|· AC/)).not.toBeInTheDocument()
+  })
+
   it('highlights rows whose ids are in syncStore.recentlyImportedSessionIds', async () => {
     vi.spyOn(api, 'getSessions').mockResolvedValue([
       makeSession({ id: 1 }),
