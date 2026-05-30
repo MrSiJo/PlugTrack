@@ -285,6 +285,8 @@ export interface ChargingSessionPayload {
   notes: string | null
   source: string
   telematics_session_id: string | null
+  saved_vs_petrol_p: number | null
+  comparison_basis: string | null
   // [[delta_seconds, soc, power_kw], ...] — live during charge.
   power_curve?: number[][] | null
   metrics?: SessionMetricsPayload | null

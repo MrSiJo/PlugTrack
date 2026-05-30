@@ -504,6 +504,42 @@ async def test_update_session_accepts_charge_context(authed_client):
 
 
 @pytest.mark.asyncio
+async def test_create_update_default_savings_fields_to_none(authed_client):
+    """`_to_payload` defaults saved_vs_petrol_p/comparison_basis to None, so
+    create + update responses (which don't run the batch pass) carry None for
+    both — only the list endpoint populates them."""
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert create.status_code == 201, create.text
+    body = create.json()
+    assert "saved_vs_petrol_p" in body
+    assert "comparison_basis" in body
+    assert body["saved_vs_petrol_p"] is None
+    assert body["comparison_basis"] is None
+
+    sid = body["id"]
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"notes": "tweak"},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200
+    upd_body = upd.json()
+    assert upd_body["saved_vs_petrol_p"] is None
+    assert upd_body["comparison_basis"] is None
+
+
+@pytest.mark.asyncio
 async def test_override_columns_survive_unrelated_updates(authed_client):
     """Updating non-cost fields must not clobber the override columns."""
     from sqlalchemy import select

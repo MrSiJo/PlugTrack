@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import Sessions from './Sessions'
 import { api, type ChargingSessionPayload } from '@/api/client'
@@ -42,8 +43,19 @@ function makeSession(
     notes: null,
     source: 'manual',
     telematics_session_id: null,
+    saved_vs_petrol_p: null,
+    comparison_basis: null,
     ...over,
   }
+}
+
+/** Pull the most recent getSessions query string back out of the spy. */
+function lastQuery(spy: ReturnType<typeof vi.spyOn>): URLSearchParams {
+  const calls = spy.mock.calls
+  expect(calls.length).toBeGreaterThan(0)
+  const arg = calls[calls.length - 1]![0]
+  const qs = typeof arg === 'string' ? arg.replace(/^\?/, '') : ''
+  return new URLSearchParams(qs)
 }
 
 describe('Sessions page', () => {
@@ -55,6 +67,31 @@ describe('Sessions page', () => {
       ...useSyncStore.getState(),
       recentlyImportedSessionIds: [],
     })
+  })
+
+  it('renders a table with the expected column headers and a row per session', async () => {
+    vi.spyOn(api, 'getSessions').mockResolvedValue([
+      makeSession({ id: 1 }),
+      makeSession({ id: 2 }),
+      makeSession({ id: 3 }),
+    ])
+
+    render(
+      <MemoryRouter>
+        <Sessions />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('session-row')).toHaveLength(3)
+    })
+
+    expect(screen.getByRole('table')).toBeInTheDocument()
+    for (const header of ['Date', 'Location', 'kWh', 'Cost', 'Saved', 'SoC', 'Rate', 'Type']) {
+      expect(
+        screen.getByRole('columnheader', { name: new RegExp(header, 'i') }),
+      ).toBeInTheDocument()
+    }
   })
 
   it('renders source badges and gradient cost', async () => {
@@ -86,11 +123,11 @@ describe('Sessions page', () => {
     expect(costs[1]).toHaveTextContent('£0.00')
   })
 
-  it('groups sessions by month with totals', async () => {
+  it('shows a summary line with the session count and total cost', async () => {
     vi.spyOn(api, 'getSessions').mockResolvedValue([
-      makeSession({ id: 1, date: '2026-05-05', cost_pence: 400 }),
-      makeSession({ id: 2, date: '2026-05-01', cost_pence: 600 }),
-      makeSession({ id: 3, date: '2026-04-28', cost_pence: 800 }),
+      makeSession({ id: 1, cost_pence: 400 }),
+      makeSession({ id: 2, cost_pence: 600 }),
+      makeSession({ id: 3, cost_pence: 800 }),
     ])
 
     render(
@@ -100,12 +137,12 @@ describe('Sessions page', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByText(/May 2026/)).toBeInTheDocument()
-      expect(screen.getByText(/Apr 2026/)).toBeInTheDocument()
+      expect(screen.getAllByTestId('session-row')).toHaveLength(3)
     })
 
-    expect(screen.getByText(/2 sessions · £10\.00/)).toBeInTheDocument()
-    expect(screen.getByText(/1 session · £8\.00/)).toBeInTheDocument()
+    // 3 sessions · £18.00 total
+    expect(screen.getByText(/3 sessions/)).toBeInTheDocument()
+    expect(screen.getByText(/£18\.00/)).toBeInTheDocument()
   })
 
   it('shows empty state when there are no sessions', async () => {
@@ -118,52 +155,6 @@ describe('Sessions page', () => {
     await waitFor(() => {
       expect(screen.getByText(/No sessions yet/i)).toBeInTheDocument()
     })
-  })
-
-  it('renders a "Timer · AC" mode/type hint in the row subtext', async () => {
-    vi.spyOn(api, 'getSessions').mockResolvedValue([
-      makeSession({
-        id: 1,
-        source: 'synthesis',
-        charging_mode: 'timer',
-        charging_type: 'ac',
-      }),
-    ])
-
-    render(
-      <MemoryRouter>
-        <Sessions />
-      </MemoryRouter>,
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId('session-row')).toBeInTheDocument()
-    })
-
-    expect(screen.getByText(/Timer · AC/)).toBeInTheDocument()
-  })
-
-  it('omits the mode/type hint when both are unknown', async () => {
-    vi.spyOn(api, 'getSessions').mockResolvedValue([
-      makeSession({
-        id: 1,
-        source: 'manual',
-        charging_mode: 'unknown',
-        charging_type: 'unknown',
-      }),
-    ])
-
-    render(
-      <MemoryRouter>
-        <Sessions />
-      </MemoryRouter>,
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId('session-row')).toBeInTheDocument()
-    })
-
-    expect(screen.queryByText(/Timer|Manual ·|· AC/)).not.toBeInTheDocument()
   })
 
   it('highlights rows whose ids are in syncStore.recentlyImportedSessionIds', async () => {
@@ -187,6 +178,301 @@ describe('Sessions page', () => {
       expect(rows).toHaveLength(2)
       expect(rows[0]).toHaveAttribute('data-highlighted', 'false')
       expect(rows[1]).toHaveAttribute('data-highlighted', 'true')
+    })
+  })
+
+  describe('sorting', () => {
+    it('defaults to sort=date dir=desc on the initial fetch', async () => {
+      const spy = vi
+        .spyOn(api, 'getSessions')
+        .mockResolvedValue([makeSession({ id: 1 })])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      const q = lastQuery(spy)
+      expect(q.get('sort')).toBe('date')
+      expect(q.get('dir')).toBe('desc')
+    })
+
+    it('clicking a sortable header refetches with that sort, and clicking again flips dir', async () => {
+      const spy = vi
+        .spyOn(api, 'getSessions')
+        .mockResolvedValue([makeSession({ id: 1 })])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      const costButton = screen.getByRole('button', { name: /Cost/i })
+
+      // First click → sort=cost dir=desc
+      fireEvent.click(costButton)
+      await waitFor(() => {
+        const q = lastQuery(spy)
+        expect(q.get('sort')).toBe('cost')
+        expect(q.get('dir')).toBe('desc')
+      })
+
+      // Active header shows the descending indicator (aria-sort on the
+      // clickable sort control).
+      expect(costButton).toHaveAttribute('aria-sort', 'descending')
+
+      // Second click → same field flips to asc.
+      fireEvent.click(costButton)
+      await waitFor(() => {
+        const q = lastQuery(spy)
+        expect(q.get('sort')).toBe('cost')
+        expect(q.get('dir')).toBe('asc')
+      })
+      expect(costButton).toHaveAttribute('aria-sort', 'ascending')
+    })
+
+    it('does not sort when a non-sortable header is clicked', async () => {
+      const spy = vi
+        .spyOn(api, 'getSessions')
+        .mockResolvedValue([makeSession({ id: 1 })])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      const callsBefore = spy.mock.calls.length
+      // The Location header is plain text inside a <th> — not a button.
+      const locationHeaderText = screen.getByText('Location')
+      const locationHeader = locationHeaderText.closest('th') as HTMLElement
+      expect(locationHeader).not.toBeNull()
+      // A non-sortable header has no clickable sort button.
+      expect(within(locationHeader).queryByRole('button')).toBeNull()
+
+      fireEvent.click(locationHeader)
+
+      // No refetch was triggered.
+      expect(spy.mock.calls.length).toBe(callsBefore)
+      const q = lastQuery(spy)
+      expect(q.get('sort')).toBe('date')
+    })
+  })
+
+  describe('saved cell', () => {
+    it('renders "—" when saved_vs_petrol_p is null', async () => {
+      vi.spyOn(api, 'getSessions').mockResolvedValue([
+        makeSession({ id: 1, saved_vs_petrol_p: null, comparison_basis: null }),
+      ])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      const cell = screen.getByTestId('session-saved')
+      expect(cell).toHaveTextContent('—')
+    })
+
+    it('renders a plain amount for a measured comparison', async () => {
+      vi.spyOn(api, 'getSessions').mockResolvedValue([
+        makeSession({
+          id: 1,
+          saved_vs_petrol_p: 250,
+          comparison_basis: 'measured',
+        }),
+      ])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      const cell = screen.getByTestId('session-saved')
+      expect(cell).toHaveTextContent('£2.50')
+      expect(cell).not.toHaveTextContent('~')
+      // Measured rows are not muted.
+      expect(cell.className).not.toMatch(/text-slate-400/)
+    })
+
+    it('prefixes "~" and mutes the cell for an estimated comparison', async () => {
+      vi.spyOn(api, 'getSessions').mockResolvedValue([
+        makeSession({
+          id: 1,
+          saved_vs_petrol_p: 175,
+          comparison_basis: 'estimated',
+        }),
+      ])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      const cell = screen.getByTestId('session-saved')
+      expect(cell).toHaveTextContent('~£1.75')
+      expect(cell.className).toMatch(/text-slate-400/)
+    })
+  })
+
+  describe('date range filter', () => {
+    it('defaults to a rolling 30-day window on the initial fetch', async () => {
+      const spy = vi
+        .spyOn(api, 'getSessions')
+        .mockResolvedValue([makeSession({ id: 1 })])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      const q = lastQuery(spy)
+      const from = q.get('date_from')
+      const to = q.get('date_to')
+      expect(from).toBeTruthy()
+      expect(to).toBeTruthy()
+
+      const fromMs = new Date(from as string).getTime()
+      const toMs = new Date(to as string).getTime()
+      const spanDays = Math.round((toMs - fromMs) / 86_400_000)
+      // Rolling ~30 days. Allow a few days of slack for local-vs-UTC date
+      // truncation / DST; the point is it is a one-month window, clearly
+      // distinct from last_90 (~90) or all-time (no bounds).
+      expect(spanDays).toBeGreaterThanOrEqual(28)
+      expect(spanDays).toBeLessThanOrEqual(33)
+    })
+
+    it('selecting "Custom range" reveals two date inputs and editing them refetches with those bounds', async () => {
+      const user = userEvent.setup()
+      const spy = vi
+        .spyOn(api, 'getSessions')
+        .mockResolvedValue([makeSession({ id: 1 })])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      // Open the date-range dropdown and pick "Custom range".
+      await user.click(screen.getByRole('button', { name: /Last 30 days/i }))
+      const customItem = await screen.findByText('Custom range')
+      await user.click(customItem)
+
+      // Two date inputs appear.
+      let fromInput: HTMLInputElement
+      let toInput: HTMLInputElement
+      await waitFor(() => {
+        fromInput = screen.getByTestId('custom-from') as HTMLInputElement
+        toInput = screen.getByTestId('custom-to') as HTMLInputElement
+        expect(fromInput.type).toBe('date')
+        expect(toInput.type).toBe('date')
+      })
+
+      fireEvent.change(fromInput!, { target: { value: '2026-05-01' } })
+      fireEvent.change(toInput!, { target: { value: '2026-05-20' } })
+
+      await waitFor(() => {
+        const q = lastQuery(spy)
+        expect(q.get('date_from')).toBe('2026-05-01')
+        expect(q.get('date_to')).toBe('2026-05-20')
+      })
+    })
+
+    it('shows a hint and suppresses the request when from > to', async () => {
+      const user = userEvent.setup()
+      const spy = vi
+        .spyOn(api, 'getSessions')
+        .mockResolvedValue([makeSession({ id: 1 })])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /Last 30 days/i }))
+      const customItem = await screen.findByText('Custom range')
+      await user.click(customItem)
+
+      let fromInput: HTMLInputElement
+      let toInput: HTMLInputElement
+      await waitFor(() => {
+        fromInput = screen.getByTestId('custom-from') as HTMLInputElement
+        toInput = screen.getByTestId('custom-to') as HTMLInputElement
+        expect(fromInput.type).toBe('date')
+        expect(toInput.type).toBe('date')
+      })
+
+      // Establish a valid range first and let it settle into a request.
+      fireEvent.change(fromInput!, { target: { value: '2026-05-20' } })
+      fireEvent.change(toInput!, { target: { value: '2026-05-25' } })
+      await waitFor(() => {
+        const q = lastQuery(spy)
+        expect(q.get('date_from')).toBe('2026-05-20')
+        expect(q.get('date_to')).toBe('2026-05-25')
+      })
+
+      const callsBefore = spy.mock.calls.length
+
+      // Now make `from` later than `to` → invalid range.
+      fireEvent.change(toInput!, { target: { value: '2026-05-01' } })
+
+      // The inline hint appears…
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Start date must be on or before the end date/i),
+        ).toBeInTheDocument()
+      })
+
+      // …and no further request fired for the invalid range: the call count
+      // is unchanged and the last query still carries the prior valid bounds.
+      expect(spy.mock.calls.length).toBe(callsBefore)
+      const q = lastQuery(spy)
+      expect(q.get('date_from')).toBe('2026-05-20')
+      expect(q.get('date_to')).toBe('2026-05-25')
     })
   })
 })
