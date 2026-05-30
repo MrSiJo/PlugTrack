@@ -58,6 +58,11 @@ class CarPanel:
     electric_range_km: Optional[int] = None
     charging_power_kw: Optional[float] = None
     target_soc: Optional[int] = None
+    # Live charge-context (pycupra) — surfaced while charging. Null when the
+    # provider does not report them or no orchestrator state is present.
+    battery_care: Optional[bool] = None
+    max_charge_current: Optional[str] = None
+    charging_estimated_end_at: Optional[datetime] = None
     nominal_efficiency_mi_per_kwh: Optional[float] = None
     # Active annual mileage tracking period — null when the user hasn't
     # enabled tracking on this car. See `services/mileage_tracking.py`.
@@ -174,6 +179,9 @@ async def dashboard_summary(
         electric_range_km: Optional[int] = None
         charging_power_kw: Optional[float] = None
         target_soc: Optional[int] = None
+        battery_care: Optional[bool] = None
+        max_charge_current: Optional[str] = None
+        charging_estimated_end_at: Optional[datetime] = None
 
         if orchestrator is not None:
             try:
@@ -193,6 +201,11 @@ async def dashboard_summary(
                 electric_range_km = getattr(live, "last_electric_range_km", None)
                 charging_power_kw = getattr(live, "last_charging_power_kw", None)
                 target_soc = getattr(live, "last_target_soc", None)
+                battery_care = getattr(live, "last_battery_care", None)
+                max_charge_current = getattr(live, "last_max_charge_current", None)
+                charging_estimated_end_at = getattr(
+                    live, "last_charging_estimated_end_at", None
+                )
 
         # `charging_cable_connected` is derived from the in-memory state
         # machine: PLUGGED_IN, CHARGING, CHARGING_DONE all imply cable in.
@@ -241,6 +254,9 @@ async def dashboard_summary(
                 electric_range_km=electric_range_km,
                 charging_power_kw=charging_power_kw,
                 target_soc=target_soc,
+                battery_care=battery_care,
+                max_charge_current=max_charge_current,
+                charging_estimated_end_at=charging_estimated_end_at,
                 nominal_efficiency_mi_per_kwh=car.nominal_efficiency_mi_per_kwh,
                 mileage_year=mileage_year,
             )
