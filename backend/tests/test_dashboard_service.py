@@ -246,13 +246,17 @@ async def test_dashboard_summary_multi_car_top_locations(test_sessionmaker):
         summary = await dashboard_summary(session, user.id)
 
     assert len(summary.cars) == 2
-    # Top locations: ordered by visit_count desc.
-    assert [loc.name for loc in summary.top_locations[:3]] == ["Home", "Work", "Gridserve"]
+    # Top locations: ranked by number of charging sessions, not the
+    # clustering visit_count. Home has 2 charges; Work and Gridserve 1 each
+    # (tie broken by id asc). "Visited Once" has visit_count=1 but ZERO
+    # charging sessions, so it is excluded.
+    assert [loc.name for loc in summary.top_locations] == ["Home", "Work", "Gridserve"]
     home_stat = summary.top_locations[0]
+    assert home_stat.charge_count == 2
     assert home_stat.total_kwh == pytest.approx(35.0)
     assert home_stat.total_cost_pence == 260
-    # All 4 locations in scope (limit is 5, we created 4).
-    assert len(summary.top_locations) == 4
+    assert "Visited Once" not in [loc.name for loc in summary.top_locations]
+    assert len(summary.top_locations) == 3
 
 
 @pytest.mark.asyncio
