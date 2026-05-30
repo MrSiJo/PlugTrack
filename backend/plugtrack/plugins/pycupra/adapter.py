@@ -101,6 +101,27 @@ def _coerce_optional_bool(value: Any) -> Optional[bool]:
     return _coerce_bool(value)
 
 
+_CHARGING_MODE_VALUES = {"manual", "timer", "profile"}
+
+
+def _normalise_charging_mode(raw: Any) -> str:
+    if isinstance(raw, str) and raw.strip().lower() in _CHARGING_MODE_VALUES:
+        return raw.strip().lower()
+    return "unknown"
+
+
+def _coerce_optional_datetime(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
 def _coerce_datetime(value: Any) -> datetime:
     if isinstance(value, datetime):
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
@@ -236,6 +257,20 @@ async def fetch_vehicle_state(connection: Connection, vehicle_id: str) -> Vehicl
         electric_range_km=_coerce_int(_safe_attr(vehicle, "electric_range")),
         position=_read_position(vehicle),
         car_captured_timestamp=_read_car_captured_timestamp(vehicle),
+        charging_mode_raw=_normalise_charging_mode(
+            _safe_attr(vehicle, "charging_mode")
+        ),
+        battery_care=_coerce_optional_bool(
+            _safe_attr(vehicle, "charging_battery_care")
+        ),
+        max_charge_current=(
+            str(_safe_attr(vehicle, "charge_max_ampere"))
+            if _safe_attr(vehicle, "charge_max_ampere") not in (None, "")
+            else None
+        ),
+        charging_estimated_end_at=_coerce_optional_datetime(
+            _safe_attr(vehicle, "charging_estimated_end_time")
+        ),
     )
 
 
