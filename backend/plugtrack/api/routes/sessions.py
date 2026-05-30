@@ -21,7 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...db import get_db
 from ...models import Car, ChargingSession, Location, Setting
 from ...services.cost import compute_session_cost
-from ...services.session_metrics import compute_session_metrics
+from ...services.session_metrics import (
+    compute_savings_for_sessions,
+    compute_session_metrics,
+)
 
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -123,6 +126,8 @@ class SessionPayload(BaseModel):
     # session detail page can plot SoC + power as the charge progresses.
     # NULL on manual sessions and pre-Phase-4 historic rows.
     power_curve: Optional[list] = None
+    saved_vs_petrol_p: Optional[int] = None
+    comparison_basis: Optional[str] = None
     metrics: Optional[SessionMetricsPayload] = None
 
 
@@ -179,6 +184,8 @@ def _to_payload(
     location_address: Optional[str] = None,
     location_lat: Optional[float] = None,
     location_lng: Optional[float] = None,
+    saved_vs_petrol_p: Optional[int] = None,
+    comparison_basis: Optional[str] = None,
 ) -> SessionPayload:
     return SessionPayload(
         id=cs.id,
@@ -214,6 +221,8 @@ def _to_payload(
         source=cs.source,
         telematics_session_id=cs.telematics_session_id,
         power_curve=cs.power_curve,
+        saved_vs_petrol_p=saved_vs_petrol_p,
+        comparison_basis=comparison_basis,
     )
 
 
@@ -281,6 +290,16 @@ async def _apply_cost(
 
 
 _VALID_SOURCES = frozenset({"manual", "synthesis", "cariad", "phantom"})
+_VALID_SORTS = frozenset({"date", "cost", "energy", "saved"})
+_VALID_DIRS = frozenset({"asc", "desc"})
+
+# Maps the SQL-backed sort fields to their ChargingSession columns. `saved`
+# is intentionally absent — it is computed in memory after the bulk pass.
+_SORT_COLUMNS = {
+    "date": ChargingSession.date,
+    "cost": ChargingSession.cost_pence,
+    "energy": ChargingSession.kwh_added,
+}
 
 
 @router.get("", response_model=list[SessionPayload])
@@ -291,6 +310,8 @@ async def list_sessions(
     date_to: Optional[date_cls] = Query(default=None),
     source: Optional[str] = Query(default=None),
     location_id: Optional[int] = Query(default=None),
+    sort: str = Query(default="date"),
+    dir: str = Query(default="desc"),
     session: AsyncSession = Depends(get_db),
 ) -> list[SessionPayload]:
     user_id = _user_id(request)
@@ -298,6 +319,16 @@ async def list_sessions(
         raise HTTPException(
             status_code=400,
             detail=f"source must be one of {sorted(_VALID_SOURCES)}",
+        )
+    if sort not in _VALID_SORTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"sort must be one of {sorted(_VALID_SORTS)}",
+        )
+    if dir not in _VALID_DIRS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"dir must be one of {sorted(_VALID_DIRS)}",
         )
     stmt = (
         select(
@@ -320,18 +351,54 @@ async def list_sessions(
         stmt = stmt.where(ChargingSession.source == source)
     if location_id is not None:
         stmt = stmt.where(ChargingSession.location_id == location_id)
-    stmt = stmt.order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
+    # `saved` is not a column — order by date for a stable base set, then
+    # re-sort the computed value in memory below. For the SQL-backed fields
+    # apply ORDER BY directly, keeping id as a stable tiebreaker.
+    if sort == "saved":
+        order_col = ChargingSession.date
+        order_dir = "desc"
+    else:
+        order_col = _SORT_COLUMNS[sort]
+        order_dir = dir
+    if order_dir == "asc":
+        stmt = stmt.order_by(order_col.asc(), ChargingSession.id.asc())
+    else:
+        stmt = stmt.order_by(order_col.desc(), ChargingSession.id.desc())
+
     result = await session.execute(stmt)
-    return [
-        _to_payload(
-            cs,
-            location_name=name,
-            location_address=address,
-            location_lat=lat,
-            location_lng=lng,
+    rows = result.all()
+
+    savings = await compute_savings_for_sessions(
+        session, [cs for cs, *_ in rows]
+    )
+
+    payloads = []
+    for cs, name, address, lat, lng in rows:
+        saved_p, basis = savings.get(cs.id, (None, None))
+        payloads.append(
+            _to_payload(
+                cs,
+                location_name=name,
+                location_address=address,
+                location_lat=lat,
+                location_lng=lng,
+                saved_vs_petrol_p=saved_p,
+                comparison_basis=basis,
+            )
         )
-        for cs, name, address, lat, lng in result.all()
-    ]
+
+    if sort == "saved":
+        # None sorts last in both directions; the boolean key puts rows with
+        # a value ahead of those without, then the value orders within them.
+        reverse = dir == "desc"
+        payloads.sort(
+            key=lambda p: (
+                p.saved_vs_petrol_p is None,
+                -(p.saved_vs_petrol_p or 0) if reverse else (p.saved_vs_petrol_p or 0),
+            )
+        )
+
+    return payloads
 
 
 async def _to_payload_with_location(

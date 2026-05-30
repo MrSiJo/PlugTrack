@@ -8,6 +8,7 @@ import pytest
 from plugtrack.models import Car, ChargingSession, Setting, User
 from plugtrack.services.session_metrics import (
     _observed_mi_per_kwh,
+    compute_savings_for_sessions,
     compute_session_metrics,
     petrol_pence_per_mile,
 )
@@ -616,3 +617,160 @@ async def test_observed_fewer_than_two_readings_returns_none(test_sessionmaker):
 
         observed = await _observed_mi_per_kwh(s, car_id=1, user_id=1, battery_kwh=50.0)
         assert observed is None
+
+
+# ---------------------------------------------------------------------------
+# compute_savings_for_sessions — the batch path must agree, byte-for-byte,
+# with compute_session_metrics for every row (the consistency guarantee).
+# ---------------------------------------------------------------------------
+
+
+async def _assert_batch_matches_single(s, rows):
+    """For each row, the batch (saved, basis) equals the per-session metrics'
+    (savings_vs_petrol_p, comparison_basis)."""
+    from sqlalchemy import select
+
+    batch = await compute_savings_for_sessions(s, list(rows))
+    for cs in rows:
+        m = await compute_session_metrics(s, cs)
+        saved, basis = batch[cs.id]
+        assert saved == m.savings_vs_petrol_p, (
+            f"session {cs.id}: batch saved={saved} != single "
+            f"{m.savings_vs_petrol_p}"
+        )
+        assert basis == m.comparison_basis, (
+            f"session {cs.id}: batch basis={basis} != single "
+            f"{m.comparison_basis}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_batch_savings_matches_single_measured_and_chain(test_sessionmaker):
+    """Measured anchor + zero-mile follow-ups: batch agrees with single."""
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s)
+        _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
+        s.add(_session(id=1, date=date(2026, 4, 28), odo_km=1000.0, cost_pence=200))
+        s.add(_session(id=2, date=date(2026, 4, 30), odo_km=1100.0, cost_pence=500))
+        s.add(_session(id=3, date=date(2026, 5, 1), odo_km=1100.0, cost_pence=300))
+        s.add(_session(id=4, date=date(2026, 5, 2), odo_km=1100.0, cost_pence=400))
+        await s.commit()
+
+        rows = [await s.get(ChargingSession, i) for i in (1, 2, 3, 4)]
+        await _assert_batch_matches_single(s, rows)
+
+        # Spot-check the basis breakdown: id=2 is the measured anchor, the
+        # follow-ups (3, 4) anchor back (basis None), id=1 has no prior
+        # odometer so it estimates.
+        batch = await compute_savings_for_sessions(s, rows)
+        assert batch[2][1] == "measured"
+        assert batch[3] == (None, None)
+        assert batch[4] == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_batch_savings_matches_single_estimated_and_none(test_sessionmaker):
+    """A mix of estimated (no odometer) and none (zero-energy) rows."""
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
+        _add_petrol_settings(s)
+        # Estimated — no odometer, has energy + cost.
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
+            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=17.7,
+            cost_pence=368, cost_basis="home_rate", source="manual",
+        ))
+        # None — zero energy, no estimate possible.
+        s.add(ChargingSession(
+            id=2, user_id=1, car_id=1, date=date(2026, 5, 15),
+            start_soc=80, end_soc=80, kwh_added=0.0, kwh_calculated=0.0,
+            cost_pence=100, cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+
+        rows = [await s.get(ChargingSession, i) for i in (1, 2)]
+        await _assert_batch_matches_single(s, rows)
+
+        batch = await compute_savings_for_sessions(s, rows)
+        assert batch[1][1] == "estimated"
+        assert batch[2] == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_batch_savings_matches_single_no_petrol_settings(test_sessionmaker):
+    """Estimated basis but petrol settings missing → saved None, basis
+    'estimated'. Batch must mirror the single path exactly."""
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
+        # No petrol settings.
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
+            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=17.7,
+            cost_pence=368, cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+
+        rows = [await s.get(ChargingSession, 1)]
+        await _assert_batch_matches_single(s, rows)
+        batch = await compute_savings_for_sessions(s, rows)
+        assert batch[1] == (None, "estimated")
+
+
+@pytest.mark.asyncio
+async def test_batch_savings_uses_full_history_not_input_window(test_sessionmaker):
+    """The batch derives observed efficiency from the car's FULL history,
+    even when only a subset of rows is passed in. Passing just the estimated
+    row must still produce the observed-efficiency answer that the single
+    path (which sees the whole DB) computes.
+    """
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        # Nominal (5.0) far from observed (3.0).
+        _seed_car(s, battery_kwh=50.0, mi_per_kwh=5.0)
+        _add_petrol_settings(s)
+        # Three measured legs implying observed 3.0 mi/kWh.
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 1),
+            start_soc=30, end_soc=80, kwh_added=25.0,
+            odometer_at_session_km=1000.0,
+            cost_basis="home_rate", source="manual",
+        ))
+        s.add(ChargingSession(
+            id=2, user_id=1, car_id=1, date=date(2026, 5, 5),
+            start_soc=30, end_soc=80, kwh_added=25.0,
+            odometer_at_session_km=1000.0 + 120.7008,
+            cost_basis="home_rate", source="manual",
+        ))
+        s.add(ChargingSession(
+            id=3, user_id=1, car_id=1, date=date(2026, 5, 9),
+            start_soc=30, end_soc=80, kwh_added=25.0,
+            odometer_at_session_km=1000.0 + 2 * 120.7008,
+            cost_basis="home_rate", source="manual",
+        ))
+        # Estimated session — no odometer.
+        s.add(ChargingSession(
+            id=4, user_id=1, car_id=1, date=date(2026, 5, 12),
+            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=15.0,
+            cost_pence=300, cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+
+        estimated = await s.get(ChargingSession, 4)
+        # Pass ONLY the estimated row — the earlier measured legs are not in
+        # the input set but must still drive observed efficiency.
+        batch = await compute_savings_for_sessions(s, [estimated])
+        single = await compute_session_metrics(s, estimated)
+        assert batch[4] == (
+            single.savings_vs_petrol_p,
+            single.comparison_basis,
+        )
+        assert batch[4][1] == "estimated"
+
+
+@pytest.mark.asyncio
+async def test_batch_savings_empty_rows_returns_empty(test_sessionmaker):
+    async with test_sessionmaker() as s:
+        assert await compute_savings_for_sessions(s, []) == {}

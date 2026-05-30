@@ -45,6 +45,8 @@ function makeSession(
     notes: null,
     source: 'synthesis',
     telematics_session_id: null,
+    saved_vs_petrol_p: null,
+    comparison_basis: null,
     power_curve: null,
     metrics: null,
     ...over,
