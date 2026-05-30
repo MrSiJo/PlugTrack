@@ -68,6 +68,10 @@ async def _derive_kwh_calculated(
 
 class SessionMetricsPayload(BaseModel):
     miles_since_previous: Optional[float]
+    # Genuine odometer-measured miles since the previous odometer-bearing
+    # charge. Informational only — does not feed the savings calculation.
+    # None when no prior odometer reading exists.
+    measured_miles_since_previous: Optional[float] = None
     cost_per_mile_p: Optional[float]
     petrol_ppm: Optional[float]
     petrol_equivalent_cost_p: Optional[int]
@@ -128,6 +132,7 @@ class SessionPayload(BaseModel):
     power_curve: Optional[list] = None
     saved_vs_petrol_p: Optional[int] = None
     comparison_basis: Optional[str] = None
+    breakeven_p_per_kwh: Optional[float] = None
     metrics: Optional[SessionMetricsPayload] = None
 
 
@@ -186,6 +191,7 @@ def _to_payload(
     location_lng: Optional[float] = None,
     saved_vs_petrol_p: Optional[int] = None,
     comparison_basis: Optional[str] = None,
+    breakeven_p_per_kwh: Optional[float] = None,
 ) -> SessionPayload:
     return SessionPayload(
         id=cs.id,
@@ -223,6 +229,7 @@ def _to_payload(
         power_curve=cs.power_curve,
         saved_vs_petrol_p=saved_vs_petrol_p,
         comparison_basis=comparison_basis,
+        breakeven_p_per_kwh=breakeven_p_per_kwh,
     )
 
 
@@ -374,7 +381,7 @@ async def list_sessions(
 
     payloads = []
     for cs, name, address, lat, lng in rows:
-        saved_p, basis = savings.get(cs.id, (None, None))
+        saved_p, basis, breakeven = savings.get(cs.id, (None, None, None))
         payloads.append(
             _to_payload(
                 cs,
@@ -384,6 +391,7 @@ async def list_sessions(
                 location_lng=lng,
                 saved_vs_petrol_p=saved_p,
                 comparison_basis=basis,
+                breakeven_p_per_kwh=breakeven,
             )
         )
 
@@ -465,8 +473,15 @@ async def get_session(
     cs = await _get_owned(session, session_id, user_id)
     payload = await _to_payload_with_location(session, cs)
     metrics = await compute_session_metrics(session, cs)
+    # Pull the two new per-charge fields from metrics (added by the
+    # backend-core agent alongside the per-charge savings model).
+    # getattr with None default keeps this route compiling even when the
+    # metrics dataclass is temporarily behind during parallel development.
+    measured_miles = getattr(metrics, "measured_miles_since_previous", None)
+    breakeven = getattr(metrics, "breakeven_p_per_kwh", None)
     payload.metrics = SessionMetricsPayload(
         miles_since_previous=metrics.miles_since_previous,
+        measured_miles_since_previous=measured_miles,
         cost_per_mile_p=metrics.cost_per_mile_p,
         petrol_ppm=metrics.petrol_ppm,
         petrol_equivalent_cost_p=metrics.petrol_equivalent_cost_p,
@@ -482,6 +497,11 @@ async def get_session(
         peak_power_kw=metrics.peak_power_kw,
         efficiency_percent=metrics.efficiency_percent,
     )
+    # Mirror the per-charge savings + break-even onto the top-level payload
+    # so list and detail shape are consistent.
+    payload.saved_vs_petrol_p = metrics.savings_vs_petrol_p
+    payload.comparison_basis = getattr(metrics, "comparison_basis", None)
+    payload.breakeven_p_per_kwh = breakeven
     return payload
 
 

@@ -171,13 +171,52 @@ function SortHeader({
   )
 }
 
+/** Render a savings value as arrow + colour, no +/- sign.
+ *  saved > 0 → green ↓ (cheaper than petrol)
+ *  saved < 0 → red ↑ (dearer than petrol)
+ *  saved === null → —
+ *  estimated → ~ prefix
+ */
+function SavingsCell({
+  saved,
+  estimated,
+  currency,
+  className,
+}: {
+  saved: number | null
+  estimated: boolean
+  currency: string
+  className?: string
+}) {
+  if (saved === null) {
+    return (
+      <span className={cn('text-slate-400 dark:text-slate-500', className)}>
+        —
+      </span>
+    )
+  }
+  const cheaper = saved > 0
+  const magnitude = Math.abs(saved)
+  const arrow = cheaper ? '↓' : '↑'
+  const colourCls = cheaper
+    ? 'text-emerald-600 dark:text-emerald-400'
+    : 'text-rose-600 dark:text-rose-400'
+  return (
+    <span className={cn('tabular-nums', colourCls, className)}>
+      {estimated ? '~' : ''}{arrow} {formatCurrency(magnitude, currency)}
+    </span>
+  )
+}
+
 interface SessionRowProps {
   session: ChargingSessionPayload
   highlighted: boolean
   currency: string
+  /** First non-null breakeven across visible rows (for rate colouring). */
+  breakeven: number | null
 }
 
-function SessionRow({ session, highlighted, currency }: SessionRowProps) {
+function SessionRow({ session, highlighted, currency, breakeven }: SessionRowProps) {
   const tone = SOURCE_TONE[session.source] ?? 'slate'
   const sourceLabel = SOURCE_LABEL[session.source] ?? session.source
   const locationName =
@@ -185,16 +224,18 @@ function SessionRow({ session, highlighted, currency }: SessionRowProps) {
     (session.location_id !== null
       ? `loc#${session.location_id}`
       : 'No location')
-  const tariff =
-    session.tariff_p_per_kwh !== null
-      ? `@${session.tariff_p_per_kwh.toFixed(0)}p`
-      : null
+  const tariffValue = session.tariff_p_per_kwh
+  const tariffText = tariffValue !== null ? `@${tariffValue.toFixed(0)}p` : null
   const typeLabel = TYPE_LABEL[session.charging_type] ?? null
   const estimated = session.comparison_basis === 'estimated'
-  const savedText =
-    session.saved_vs_petrol_p === null
-      ? '—'
-      : `${estimated ? '~' : ''}${formatCurrency(session.saved_vs_petrol_p, currency)}`
+
+  // Rate cell colour: green ≤ breakeven, red > breakeven, neutral when missing.
+  const rateCls =
+    tariffValue === null || breakeven === null
+      ? 'text-slate-500 dark:text-slate-400'
+      : tariffValue <= breakeven
+        ? 'text-emerald-600 dark:text-emerald-400'
+        : 'text-rose-600 dark:text-rose-400'
 
   return (
     <tr
@@ -238,15 +279,14 @@ function SessionRow({ session, highlighted, currency }: SessionRowProps) {
       </td>
       <td
         data-testid="session-saved"
-        className={cn(
-          'px-3 py-2.5 text-sm tabular-nums',
-          estimated
-            ? 'text-slate-400 dark:text-slate-500'
-            : 'text-slate-700 dark:text-slate-200',
-        )}
+        className="px-3 py-2.5 text-sm"
       >
         <Link to={`/sessions/${session.id}`} className="block">
-          {savedText}
+          <SavingsCell
+            saved={session.saved_vs_petrol_p}
+            estimated={estimated}
+            currency={currency}
+          />
         </Link>
       </td>
       <td className="hidden px-3 py-2.5 text-sm tabular-nums text-slate-500 dark:text-slate-400 md:table-cell">
@@ -254,9 +294,9 @@ function SessionRow({ session, highlighted, currency }: SessionRowProps) {
           {session.start_soc}→{session.end_soc}%
         </Link>
       </td>
-      <td className="hidden px-3 py-2.5 text-sm tabular-nums text-slate-500 dark:text-slate-400 md:table-cell">
+      <td className={cn('hidden px-3 py-2.5 text-sm tabular-nums md:table-cell', rateCls)}>
         <Link to={`/sessions/${session.id}`} className="block">
-          {tariff ?? ''}
+          {tariffText ?? ''}
         </Link>
       </td>
       <td className="hidden px-3 py-2.5 text-sm text-slate-500 dark:text-slate-400 md:table-cell">
@@ -352,14 +392,23 @@ export default function Sessions() {
       (acc, s) => acc + (s.cost_pence ?? 0),
       0,
     )
-    const totalSaved = sessions.reduce(
+    // Sum only rows that have a savings value (null rows don't contribute).
+    const savingsRows = sessions.filter((s) => s.saved_vs_petrol_p !== null)
+    const totalSaved = savingsRows.reduce(
       (acc, s) => acc + (s.saved_vs_petrol_p ?? 0),
       0,
     )
+    const hasSavings = savingsRows.length > 0
+    // First non-null breakeven across visible rows.
+    const breakeven =
+      sessions.find((s) => s.breakeven_p_per_kwh !== null)?.breakeven_p_per_kwh ??
+      null
     return {
       count: sessions.length,
       totalCost,
       totalSaved,
+      hasSavings,
+      breakeven,
     }
   }, [sessions])
 
@@ -443,7 +492,19 @@ export default function Sessions() {
       <p className="mb-3 text-sm tabular-nums text-slate-500 dark:text-slate-400">
         {summary.count} {summary.count === 1 ? 'session' : 'sessions'} ·{' '}
         {formatCurrency(summary.totalCost, currency)} ·{' '}
-        {formatCurrency(summary.totalSaved, currency)} saved
+        {summary.hasSavings ? (
+          <>
+            <SavingsCell
+              saved={summary.totalSaved}
+              estimated={false}
+              currency={currency}
+              className="inline"
+            />{' '}
+            vs petrol
+          </>
+        ) : (
+          '— saved'
+        )}
       </p>
 
       {loading && <p className="text-sm text-slate-500">Loading…</p>}
@@ -508,7 +569,15 @@ export default function Sessions() {
                   scope="col"
                   className="hidden px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400 md:table-cell"
                 >
-                  Rate
+                  <span>Rate</span>
+                  {summary.breakeven !== null && (
+                    <span
+                      className="ml-1 font-normal normal-case tracking-normal text-[10px] text-slate-400 dark:text-slate-500"
+                      title={`Charge rate above which electricity costs more than petrol per mile`}
+                    >
+                      vs petrol break-even ~{Math.round(summary.breakeven)}p/kWh
+                    </span>
+                  )}
                 </th>
                 <th
                   scope="col"
@@ -525,6 +594,7 @@ export default function Sessions() {
                   session={session}
                   highlighted={recentlyImported.includes(session.id)}
                   currency={currency}
+                  breakeven={summary.breakeven}
                 />
               ))}
             </tbody>

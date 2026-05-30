@@ -47,6 +47,7 @@ function makeSession(
     telematics_session_id: null,
     saved_vs_petrol_p: null,
     comparison_basis: null,
+    breakeven_p_per_kwh: null,
     power_curve: null,
     metrics: null,
     ...over,
@@ -150,6 +151,7 @@ function makeMetrics(
 ): SessionMetricsPayload {
   return {
     miles_since_previous: 62,
+    measured_miles_since_previous: null,
     cost_per_mile_p: 5.6,
     petrol_ppm: 12.8,
     petrol_equivalent_cost_p: 791,
@@ -165,6 +167,7 @@ function makeMetrics(
     average_power_kw: null,
     peak_power_kw: null,
     efficiency_percent: null,
+    breakeven_p_per_kwh: null,
     ...over,
   }
 }
@@ -192,10 +195,10 @@ describe('SessionDetail — petrol comparison basis', () => {
     expect(savings).toHaveTextContent('~')
   })
 
-  it('shows no pill and no tilde on savings when basis is measured', async () => {
+  it('shows no pill and no tilde on savings when basis is not estimated', async () => {
     vi.spyOn(api, 'getSession').mockResolvedValue(
       makeSession({
-        metrics: makeMetrics({ comparison_basis: 'measured' }),
+        metrics: makeMetrics({ comparison_basis: null }),
       }),
     )
 
@@ -204,5 +207,105 @@ describe('SessionDetail — petrol comparison basis', () => {
     const savings = await screen.findByTestId('metric-savings')
     expect(savings).not.toHaveTextContent('~')
     expect(screen.queryByTestId('estimated-badge')).not.toBeInTheDocument()
+  })
+
+  it('renders down-arrow + green in savings hero when cheaper than petrol', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        metrics: makeMetrics({
+          comparison_basis: 'estimated',
+          savings_vs_petrol_p: 423,
+          miles_since_previous: 62,
+        }),
+      }),
+    )
+
+    renderDetail()
+
+    const savings = await screen.findByTestId('metric-savings')
+    // Down-arrow for a saving; ~ prefix for estimated.
+    expect(savings).toHaveTextContent('~↓')
+    expect(savings).toHaveTextContent('£4.23')
+    // No raw +/- sign.
+    expect(savings).not.toHaveTextContent('+')
+    expect(savings.className).toMatch(/emerald/)
+  })
+
+  it('renders up-arrow + red in savings hero when dearer than petrol', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        metrics: makeMetrics({
+          comparison_basis: 'estimated',
+          savings_vs_petrol_p: -250,
+          miles_since_previous: 30,
+        }),
+      }),
+    )
+
+    renderDetail()
+
+    const savings = await screen.findByTestId('metric-savings')
+    // Up-arrow for a loss; magnitude without sign.
+    expect(savings).toHaveTextContent('~↑')
+    expect(savings).toHaveTextContent('£2.50')
+    expect(savings).not.toHaveTextContent('-£')
+    expect(savings.className).toMatch(/rose/)
+  })
+
+  it('does not render any "chain" or "see session" messaging', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        metrics: makeMetrics({
+          chain_session_ids: [5, 6],
+          chain_anchor_id: 5,
+          chain_total_cost_pence: 2000,
+        }),
+      }),
+    )
+
+    renderDetail()
+
+    await screen.findByTestId('toggle-edit')
+
+    // Chain / top-up messaging has been removed from the per-charge model.
+    expect(screen.queryByText(/ongoing top-up chain/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/see session/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/chain/i)).not.toBeInTheDocument()
+  })
+
+  it('shows measured distance info when measured_miles_since_previous is present', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        metrics: makeMetrics({
+          comparison_basis: 'estimated',
+          miles_since_previous: 62,
+          measured_miles_since_previous: 124,
+        }),
+      }),
+    )
+
+    renderDetail()
+
+    const info = await screen.findByTestId('measured-distance-info')
+    expect(info).toBeInTheDocument()
+    // Shows the measured distance value.
+    expect(info).toHaveTextContent('124')
+  })
+
+  it('does not show measured distance info when measured_miles_since_previous is null', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        metrics: makeMetrics({
+          comparison_basis: 'estimated',
+          miles_since_previous: 62,
+          measured_miles_since_previous: null,
+        }),
+      }),
+    )
+
+    renderDetail()
+
+    await screen.findByTestId('toggle-edit')
+    expect(screen.queryByTestId('measured-distance-info')).not.toBeInTheDocument()
   })
 })

@@ -287,6 +287,7 @@ export interface ChargingSessionPayload {
   telematics_session_id: string | null
   saved_vs_petrol_p: number | null
   comparison_basis: string | null
+  breakeven_p_per_kwh: number | null
   // [[delta_seconds, soc, power_kw], ...] — live during charge.
   power_curve?: number[][] | null
   metrics?: SessionMetricsPayload | null
@@ -294,6 +295,7 @@ export interface ChargingSessionPayload {
 
 export interface SessionMetricsPayload {
   miles_since_previous: number | null
+  measured_miles_since_previous: number | null
   cost_per_mile_p: number | null
   petrol_ppm: number | null
   petrol_equivalent_cost_p: number | null
@@ -309,6 +311,7 @@ export interface SessionMetricsPayload {
   average_power_kw: number | null
   peak_power_kw: number | null
   efficiency_percent: number | null
+  breakeven_p_per_kwh: number | null
 }
 
 export interface SessionCreateRequest {

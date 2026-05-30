@@ -1,4 +1,4 @@
-"""Tests for session_metrics — petrol comparison + chain handling."""
+"""Tests for session_metrics — per-charge energy-based petrol comparison."""
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
@@ -47,42 +47,49 @@ async def test_metrics_none_without_settings(test_sessionmaker):
 
 
 @pytest.mark.asyncio
-async def test_anchor_session_uses_chain_total(test_sessionmaker):
-    """Anchor session has miles; the two zero-mile follow-ups roll their
-    cost into the anchor's saving figure.
+async def test_per_charge_savings_each_row_independent(test_sessionmaker):
+    """Per-charge model: every session is judged on its own energy alone.
+
+    The old chain/anchor behaviour (rolling costs into the anchor) is gone.
+    Now each row gets its own energy-based savings, regardless of odometer
+    pattern — same-odometer follow-ups are no longer special-cased.
     """
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=58.0, mi_per_kwh=3.6)
         s.add(Setting(key="petrol_price_p_per_litre", value="150.0", value_type="float", group_name="cost", label="x", description=None, default_value="150.0"))
         s.add(Setting(key="petrol_mpg", value="50.0", value_type="float", group_name="cost", label="x", description=None, default_value="50.0"))
         # Prior session with odometer at 1000 km.
         s.add(_session(id=1, date=date(2026, 4, 28), odo_km=1000.0, cost_pence=200))
-        # Anchor — moved to 1100 km (~62 miles).
+        # Next session — moved to 1100 km.
         s.add(_session(id=2, date=date(2026, 4, 30), odo_km=1100.0, cost_pence=500))
         # Two follow-ups with same odometer (no driving).
         s.add(_session(id=3, date=date(2026, 5, 1), odo_km=1100.0, cost_pence=300))
         s.add(_session(id=4, date=date(2026, 5, 2), odo_km=1100.0, cost_pence=400))
         await s.commit()
 
-        anchor = await s.get(ChargingSession, 2)
-        m = await compute_session_metrics(s, anchor)
-
-        miles = (1100.0 - 1000.0) / 1.609344
-        assert m.miles_since_previous == float(round(miles))
-        # Chain total = 500 + 300 + 400.
-        assert m.chain_total_cost_pence == 1200
-        assert sorted(m.chain_session_ids) == [2, 3, 4]
-        # Petrol cost vs the chain total (not just the anchor).
-        ppm = (150.0 * 4.54609) / 50.0
-        assert m.petrol_equivalent_cost_p == round(miles * ppm)
-        assert m.savings_vs_petrol_p == m.petrol_equivalent_cost_p - 1200
-        assert m.chain_anchor_id is None
+        for sid in (2, 3, 4):
+            cs = await s.get(ChargingSession, sid)
+            m = await compute_session_metrics(s, cs)
+            # Every row gets a per-charge estimate — not None.
+            assert m.comparison_basis == "estimated", f"id={sid} basis wrong"
+            # miles_since_previous is set (energy × some efficiency).
+            assert m.miles_since_previous is not None, f"id={sid} miles should be set"
+            # savings are populated.
+            assert m.savings_vs_petrol_p is not None, f"id={sid} savings should be set"
+            # chain_anchor_id is not set by the new model.
+            assert m.chain_anchor_id is None
 
 
 @pytest.mark.asyncio
-async def test_zero_mile_followup_points_at_anchor(test_sessionmaker):
+async def test_same_odometer_followup_gets_per_charge_estimate(test_sessionmaker):
+    """A session with the same odometer as the previous one used to be a
+    zero-mile follow-up that pointed at an anchor. With per-charge savings it
+    is now a fully independent energy-based estimate row (no anchoring).
+    """
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=58.0, mi_per_kwh=3.6)
         s.add(Setting(key="petrol_price_p_per_litre", value="150.0", value_type="float", group_name="cost", label="x", description=None, default_value="150.0"))
         s.add(Setting(key="petrol_mpg", value="50.0", value_type="float", group_name="cost", label="x", description=None, default_value="50.0"))
         s.add(_session(id=1, date=date(2026, 4, 28), odo_km=1000.0, cost_pence=200))
@@ -93,11 +100,11 @@ async def test_zero_mile_followup_points_at_anchor(test_sessionmaker):
         followup = await s.get(ChargingSession, 3)
         m = await compute_session_metrics(s, followup)
 
-        # Zero-mile follow-ups don't get their own comparison; they
-        # just point back at the anchor.
-        assert m.miles_since_previous is None
-        assert m.savings_vs_petrol_p is None
-        assert m.chain_anchor_id == 2
+        # Under the new model the same-odometer session is an independent
+        # energy-based estimate — NOT anchored.
+        assert m.comparison_basis == "estimated"
+        assert m.savings_vs_petrol_p is not None
+        assert m.chain_anchor_id is None
 
 
 def _session(*, id, date, odo_km, cost_pence):
@@ -332,8 +339,12 @@ async def test_estimate_falls_back_to_kwh_added(test_sessionmaker):
 
 
 @pytest.mark.asyncio
-async def test_measured_span_no_regression(test_sessionmaker):
-    """Odometer span present → basis='measured' (existing chain path)."""
+async def test_odometer_session_uses_estimated_basis(test_sessionmaker):
+    """Odometer-bearing sessions now use the per-charge energy model
+    (basis='estimated') — not the old 'measured' basis. The odometer is
+    informational only; it calibrates observed efficiency but does not
+    directly define miles_since_previous for savings.
+    """
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s)
@@ -345,15 +356,20 @@ async def test_measured_span_no_regression(test_sessionmaker):
         cs = await s.get(ChargingSession, 2)
         m = await compute_session_metrics(s, cs)
 
-        assert m.comparison_basis == "measured"
-        miles = (1100.0 - 1000.0) / _KM_PER_MILE
-        assert m.miles_since_previous == float(round(miles))
+        # New model: always "estimated" (energy-based), never "measured".
+        assert m.comparison_basis == "estimated"
+        # miles_since_previous = energy × efficiency (not odometer span).
+        assert m.miles_since_previous is not None
+        # The genuine odometer span is surfaced as informational only.
+        odo_miles = (1100.0 - 1000.0) / _KM_PER_MILE
+        assert m.measured_miles_since_previous == pytest.approx(odo_miles, abs=0.01)
 
 
 @pytest.mark.asyncio
-async def test_zero_mile_followup_basis_none(test_sessionmaker):
-    """Zero-mile chain follow-up stays anchored; basis stays None — the
-    estimate must not hijack the chain follow-up path.
+async def test_same_odometer_no_longer_suppresses_estimate(test_sessionmaker):
+    """Previously a same-odometer follow-up suppressed its own estimate and
+    pointed at an anchor (chain_anchor_id). The per-charge model removes this
+    entirely: every energy-bearing row computes its own estimate.
     """
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
@@ -367,9 +383,10 @@ async def test_zero_mile_followup_basis_none(test_sessionmaker):
         followup = await s.get(ChargingSession, 3)
         m = await compute_session_metrics(s, followup)
 
-        assert m.comparison_basis is None
-        assert m.miles_since_previous is None
-        assert m.chain_anchor_id == 2
+        # New model: estimated, never anchored.
+        assert m.comparison_basis == "estimated"
+        assert m.miles_since_previous is not None
+        assert m.chain_anchor_id is None
 
 
 @pytest.mark.asyncio
@@ -626,14 +643,13 @@ async def test_observed_fewer_than_two_readings_returns_none(test_sessionmaker):
 
 
 async def _assert_batch_matches_single(s, rows):
-    """For each row, the batch (saved, basis) equals the per-session metrics'
-    (savings_vs_petrol_p, comparison_basis)."""
-    from sqlalchemy import select
-
+    """For each row, the batch (saved, basis, breakeven) equals the
+    per-session metrics' (savings_vs_petrol_p, comparison_basis,
+    breakeven_p_per_kwh). The batch now returns a 3-tuple."""
     batch = await compute_savings_for_sessions(s, list(rows))
     for cs in rows:
         m = await compute_session_metrics(s, cs)
-        saved, basis = batch[cs.id]
+        saved, basis, breakeven = batch[cs.id]
         assert saved == m.savings_vs_petrol_p, (
             f"session {cs.id}: batch saved={saved} != single "
             f"{m.savings_vs_petrol_p}"
@@ -642,11 +658,18 @@ async def _assert_batch_matches_single(s, rows):
             f"session {cs.id}: batch basis={basis} != single "
             f"{m.comparison_basis}"
         )
+        assert breakeven == m.breakeven_p_per_kwh, (
+            f"session {cs.id}: batch breakeven={breakeven} != single "
+            f"{m.breakeven_p_per_kwh}"
+        )
 
 
 @pytest.mark.asyncio
-async def test_batch_savings_matches_single_measured_and_chain(test_sessionmaker):
-    """Measured anchor + zero-mile follow-ups: batch agrees with single."""
+async def test_batch_savings_matches_single_per_charge(test_sessionmaker):
+    """Per-charge energy model: batch (3-tuple) matches single for every row,
+    including rows that share an odometer and would have been 'chain follow-
+    ups' under the old model.
+    """
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s)
@@ -660,18 +683,19 @@ async def test_batch_savings_matches_single_measured_and_chain(test_sessionmaker
         rows = [await s.get(ChargingSession, i) for i in (1, 2, 3, 4)]
         await _assert_batch_matches_single(s, rows)
 
-        # Spot-check the basis breakdown: id=2 is the measured anchor, the
-        # follow-ups (3, 4) anchor back (basis None), id=1 has no prior
-        # odometer so it estimates.
+        # Spot-check: all four rows now get "estimated" (not "measured" or None).
         batch = await compute_savings_for_sessions(s, rows)
-        assert batch[2][1] == "measured"
-        assert batch[3] == (None, None)
-        assert batch[4] == (None, None)
+        for sid in (1, 2, 3, 4):
+            saved, basis, breakeven = batch[sid]
+            assert basis == "estimated", f"session {sid}: expected estimated, got {basis}"
+            assert saved is not None, f"session {sid}: saved should not be None"
 
 
 @pytest.mark.asyncio
 async def test_batch_savings_matches_single_estimated_and_none(test_sessionmaker):
-    """A mix of estimated (no odometer) and none (zero-energy) rows."""
+    """A mix of estimated (no odometer) and none (zero-energy) rows.
+    The batch returns a 3-tuple (saved, basis, breakeven) for each row.
+    """
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
@@ -695,13 +719,16 @@ async def test_batch_savings_matches_single_estimated_and_none(test_sessionmaker
 
         batch = await compute_savings_for_sessions(s, rows)
         assert batch[1][1] == "estimated"
-        assert batch[2] == (None, None)
+        # Zero-energy row: all three elements None.
+        assert batch[2] == (None, None, None)
 
 
 @pytest.mark.asyncio
 async def test_batch_savings_matches_single_no_petrol_settings(test_sessionmaker):
     """Estimated basis but petrol settings missing → saved None, basis
-    'estimated'. Batch must mirror the single path exactly."""
+    'estimated', breakeven None. Batch must mirror the single path exactly.
+    The batch now returns a 3-tuple.
+    """
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
@@ -716,7 +743,8 @@ async def test_batch_savings_matches_single_no_petrol_settings(test_sessionmaker
         rows = [await s.get(ChargingSession, 1)]
         await _assert_batch_matches_single(s, rows)
         batch = await compute_savings_for_sessions(s, rows)
-        assert batch[1] == (None, "estimated")
+        # 3-tuple: (saved=None, basis="estimated", breakeven=None).
+        assert batch[1] == (None, "estimated", None)
 
 
 @pytest.mark.asyncio
@@ -763,11 +791,11 @@ async def test_batch_savings_uses_full_history_not_input_window(test_sessionmake
         # the input set but must still drive observed efficiency.
         batch = await compute_savings_for_sessions(s, [estimated])
         single = await compute_session_metrics(s, estimated)
-        assert batch[4] == (
-            single.savings_vs_petrol_p,
-            single.comparison_basis,
-        )
-        assert batch[4][1] == "estimated"
+        saved_b, basis_b, breakeven_b = batch[4]
+        assert saved_b == single.savings_vs_petrol_p
+        assert basis_b == single.comparison_basis
+        assert breakeven_b == single.breakeven_p_per_kwh
+        assert basis_b == "estimated"
 
 
 @pytest.mark.asyncio
@@ -777,27 +805,26 @@ async def test_batch_savings_empty_rows_returns_empty(test_sessionmaker):
 
 
 @pytest.mark.asyncio
-async def test_measured_anchor_does_not_absorb_later_null_odometer_charge(
+async def test_null_odometer_charge_is_independent_estimate(
     test_sessionmaker,
 ):
-    """Regression: a measured anchor must NOT fold a *later* odometer-less
-    manual charge into its chain.
+    """Regression: a session with no odometer is an independent per-charge
+    estimate — it never absorbs into another session's chain.
 
-    Before the fix the forward chain absorbed every subsequent
-    NULL-odometer session, double-counting its cost against the anchor's
-    miles AND on its own estimate row — the production -£13.08 bug. Since
-    the energy-estimate fallback landed, most charges are manual (no
-    odometer), so a null no longer means "didn't move since the anchor";
-    such sessions are independent estimates.
+    Under the old model a NULL-odometer session following an odometer-bearing
+    anchor was absorbed as a chain follow-up, double-counting its cost against
+    the anchor's miles (the production -£13.08 bug). With per-charge savings,
+    both the odometer-bearing session and the later null-odometer one are
+    independent energy-based rows.
     """
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s)
         s.add(Setting(key="petrol_price_p_per_litre", value="150.0", value_type="float", group_name="cost", label="x", description=None, default_value="150.0"))
         s.add(Setting(key="petrol_mpg", value="50.0", value_type="float", group_name="cost", label="x", description=None, default_value="50.0"))
-        # Prior reading so the anchor has a measured span.
+        # Prior reading so the first row has measured_miles_since_previous.
         s.add(_session(id=1, date=date(2026, 1, 1), odo_km=900.0, cost_pence=50))
-        # Anchor: measured span, cost 1000p.
+        # Odometer-bearing session, cost 1000p.
         s.add(_session(id=2, date=date(2026, 1, 3), odo_km=1000.0, cost_pence=1000))
         # Later independent manual charge — NO odometer, weeks later.
         s.add(ChargingSession(
@@ -810,17 +837,471 @@ async def test_measured_anchor_does_not_absorb_later_null_odometer_charge(
 
         anchor = await s.get(ChargingSession, 2)
         m_anchor = await compute_session_metrics(s, anchor)
-        # Anchor's chain is itself only — the later null charge is excluded.
-        assert m_anchor.chain_session_ids == [2]
-        assert m_anchor.chain_total_cost_pence == 1000
-        assert m_anchor.comparison_basis == "measured"
+        # Odometer-bearing row: per-charge energy estimate, not chain-based.
+        assert m_anchor.comparison_basis == "estimated"
+        # Its savings are from its own energy alone (not chain total).
+        assert m_anchor.savings_vs_petrol_p is not None
 
-        # The later manual charge stands on its own as an estimate.
+        # The later manual charge stands on its own as a separate estimate.
         later = await s.get(ChargingSession, 3)
         m_later = await compute_session_metrics(s, later)
         assert m_later.comparison_basis == "estimated"
 
-        # Batch agrees with single for both rows.
+        # Batch returns a 3-tuple and agrees with single for both rows.
         batch = await compute_savings_for_sessions(s, [anchor, later])
-        assert batch[2] == (m_anchor.savings_vs_petrol_p, m_anchor.comparison_basis)
-        assert batch[3] == (m_later.savings_vs_petrol_p, m_later.comparison_basis)
+        saved_a, basis_a, be_a = batch[2]
+        assert saved_a == m_anchor.savings_vs_petrol_p
+        assert basis_a == m_anchor.comparison_basis
+        assert be_a == m_anchor.breakeven_p_per_kwh
+        saved_l, basis_l, be_l = batch[3]
+        assert saved_l == m_later.savings_vs_petrol_p
+        assert basis_l == m_later.comparison_basis
+        assert be_l == m_later.breakeven_p_per_kwh
+
+
+# ---------------------------------------------------------------------------
+# New per-charge savings model tests (spec "Testing > Backend").
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_expensive_rapid_shows_loss(test_sessionmaker):
+    """A pricey DC rapid (high p/kWh) shows saved_vs_petrol_p < 0 — a loss.
+
+    92p/kWh DC rapid, 15.4 kWh, car efficiency 3.7 mi/kWh.
+    Petrol settings: 150p/L, 50 MPG → ppm = 150 × 4.54609 / 50 = 13.638 p/mi.
+    miles = 15.4 × 3.7 = 56.98 mi.
+    petrol_equivalent_p = round(56.98 × 13.638) = round(777.3) = 777.
+    cost_pence = round(15.4 × 92) = round(1416.8) = 1417.
+    saved = 777 - 1417 = -640 (a clear loss).
+    """
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=77.0, mi_per_kwh=3.7)
+        _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 27),
+            start_soc=20, end_soc=80, kwh_added=15.4, kwh_calculated=15.4,
+            cost_pence=round(15.4 * 92),   # 92p/kWh rapid
+            cost_basis="override_per_kwh", source="manual",
+        ))
+        await s.commit()
+        cs = await s.get(ChargingSession, 1)
+        m = await compute_session_metrics(s, cs)
+
+        assert m.comparison_basis == "estimated"
+        assert m.savings_vs_petrol_p is not None
+        assert m.savings_vs_petrol_p < 0, (
+            f"Expected DC rapid at 92p/kWh to be a LOSS, got {m.savings_vs_petrol_p}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_cheap_home_charge_shows_saving(test_sessionmaker):
+    """A cheap home charge (low p/kWh) shows saved_vs_petrol_p > 0 — a saving.
+
+    7.5p/kWh home charge, 20 kWh, car efficiency 3.7 mi/kWh.
+    Petrol settings: 150p/L, 50 MPG → ppm ≈ 13.638 p/mi.
+    miles = 20 × 3.7 = 74 mi.
+    petrol_equivalent_p = round(74 × 13.638) = round(1009.2) = 1009.
+    cost_pence = round(20 × 7.5) = 150.
+    saved = 1009 - 150 = 859 (a clear saving).
+    """
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=77.0, mi_per_kwh=3.7)
+        _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 27),
+            start_soc=20, end_soc=80, kwh_added=20.0, kwh_calculated=20.0,
+            cost_pence=round(20.0 * 7.5),  # 7.5p/kWh home
+            cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+        cs = await s.get(ChargingSession, 1)
+        m = await compute_session_metrics(s, cs)
+
+        assert m.comparison_basis == "estimated"
+        assert m.savings_vs_petrol_p is not None
+        assert m.savings_vs_petrol_p > 0, (
+            f"Expected home charge at 7.5p/kWh to be a SAVING, got {m.savings_vs_petrol_p}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_total_saved_equals_sum_of_rows_no_double_count(test_sessionmaker):
+    """Total saved == sum of per-row savings — no overlap or double-count.
+
+    Reproduce the interleave: a measured anchor + two intervening charges
+    (some odometer-less). The InstaVolt-like expensive DC rapid (id=3) should
+    be negative, and the total must equal the row sum exactly.
+    """
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        # Nominal 3.7; observed will be calibrated from the two advancing legs.
+        _seed_car(s, battery_kwh=77.0, mi_per_kwh=3.7)
+        _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
+
+        # id=1: 14 May odometer anchor (start of interleave window).
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
+            start_soc=20, end_soc=80, kwh_added=20.0, kwh_calculated=20.0,
+            odometer_at_session_km=1000.0,
+            cost_pence=round(20.0 * 7.5),
+            cost_basis="home_rate", source="manual",
+        ))
+        # id=2: 23 May home charge — no odometer.
+        s.add(ChargingSession(
+            id=2, user_id=1, car_id=1, date=date(2026, 5, 23),
+            start_soc=20, end_soc=80, kwh_added=18.0, kwh_calculated=18.0,
+            odometer_at_session_km=None,
+            cost_pence=round(18.0 * 7.5),
+            cost_basis="home_rate", source="manual",
+        ))
+        # id=3: 27 May DC rapid at 92p/kWh — expensive, should be a LOSS.
+        s.add(ChargingSession(
+            id=3, user_id=1, car_id=1, date=date(2026, 5, 27),
+            start_soc=20, end_soc=80, kwh_added=15.4, kwh_calculated=15.4,
+            odometer_at_session_km=None,
+            cost_pence=round(15.4 * 92),
+            cost_basis="override_per_kwh", source="manual",
+        ))
+        # id=4: 27 May Morrisons — cheap, another no-odometer session.
+        s.add(ChargingSession(
+            id=4, user_id=1, car_id=1, date=date(2026, 5, 27),
+            start_soc=20, end_soc=50, kwh_added=8.0, kwh_calculated=8.0,
+            odometer_at_session_km=None,
+            cost_pence=round(8.0 * 15),
+            cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+
+        rows = [await s.get(ChargingSession, i) for i in (1, 2, 3, 4)]
+        batch = await compute_savings_for_sessions(s, rows)
+
+        # Row 3 (DC rapid at 92p/kWh) must be a LOSS.
+        saved_3, basis_3, _ = batch[3]
+        assert basis_3 == "estimated"
+        assert saved_3 is not None
+        assert saved_3 < 0, f"Expensive rapid should be a loss, got {saved_3}"
+
+        # Total = row sum (no overlap, no double-count).
+        row_total = sum(
+            batch[i][0] for i in (1, 2, 3, 4) if batch[i][0] is not None
+        )
+        # All four rows have energy so all should be computable.
+        individual = [batch[i][0] for i in (1, 2, 3, 4)]
+        assert all(v is not None for v in individual), (
+            f"All rows should have savings; got {individual}"
+        )
+        assert row_total == sum(individual)
+
+
+@pytest.mark.asyncio
+async def test_comparison_basis_estimated_for_energy_rows(test_sessionmaker):
+    """comparison_basis == "estimated" for energy-bearing rows; None when
+    energy or petrol settings are missing.
+    """
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
+        _add_petrol_settings(s)
+        # Energy-bearing row with cost.
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
+            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=17.7,
+            cost_pence=368, cost_basis="home_rate", source="manual",
+        ))
+        # Zero-energy row — no comparison.
+        s.add(ChargingSession(
+            id=2, user_id=1, car_id=1, date=date(2026, 5, 15),
+            start_soc=80, end_soc=80, kwh_added=0.0, kwh_calculated=0.0,
+            cost_pence=100, cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+
+        cs1 = await s.get(ChargingSession, 1)
+        m1 = await compute_session_metrics(s, cs1)
+        assert m1.comparison_basis == "estimated"
+
+        cs2 = await s.get(ChargingSession, 2)
+        m2 = await compute_session_metrics(s, cs2)
+        assert m2.comparison_basis is None
+        assert m2.savings_vs_petrol_p is None
+
+
+@pytest.mark.asyncio
+async def test_comparison_basis_none_when_no_petrol_settings(test_sessionmaker):
+    """When petrol settings are missing, savings is None and basis is
+    'estimated' (estimate is computable, just no petrol to compare to).
+    """
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
+        # No petrol settings seeded.
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
+            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=17.7,
+            cost_pence=368, cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+        cs = await s.get(ChargingSession, 1)
+        m = await compute_session_metrics(s, cs)
+        assert m.comparison_basis == "estimated"
+        assert m.savings_vs_petrol_p is None
+        assert m.petrol_equivalent_cost_p is None
+
+
+@pytest.mark.asyncio
+async def test_batch_and_single_agree_for_every_row(test_sessionmaker):
+    """batch (saved, basis) == single (savings_vs_petrol_p, comparison_basis)
+    for every row — including odometer-bearing ones. The batch returns a
+    3-tuple and all three fields must match.
+    """
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=58.0, mi_per_kwh=4.0)
+        _add_petrol_settings(s, p_per_litre=151.9, mpg=54.1)
+
+        # Mix of odometer-bearing and odometer-less rows.
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 1),
+            start_soc=30, end_soc=80, kwh_added=20.0, kwh_calculated=20.0,
+            odometer_at_session_km=1000.0, cost_pence=150,
+            cost_basis="home_rate", source="manual",
+        ))
+        s.add(ChargingSession(
+            id=2, user_id=1, car_id=1, date=date(2026, 5, 10),
+            start_soc=20, end_soc=80, kwh_added=15.4, kwh_calculated=15.4,
+            odometer_at_session_km=None, cost_pence=1417,
+            cost_basis="override_per_kwh", source="manual",
+        ))
+        s.add(ChargingSession(
+            id=3, user_id=1, car_id=1, date=date(2026, 5, 20),
+            start_soc=30, end_soc=80, kwh_added=18.0, kwh_calculated=18.0,
+            odometer_at_session_km=1200.0, cost_pence=135,
+            cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+
+        rows = [await s.get(ChargingSession, i) for i in (1, 2, 3)]
+        await _assert_batch_matches_single(s, rows)
+
+
+@pytest.mark.asyncio
+async def test_breakeven_p_per_kwh_formula(test_sessionmaker):
+    """breakeven_p_per_kwh == ppm × eff.
+
+    With petrol_price_p_per_litre=150, mpg=50:
+      ppm = 150 × 4.54609 / 50 = 13.6383
+    With nominal eff = 3.7 mi/kWh:
+      breakeven = 13.6383 × 3.7 ≈ 50.46 p/kWh
+    """
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=77.0, mi_per_kwh=3.7)
+        _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
+            start_soc=20, end_soc=80, kwh_added=20.0, kwh_calculated=20.0,
+            cost_pence=150, cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+        cs = await s.get(ChargingSession, 1)
+        m = await compute_session_metrics(s, cs)
+
+        ppm = (150.0 * 4.54609) / 50.0
+        expected_breakeven = round(ppm * 3.7, 2)
+        assert m.breakeven_p_per_kwh == pytest.approx(expected_breakeven, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_breakeven_uses_observed_efficiency(test_sessionmaker):
+    """breakeven_p_per_kwh uses observed efficiency when a clean measured leg
+    exists, not the nominal.
+    """
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        # Nominal 5.0 deliberately far from observed 3.0.
+        _seed_car(s, battery_kwh=50.0, mi_per_kwh=5.0)
+        _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
+
+        # Three sessions implying observed = 3.0 mi/kWh.
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 1),
+            start_soc=30, end_soc=80, kwh_added=25.0,
+            odometer_at_session_km=1000.0,
+            cost_basis="home_rate", source="manual",
+        ))
+        s.add(ChargingSession(
+            id=2, user_id=1, car_id=1, date=date(2026, 5, 5),
+            start_soc=30, end_soc=80, kwh_added=25.0,
+            odometer_at_session_km=1000.0 + 120.7008,
+            cost_basis="home_rate", source="manual",
+        ))
+        s.add(ChargingSession(
+            id=3, user_id=1, car_id=1, date=date(2026, 5, 9),
+            start_soc=30, end_soc=80, kwh_added=25.0,
+            odometer_at_session_km=1000.0 + 2 * 120.7008,
+            cost_basis="home_rate", source="manual",
+        ))
+        # Estimated session — no odometer, has cost.
+        s.add(ChargingSession(
+            id=4, user_id=1, car_id=1, date=date(2026, 5, 12),
+            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=15.0,
+            cost_pence=300, cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+
+        cs = await s.get(ChargingSession, 4)
+        m = await compute_session_metrics(s, cs)
+
+        ppm = (150.0 * 4.54609) / 50.0
+        # breakeven must use observed (3.0), NOT nominal (5.0).
+        expected_breakeven_observed = round(ppm * 3.0, 2)
+        expected_breakeven_nominal = round(ppm * 5.0, 2)
+        assert m.breakeven_p_per_kwh == pytest.approx(expected_breakeven_observed, abs=0.01)
+        assert m.breakeven_p_per_kwh != pytest.approx(expected_breakeven_nominal, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_breakeven_none_without_petrol_settings(test_sessionmaker):
+    """breakeven_p_per_kwh is None when petrol settings are missing."""
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
+        # No petrol settings.
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
+            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=17.7,
+            cost_pence=368, cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+        cs = await s.get(ChargingSession, 1)
+        m = await compute_session_metrics(s, cs)
+        assert m.breakeven_p_per_kwh is None
+
+
+@pytest.mark.asyncio
+async def test_measured_miles_since_previous_informational(test_sessionmaker):
+    """measured_miles_since_previous is set (informational) when a prior
+    odometer reading exists. It is independent of savings — savings uses the
+    energy estimate, not the odometer span.
+    """
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=58.0, mi_per_kwh=4.0)
+        _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
+        # Prior odometer reading.
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 1),
+            start_soc=30, end_soc=80, kwh_added=10.0,
+            odometer_at_session_km=1000.0,
+            cost_pence=75, cost_basis="home_rate", source="manual",
+        ))
+        # Current session — advanced 100 km (62.14 mi).
+        s.add(ChargingSession(
+            id=2, user_id=1, car_id=1, date=date(2026, 5, 10),
+            start_soc=30, end_soc=80, kwh_added=20.0, kwh_calculated=20.0,
+            odometer_at_session_km=1100.0,
+            cost_pence=150, cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+        cs = await s.get(ChargingSession, 2)
+        m = await compute_session_metrics(s, cs)
+
+        # Informational odometer span.
+        expected_odo_miles = (1100.0 - 1000.0) / _KM_PER_MILE
+        assert m.measured_miles_since_previous == pytest.approx(expected_odo_miles, abs=0.01)
+
+        # Savings uses energy estimate (not odometer span).
+        assert m.comparison_basis == "estimated"
+        # miles_since_previous is energy-based (not the odometer span of ~62 mi).
+        assert m.miles_since_previous is not None
+        # Must differ from the raw odo span — it is energy × eff, not the
+        # genuine km difference.
+        assert m.miles_since_previous != float(round(expected_odo_miles))
+
+
+@pytest.mark.asyncio
+async def test_measured_miles_none_without_prior_odometer(test_sessionmaker):
+    """measured_miles_since_previous is None when there is no prior odometer
+    reading — no distortion of savings.
+    """
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=58.0, mi_per_kwh=4.0)
+        _add_petrol_settings(s)
+        # Session with odometer but no prior.
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 10),
+            start_soc=30, end_soc=80, kwh_added=20.0, kwh_calculated=20.0,
+            odometer_at_session_km=1100.0,
+            cost_pence=150, cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+        cs = await s.get(ChargingSession, 1)
+        m = await compute_session_metrics(s, cs)
+        assert m.measured_miles_since_previous is None
+
+
+@pytest.mark.asyncio
+async def test_measured_miles_none_for_no_odometer_session(test_sessionmaker):
+    """measured_miles_since_previous is None when the session itself has no
+    odometer reading (it can't form a span).
+    """
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=58.0, mi_per_kwh=4.0)
+        _add_petrol_settings(s)
+        # Prior with odometer.
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 1),
+            start_soc=30, end_soc=80, kwh_added=10.0,
+            odometer_at_session_km=1000.0,
+            cost_pence=75, cost_basis="home_rate", source="manual",
+        ))
+        # Current without odometer.
+        s.add(ChargingSession(
+            id=2, user_id=1, car_id=1, date=date(2026, 5, 10),
+            start_soc=30, end_soc=80, kwh_added=20.0, kwh_calculated=20.0,
+            odometer_at_session_km=None,
+            cost_pence=150, cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+        cs = await s.get(ChargingSession, 2)
+        m = await compute_session_metrics(s, cs)
+        assert m.measured_miles_since_previous is None
+        # But savings still work via energy estimate.
+        assert m.comparison_basis == "estimated"
+
+
+@pytest.mark.asyncio
+async def test_batch_returns_breakeven_matching_single(test_sessionmaker):
+    """The batch 3-tuple's breakeven_p_per_kwh matches compute_session_metrics
+    for both energy-bearing and zero-energy rows.
+    """
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=58.0, mi_per_kwh=3.6)
+        _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
+            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=17.7,
+            cost_pence=150, cost_basis="home_rate", source="manual",
+        ))
+        s.add(ChargingSession(
+            id=2, user_id=1, car_id=1, date=date(2026, 5, 15),
+            start_soc=80, end_soc=80, kwh_added=0.0, kwh_calculated=0.0,
+            cost_pence=100, cost_basis="home_rate", source="manual",
+        ))
+        await s.commit()
+
+        rows = [await s.get(ChargingSession, i) for i in (1, 2)]
+        await _assert_batch_matches_single(s, rows)
+
+        batch = await compute_savings_for_sessions(s, rows)
+        # Zero-energy row has no breakeven.
+        assert batch[2][2] is None
+        # Energy-bearing row has a breakeven.
+        assert batch[1][2] is not None

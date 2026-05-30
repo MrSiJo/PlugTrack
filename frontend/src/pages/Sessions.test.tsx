@@ -45,6 +45,7 @@ function makeSession(
     telematics_session_id: null,
     saved_vs_petrol_p: null,
     comparison_basis: null,
+    breakeven_p_per_kwh: null,
     ...over,
   }
 }
@@ -291,39 +292,18 @@ describe('Sessions page', () => {
 
       const cell = screen.getByTestId('session-saved')
       expect(cell).toHaveTextContent('—')
+      // Null savings should not render arrows or signs.
+      expect(cell).not.toHaveTextContent('↓')
+      expect(cell).not.toHaveTextContent('↑')
+      expect(cell).not.toHaveTextContent('+')
+      expect(cell).not.toHaveTextContent('-')
     })
 
-    it('renders a plain amount for a measured comparison', async () => {
+    it('renders down-arrow + green and no +/- for a saving (estimated)', async () => {
       vi.spyOn(api, 'getSessions').mockResolvedValue([
         makeSession({
           id: 1,
-          saved_vs_petrol_p: 250,
-          comparison_basis: 'measured',
-        }),
-      ])
-
-      render(
-        <MemoryRouter>
-          <Sessions />
-        </MemoryRouter>,
-      )
-
-      await waitFor(() => {
-        expect(screen.getByTestId('session-row')).toBeInTheDocument()
-      })
-
-      const cell = screen.getByTestId('session-saved')
-      expect(cell).toHaveTextContent('£2.50')
-      expect(cell).not.toHaveTextContent('~')
-      // Measured rows are not muted.
-      expect(cell.className).not.toMatch(/text-slate-400/)
-    })
-
-    it('prefixes "~" and mutes the cell for an estimated comparison', async () => {
-      vi.spyOn(api, 'getSessions').mockResolvedValue([
-        makeSession({
-          id: 1,
-          saved_vs_petrol_p: 175,
+          saved_vs_petrol_p: 538,
           comparison_basis: 'estimated',
         }),
       ])
@@ -339,8 +319,218 @@ describe('Sessions page', () => {
       })
 
       const cell = screen.getByTestId('session-saved')
-      expect(cell).toHaveTextContent('~£1.75')
-      expect(cell.className).toMatch(/text-slate-400/)
+      // Arrow present, ~ prefix for estimated, no +/- sign.
+      expect(cell).toHaveTextContent('~↓')
+      expect(cell).toHaveTextContent('£5.38')
+      expect(cell).not.toHaveTextContent('+')
+      expect(cell).not.toHaveTextContent('-')
+      // Positive savings → green colour class.
+      const inner = cell.querySelector('span')!
+      expect(inner.className).toMatch(/emerald/)
+    })
+
+    it('renders up-arrow + red for a loss (cheaper than petrol: false)', async () => {
+      vi.spyOn(api, 'getSessions').mockResolvedValue([
+        makeSession({
+          id: 1,
+          saved_vs_petrol_p: -689,
+          comparison_basis: 'estimated',
+        }),
+      ])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      const cell = screen.getByTestId('session-saved')
+      // Up-arrow for loss, magnitude without sign.
+      expect(cell).toHaveTextContent('~↑')
+      expect(cell).toHaveTextContent('£6.89')
+      expect(cell).not.toHaveTextContent('-£')
+      // Loss → red colour class.
+      const inner = cell.querySelector('span')!
+      expect(inner.className).toMatch(/rose/)
+    })
+
+    it('renders without ~ prefix when comparison_basis is not "estimated"', async () => {
+      vi.spyOn(api, 'getSessions').mockResolvedValue([
+        makeSession({
+          id: 1,
+          saved_vs_petrol_p: 468,
+          comparison_basis: null,
+        }),
+      ])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      const cell = screen.getByTestId('session-saved')
+      expect(cell).not.toHaveTextContent('~')
+      expect(cell).toHaveTextContent('↓')
+      expect(cell).toHaveTextContent('£4.68')
+    })
+  })
+
+  describe('rate cell breakeven colouring', () => {
+    it('colours the rate cell green when tariff <= breakeven', async () => {
+      vi.spyOn(api, 'getSessions').mockResolvedValue([
+        makeSession({
+          id: 1,
+          tariff_p_per_kwh: 19,
+          breakeven_p_per_kwh: 47,
+        }),
+      ])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      // Rate column is the 7th cell (index 6).
+      const row = screen.getByTestId('session-row')
+      const cells = row.querySelectorAll('td')
+      const rateCell = cells[6]!
+      expect(rateCell.className).toMatch(/emerald/)
+    })
+
+    it('colours the rate cell red when tariff > breakeven', async () => {
+      vi.spyOn(api, 'getSessions').mockResolvedValue([
+        makeSession({
+          id: 1,
+          tariff_p_per_kwh: 92,
+          breakeven_p_per_kwh: 47,
+        }),
+      ])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      const row = screen.getByTestId('session-row')
+      const cells = row.querySelectorAll('td')
+      const rateCell = cells[6]!
+      expect(rateCell.className).toMatch(/rose/)
+    })
+
+    it('leaves rate cell neutral when breakeven is null', async () => {
+      vi.spyOn(api, 'getSessions').mockResolvedValue([
+        makeSession({
+          id: 1,
+          tariff_p_per_kwh: 19,
+          breakeven_p_per_kwh: null,
+        }),
+      ])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      const row = screen.getByTestId('session-row')
+      const cells = row.querySelectorAll('td')
+      const rateCell = cells[6]!
+      expect(rateCell.className).not.toMatch(/emerald/)
+      expect(rateCell.className).not.toMatch(/rose/)
+    })
+
+    it('shows the breakeven threshold caption in the Rate column header', async () => {
+      vi.spyOn(api, 'getSessions').mockResolvedValue([
+        makeSession({
+          id: 1,
+          tariff_p_per_kwh: 19,
+          breakeven_p_per_kwh: 47.3,
+        }),
+      ])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      // The Rate header should contain the breakeven annotation.
+      const rateHeader = screen.getByRole('columnheader', { name: /Rate/i })
+      expect(rateHeader).toHaveTextContent(/47/)
+    })
+  })
+
+  describe('summary line savings', () => {
+    it('shows arrow + colour in the summary total saved when savings are present', async () => {
+      vi.spyOn(api, 'getSessions').mockResolvedValue([
+        makeSession({ id: 1, cost_pence: 400, saved_vs_petrol_p: 300, comparison_basis: 'estimated' }),
+        makeSession({ id: 2, cost_pence: 600, saved_vs_petrol_p: 200, comparison_basis: 'estimated' }),
+      ])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('session-row')).toHaveLength(2)
+      })
+
+      // The summary line should show an arrow for total saved.
+      // Use the "2 sessions" text (numeric prefix) to uniquely find the paragraph.
+      const summary = screen.getByText(/2 sessions/i).closest('p')!
+      // Total saved = 500p = £5.00, positive so ↓ (green).
+      expect(summary).toHaveTextContent('↓')
+      expect(summary).toHaveTextContent('£5.00')
+      // Should not render a raw +/- sign before the amount.
+      expect(summary).not.toHaveTextContent('+£')
+    })
+
+    it('shows "— saved" in the summary when no rows have savings', async () => {
+      vi.spyOn(api, 'getSessions').mockResolvedValue([
+        makeSession({ id: 1, saved_vs_petrol_p: null }),
+        makeSession({ id: 2, saved_vs_petrol_p: null }),
+      ])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('session-row')).toHaveLength(2)
+      })
+
+      expect(screen.getByText(/— saved/i)).toBeInTheDocument()
     })
   })
 
