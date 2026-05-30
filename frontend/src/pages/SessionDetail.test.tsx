@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import SessionDetail from './SessionDetail'
-import { api, type ChargingSessionPayload } from '@/api/client'
+import {
+  api,
+  type ChargingSessionPayload,
+  type SessionMetricsPayload,
+} from '@/api/client'
 import { useSettingsStore } from '@/stores/settingsStore'
 
 function makeSession(
@@ -136,5 +140,67 @@ describe('SessionDetail — charge context', () => {
     const body = updateSpy.mock.calls[0]![1]
     expect(body.battery_care).toBe(true)
     expect(body.max_charge_current).toBe('reduced')
+  })
+})
+
+function makeMetrics(
+  over: Partial<SessionMetricsPayload> = {},
+): SessionMetricsPayload {
+  return {
+    miles_since_previous: 62,
+    cost_per_mile_p: 5.6,
+    petrol_ppm: 12.8,
+    petrol_equivalent_cost_p: 791,
+    savings_vs_petrol_p: 423,
+    petrol_price_p_per_litre: 151.9,
+    petrol_mpg: 54.1,
+    comparison_basis: 'measured',
+    chain_session_ids: [],
+    chain_total_cost_pence: null,
+    chain_anchor_id: null,
+    range_added_miles: null,
+    duration_minutes: null,
+    average_power_kw: null,
+    peak_power_kw: null,
+    efficiency_percent: null,
+    ...over,
+  }
+}
+
+describe('SessionDetail — petrol comparison basis', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    useSettingsStore.setState({ settings: {}, loaded: true })
+  })
+
+  it('shows the Estimated pill and a tilde on savings when basis is estimated', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        odometer_at_session_km: null,
+        metrics: makeMetrics({ comparison_basis: 'estimated' }),
+      }),
+    )
+
+    renderDetail()
+
+    const badge = await screen.findByTestId('estimated-badge')
+    expect(badge).toHaveTextContent('Estimated')
+
+    const savings = screen.getByTestId('metric-savings')
+    expect(savings).toHaveTextContent('~')
+  })
+
+  it('shows no pill and no tilde on savings when basis is measured', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        metrics: makeMetrics({ comparison_basis: 'measured' }),
+      }),
+    )
+
+    renderDetail()
+
+    const savings = await screen.findByTestId('metric-savings')
+    expect(savings).not.toHaveTextContent('~')
+    expect(screen.queryByTestId('estimated-badge')).not.toBeInTheDocument()
   })
 })

@@ -298,6 +298,7 @@ export interface SessionMetricsPayload {
   savings_vs_petrol_p: number | null
   petrol_price_p_per_litre: number | null
   petrol_mpg: number | null
+  comparison_basis: string | null
   chain_session_ids: number[]
   chain_total_cost_pence: number | null
   chain_anchor_id: number | null

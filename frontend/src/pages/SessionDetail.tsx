@@ -406,6 +406,10 @@ function PetrolComparison({
   const hasMiles =
     metrics.miles_since_previous !== null && metrics.miles_since_previous > 0
   const isChainFollowup = metrics.chain_anchor_id !== null
+  const isEstimated = metrics.comparison_basis === 'estimated'
+  // `~` prefix on estimate-derived figures (energy × efficiency), but not
+  // on the pure-settings petrol cost/mile.
+  const approx = isEstimated ? '~' : ''
   const chainPartners = metrics.chain_session_ids.filter(
     (id) => id !== currentSessionId,
   )
@@ -421,7 +425,7 @@ function PetrolComparison({
   const savingsHero =
     savings === null
       ? '—'
-      : `${savings > 0 ? '+' : ''}${fmtPence(savings)}`
+      : `${approx}${savings > 0 ? '+' : ''}${fmtPence(savings)}`
   const savingsAccent =
     savings === null
       ? 'text-slate-400'
@@ -471,17 +475,26 @@ function PetrolComparison({
   }
 
   if (!hasMiles) {
-    return renderEmpty(
-      'Needs an odometer on this session and the previous one for the same car. Add the previous odometer to start tracking miles per session.',
-    )
+    return renderEmpty('Needs energy or odometer data to compare.')
   }
 
   return (
     <div data-testid="petrol-comparison">
       <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-          Petrol comparison
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+            Petrol comparison
+          </h2>
+          {isEstimated && (
+            <span
+              className="cursor-help rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+              data-testid="estimated-badge"
+              title="Estimated from this charge's energy × your car's real-world efficiency (from its odometer history, or the configured nominal if none yet). Add an odometer reading to this and the previous charge for an exact figure."
+            >
+              Estimated
+            </span>
+          )}
+        </div>
         <span className="text-[10px] text-slate-400 dark:text-slate-500">
           {metrics.petrol_price_p_per_litre}p/L petrol @ {metrics.petrol_mpg}{' '}
           MPG
@@ -501,7 +514,9 @@ function PetrolComparison({
             {savingsHero}
           </span>
           <span className="text-xs text-slate-500 dark:text-slate-400">
-            over {distanceDisplay} since last charge
+            {isEstimated
+              ? `over ~${distanceDisplay} of estimated range`
+              : `over ${distanceDisplay} since last charge`}
           </span>
         </div>
       </Card>
@@ -511,14 +526,14 @@ function PetrolComparison({
         <StatTile
           label="Distance"
           value={
-            <span data-testid="metric-miles">{distanceDisplay}</span>
+            <span data-testid="metric-miles">{`${approx}${distanceDisplay}`}</span>
           }
         />
         <StatTile
           label="EV cost / mile"
           value={
             <span data-testid="metric-cost-per-mile">
-              {fmtPencePerMile(metrics.cost_per_mile_p)}
+              {`${approx}${fmtPencePerMile(metrics.cost_per_mile_p)}`}
             </span>
           }
         />
@@ -534,7 +549,7 @@ function PetrolComparison({
           label="Petrol equivalent"
           value={
             <span data-testid="metric-petrol-cost">
-              {fmtPence(metrics.petrol_equivalent_cost_p)}
+              {`${approx}${fmtPence(metrics.petrol_equivalent_cost_p)}`}
             </span>
           }
         />
