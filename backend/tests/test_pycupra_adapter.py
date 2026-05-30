@@ -89,9 +89,11 @@ async def test_fetch_vehicle_state_charging():
     vehicle = _build_vehicle_stub(payload)
     connection = _build_connection_stub(vehicle)
 
-    state = await fetch_vehicle_state(connection, payload["vehicle_id"])
+    # fetch_vehicle_state now returns (VehicleState, getter_call_count).
+    state, getter_calls = await fetch_vehicle_state(connection, payload["vehicle_id"])
 
     assert isinstance(state, VehicleState)
+    assert getter_calls == 5  # one per getter in the tuple
     assert state.battery_level == 47
     assert state.charging is True
     assert state.charging_state is True
@@ -118,8 +120,9 @@ async def test_fetch_vehicle_state_idle():
     vehicle = _build_vehicle_stub(payload)
     connection = _build_connection_stub(vehicle)
 
-    state = await fetch_vehicle_state(connection, payload["vehicle_id"])
+    state, getter_calls = await fetch_vehicle_state(connection, payload["vehicle_id"])
 
+    assert getter_calls == 5
     assert state.charging is False
     assert state.charging_state is False
     assert state.charging_state_raw == "off"
@@ -134,11 +137,12 @@ async def test_fetch_vehicle_state_charge_done():
     vehicle = _build_vehicle_stub(payload)
     connection = _build_connection_stub(vehicle)
 
-    state = await fetch_vehicle_state(connection, payload["vehicle_id"])
+    state, getter_calls = await fetch_vehicle_state(connection, payload["vehicle_id"])
 
     # Charge complete: bool flags are False but raw enum says
     # "readyForCharging" — the fine-grained discriminator the
     # synthesis layer needs.
+    assert getter_calls == 5
     assert state.charging is False
     assert state.charging_state is False
     assert state.charging_state_raw == "readyForCharging"

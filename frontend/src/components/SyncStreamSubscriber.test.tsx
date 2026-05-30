@@ -51,6 +51,9 @@ describe('SyncStreamSubscriber', () => {
           auth_invalid: false,
         },
       },
+      requests_today: 120,
+      request_budget: 800,
+      quota_state: 'ok',
     })
 
     const { unmount } = render(<SyncStreamSubscriber />)
@@ -90,6 +93,9 @@ describe('SyncStreamSubscriber', () => {
           auth_invalid: true,
         },
       },
+      requests_today: 600,
+      request_budget: 800,
+      quota_state: 'stretching',
     })
 
     const { unmount } = render(<SyncStreamSubscriber />)
@@ -120,7 +126,7 @@ describe('SyncStreamSubscriber', () => {
   })
 
   it('handles empty status snapshot cleanly', async () => {
-    vi.spyOn(api, 'getSyncStatus').mockResolvedValue({ cars: {} })
+    vi.spyOn(api, 'getSyncStatus').mockResolvedValue({ cars: {}, requests_today: 0, request_budget: 800, quota_state: 'ok' })
     const { unmount } = render(<SyncStreamSubscriber />)
     await waitFor(() => {
       expect(useSyncStore.getState().currentJobsByCarId).toEqual({})

@@ -38,6 +38,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..models import Car, ChargingSession, Location, PlugInRecord, SyncRun
+from ..models.sync_quota import increment_request_count
 from ..plugins.pycupra.models import Position, ProviderAuthError, VehicleState
 from .cost import compute_session_cost
 from .event_bus import EventBus, SyncEvent
@@ -48,6 +49,57 @@ from .sync_orchestrator import CarSyncState, SyncJob
 
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# In-memory quota cache — updated after every poll so the scheduler can
+# read today's count synchronously without a DB round-trip.
+#
+# The DB is the durable source of truth (survives restarts); this cache is
+# the fast path for the scheduler's cadence decisions within a running process.
+# ---------------------------------------------------------------------------
+
+from datetime import date as _date
+
+
+class _QuotaCache:
+    """Thread-safe-by-single-worker: one day counter, reset on date change."""
+
+    def __init__(self) -> None:
+        self._day: Optional[_date] = None
+        self._count: int = 0
+
+    def add(self, n: int) -> int:
+        today = _date.today()
+        if self._day != today:
+            self._day = today
+            self._count = 0
+        self._count += n
+        return self._count
+
+    def read(self) -> int:
+        today = _date.today()
+        if self._day != today:
+            return 0
+        return self._count
+
+    def seed(self, count: int) -> None:
+        """Initialise from the DB value on startup."""
+        self._day = _date.today()
+        self._count = count
+
+
+_quota_cache = _QuotaCache()
+
+
+def get_today_request_count() -> int:
+    """Return today's adapter request count from the in-memory cache.
+
+    Used by the sync scheduler to make synchronous quota decisions without
+    a DB round-trip. The value is seeded from the DB on startup and updated
+    after every poll so it remains accurate within a running process.
+    """
+    return _quota_cache.read()
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +116,10 @@ AdapterProvider = Callable[[Car], Awaitable[Any]]
 SettingsProvider = Callable[[int], Awaitable[dict]]
 
 # The vehicle-state fetch — mockable in tests so we never need pycupra.
-VehicleStateFetcher = Callable[[Any, str], Awaitable[VehicleState]]
+# Production returns a tuple (VehicleState, getter_call_count); test stubs
+# may return just a VehicleState for backward compatibility — the worker
+# normalises both forms.
+VehicleStateFetcher = Callable[[Any, str], Awaitable[Any]]
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +154,7 @@ def _utcnow() -> datetime:
 # Default fetcher — the real adapter. Tests pass a stub.
 # ---------------------------------------------------------------------------
 
-async def _default_fetch(connection: Any, vehicle_id: str) -> VehicleState:
+async def _default_fetch(connection: Any, vehicle_id: str) -> tuple[VehicleState, int]:
     # Imported lazily so unit tests that mock the fetcher never try to
     # import pycupra. Production's adapter_provider returns a real
     # pycupra Connection so this import path is exercised at runtime.
@@ -217,7 +272,7 @@ class ProductionPollWorker:
             return state
 
         try:
-            telemetry = await self._fetch(connection, car.provider_vehicle_id)
+            fetch_result = await self._fetch(connection, car.provider_vehicle_id)
         except (_AuthError, ProviderAuthError) as exc:
             await self._fail_run(sync_run_id, "credentials_invalid", str(exc))
             await self._publish(
@@ -237,6 +292,30 @@ class ProductionPollWorker:
             state.consecutive_failures += 1
             state.last_error = "network"
             return state
+
+        # Normalise the fetcher return — production adapter returns
+        # (VehicleState, getter_call_count); test stubs may return just a
+        # VehicleState for backward compatibility.
+        if isinstance(fetch_result, tuple):
+            telemetry, getter_calls = fetch_result
+        else:
+            telemetry = fetch_result
+            getter_calls = 0
+
+        # Record the adapter calls against the daily quota counter. This
+        # persists across restarts so a crash-loop cannot reset the budget.
+        # We do this even for force-syncs (user-initiated) per the spec.
+        if getter_calls > 0:
+            # Update the in-memory cache first (synchronous, fast path for
+            # the scheduler's cadence decisions).
+            _quota_cache.add(getter_calls)
+            # Persist to DB for durability across restarts.
+            try:
+                async with self._db_sessionmaker() as quota_session:
+                    await increment_request_count(quota_session, getter_calls)
+                    await quota_session.commit()
+            except Exception:  # noqa: BLE001 — never let quota accounting kill a sync
+                logger.warning("quota: failed to record %d getter calls", getter_calls)
 
         # ---- Run the state machine ----
         transitions = self._state_machine.step(state, telemetry)
@@ -1070,6 +1149,8 @@ async def get_user_sync_settings(session: AsyncSession, user_id: int) -> dict:
         "sync_interval_minutes_idle",
         "sync_interval_minutes_plugged",
         "sync_interval_minutes_charging",
+        "sync_daily_request_budget",
+        "sync_quota_soft_fraction",
         "default_home_rate_p_per_kwh",
         "cupra_username",
         "cupra_password",
@@ -1238,10 +1319,12 @@ async def production_poll_worker(
 __all__ = [
     "ProductionPollWorker",
     "_AuthError",
+    "_quota_cache",
     "AdapterProvider",
     "SettingsProvider",
     "VehicleStateFetcher",
     "clear_cached_connections",
+    "get_today_request_count",
     "get_user_sync_settings",
     "make_pycupra_adapter_provider",
     "make_settings_provider",

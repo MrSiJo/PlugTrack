@@ -537,9 +537,6 @@ export const api = {
   syncCar: (carId: number): Promise<SyncJobResponse> =>
     fetchJSON<SyncJobResponse>(`/api/sync/${carId}`, { method: 'POST' }),
 
-  wakeCar: (carId: number): Promise<WakeResponse> =>
-    fetchJSON<WakeResponse>(`/api/sync/${carId}/wake`, { method: 'POST' }),
-
   getSyncStatus: (): Promise<SyncStatusResponse> =>
     fetchJSON<SyncStatusResponse>('/api/sync/status'),
 
@@ -568,13 +565,6 @@ export interface SyncJobResponse {
   status: string
 }
 
-export interface WakeResponse {
-  woken: boolean
-  car_id: number
-  reason?: string
-  retry_after?: number
-}
-
 export interface CarSyncStatus {
   last_state: string | null
   last_soc: number | null
@@ -587,6 +577,9 @@ export interface CarSyncStatus {
 
 export interface SyncStatusResponse {
   cars: Record<string, CarSyncStatus>
+  requests_today: number
+  request_budget: number
+  quota_state: 'ok' | 'stretching' | 'paused'
 }
 
 // ---------------------------------------------------------------------------

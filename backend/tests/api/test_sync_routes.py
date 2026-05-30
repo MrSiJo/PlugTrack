@@ -1,4 +1,7 @@
-"""Tests for /api/sync/{car_id} (force, wake, status, stream)."""
+"""Tests for /api/sync/{car_id} (force, status, stream).
+
+The wake-car feature has been removed entirely; wake tests are not present.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -14,11 +17,9 @@ from tests.api.conftest import csrf_headers
 
 @pytest.fixture(autouse=True)
 def _reset_module_state():
-    """Wipe in-memory wake cooldowns + event bus between tests."""
-    sync_routes.reset_wake_cooldowns()
+    """Wipe event bus between tests."""
     reset_event_bus()
     yield
-    sync_routes.reset_wake_cooldowns()
     reset_event_bus()
 
 
@@ -91,68 +92,22 @@ async def test_status_returns_orchestrator_snapshot(authed_client, app):
     assert r.status_code == 200
     body = r.json()
     assert "cars" in body
+    assert "requests_today" in body
+    assert "request_budget" in body
+    assert "quota_state" in body
+    assert body["quota_state"] in ("ok", "stretching", "paused")
     assert "7" in body["cars"]
     assert body["cars"]["7"]["last_state"] == "PLUGGED_IN"
     assert body["cars"]["7"]["last_soc"] == 42
 
 
 @pytest.mark.asyncio
-async def test_wake_no_provider_marks_cooldown(authed_client, app):
-    """Without a wake provider, endpoint succeeds with woken=false but starts the cooldown."""
-    app.state.wake_provider = None
+async def test_wake_endpoint_removed(authed_client):
+    """POST /api/sync/{id}/wake must 404 — the route no longer exists."""
     r = await authed_client.post(
-        "/api/sync/3/wake", headers=csrf_headers(authed_client)
+        "/api/sync/1/wake", headers=csrf_headers(authed_client)
     )
-    assert r.status_code == 200
-    body = r.json()
-    assert body["woken"] is False
-
-
-@pytest.mark.asyncio
-async def test_wake_rate_limited_after_first_call(authed_client, app):
-    app.state.wake_provider = None
-
-    r1 = await authed_client.post(
-        "/api/sync/9/wake", headers=csrf_headers(authed_client)
-    )
-    assert r1.status_code == 200
-
-    r2 = await authed_client.post(
-        "/api/sync/9/wake", headers=csrf_headers(authed_client)
-    )
-    assert r2.status_code == 429
-    assert "Retry-After" in r2.headers
-    body = r2.json()
-    assert body["retry_after"] >= 1
-
-
-@pytest.mark.asyncio
-async def test_wake_invokes_provider(authed_client, app):
-    calls: list[int] = []
-
-    async def provider(car_id: int) -> bool:
-        calls.append(car_id)
-        return True
-
-    app.state.wake_provider = provider
-    r = await authed_client.post(
-        "/api/sync/4/wake", headers=csrf_headers(authed_client)
-    )
-    assert r.status_code == 200
-    assert calls == [4]
-    assert r.json()["woken"] is True
-
-
-@pytest.mark.asyncio
-async def test_wake_provider_failure_returns_502(authed_client, app):
-    async def provider(car_id: int) -> bool:
-        raise RuntimeError("api down")
-
-    app.state.wake_provider = provider
-    r = await authed_client.post(
-        "/api/sync/5/wake", headers=csrf_headers(authed_client)
-    )
-    assert r.status_code == 502
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio

@@ -1,17 +1,20 @@
-"""Sync API: force-sync, wake-car, status snapshot, SSE stream.
+"""Sync API: force-sync, status snapshot, SSE stream.
 
 - POST /api/sync/{car_id}        — force a sync; returns job + stream_url
 - GET  /api/sync/stream/{job_id} — SSE stream of events for that job
-- POST /api/sync/{car_id}/wake   — push a wake-up via pycupra setRefresh,
-                                   rate-limited 1×/30min/car
 - GET  /api/sync/status          — orchestrator state snapshot
+
+The wake-car feature has been removed entirely (POST /api/sync/{car_id}/wake
+no longer exists). Wake calls drained the 12V battery without providing
+faster data (Cupra's backend is push-based). See the 2026-05-30 quota-guard
+spec for the full rationale.
 
 All mutating routes are auth + CSRF gated by the global middleware. The
 SSE GET is naturally CSRF-safe.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -22,12 +25,6 @@ from ...services.event_bus import get_event_bus
 
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
-
-
-WAKE_COOLDOWN_SECONDS = 30 * 60  # 1 wake per 30 minutes per car (12V protection)
-
-# Module-level state (single-worker assumption; documented tripwire in main.py).
-_last_wake_at: dict[int, datetime] = {}
 
 
 def _utcnow() -> datetime:
@@ -46,15 +43,6 @@ def _orchestrator(request: Request):
     if orch is None:
         raise HTTPException(status_code=503, detail="sync orchestrator unavailable")
     return orch
-
-
-def _wake_provider(request: Request):
-    """Optional adapter callable for waking the car.
-
-    Tests inject a mock via app.state.wake_provider. Production wires the
-    pycupra adapter in main.py lifespan.
-    """
-    return getattr(request.app.state, "wake_provider", None)
 
 
 @router.post("/{car_id}")
@@ -145,55 +133,53 @@ async def stream_events(job_id: str, request: Request):
     return EventSourceResponse(_events())
 
 
-@router.post("/{car_id}/wake")
-async def wake_car(car_id: int, request: Request) -> JSONResponse:
-    _user_id(request)
-    now = _utcnow()
-    last = _last_wake_at.get(car_id)
-    if last is not None:
-        delta = (now - last).total_seconds()
-        if delta < WAKE_COOLDOWN_SECONDS:
-            retry_after = int(WAKE_COOLDOWN_SECONDS - delta) + 1
-            return JSONResponse(
-                status_code=429,
-                content={
-                    "detail": "wake rate-limited; try again later",
-                    "retry_after": retry_after,
-                },
-                headers={"Retry-After": str(retry_after)},
-            )
-
-    provider = _wake_provider(request)
-    if provider is None:
-        # No provider wired (e.g. in tests). Mark the wake attempt so the
-        # rate-limit ratchets, return 200 with skipped:true.
-        _last_wake_at[car_id] = now
-        return JSONResponse(
-            status_code=200,
-            content={"woken": False, "reason": "no_provider", "car_id": car_id},
-        )
-
-    try:
-        woken = await provider(car_id)
-    except Exception as exc:  # noqa: BLE001
-        return JSONResponse(
-            status_code=502,
-            content={"detail": "wake failed", "error": str(exc)},
-        )
-
-    _last_wake_at[car_id] = now
-    return JSONResponse(
-        status_code=200,
-        content={"woken": bool(woken), "car_id": car_id},
-    )
-
-
 @router.get("/status")
 async def status(request: Request) -> JSONResponse:
     _user_id(request)
     orch = _orchestrator(request)
     snapshot = orch.snapshot()
-    return JSONResponse(content={"cars": snapshot})
+
+    # Read today's quota usage from the DB and the budget from settings.
+    requests_today = 0
+    request_budget = 800
+    quota_state_str = "ok"
+
+    try:
+        from ... import db as db_module
+        from ...models.sync_quota import read_today_count
+        from ...services.sync_scheduler import quota_factor, _quota_settings
+
+        async with db_module.SessionLocal() as session:
+            requests_today = await read_today_count(session)
+
+        # Read the budget setting.
+        from ...models import Setting
+        from sqlalchemy import select as _select
+
+        async with db_module.SessionLocal() as session:
+            rows = (
+                await session.execute(
+                    _select(Setting).where(
+                        Setting.key.in_(
+                            ["sync_daily_request_budget", "sync_quota_soft_fraction"]
+                        )
+                    )
+                )
+            ).scalars().all()
+        settings_map = {row.key: row.value for row in rows}
+        budget, soft_fraction = _quota_settings(settings_map)
+        request_budget = budget
+        quota_state_str, _ = quota_factor(requests_today, budget, soft_fraction)
+    except Exception:
+        # Never let quota lookup break the status endpoint.
+        pass
+
+    return JSONResponse(content={
+        "requests_today": requests_today,
+        "request_budget": request_budget,
+        "quota_state": quota_state_str,
+        "cars": snapshot,
+    })
 
 
 def _json_dumps(data: dict) -> str:
@@ -208,8 +194,3 @@ def _json_dumps(data: dict) -> str:
         return str(obj)
 
     return json.dumps(data, default=_default)
-
-
-def reset_wake_cooldowns() -> None:
-    """Test helper — clear the in-memory rate-limit dict."""
-    _last_wake_at.clear()

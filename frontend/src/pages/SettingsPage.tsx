@@ -5,6 +5,7 @@ import {
   api,
   type CarPayload,
   type SettingPayload,
+  type SyncStatusResponse,
 } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -238,20 +239,64 @@ function ClearTokensButton() {
   )
 }
 
+function QuotaIndicator({ status }: { status: SyncStatusResponse }) {
+  const { requests_today, request_budget, quota_state } = status
+  const fraction = request_budget > 0 ? Math.min(requests_today / request_budget, 1) : 0
+  const pct = Math.round(fraction * 100)
+
+  const barColor =
+    quota_state === 'paused'
+      ? 'bg-red-500'
+      : quota_state === 'stretching'
+        ? 'bg-amber-400'
+        : 'bg-slate-400'
+
+  const labelColor =
+    quota_state === 'paused'
+      ? 'text-red-600 dark:text-red-400'
+      : quota_state === 'stretching'
+        ? 'text-amber-600 dark:text-amber-400'
+        : 'text-slate-500'
+
+  return (
+    <div
+      data-testid="quota-indicator"
+      className="mb-3 rounded border border-slate-200 p-3 dark:border-slate-700"
+    >
+      <div className={`mb-1 text-xs font-medium ${labelColor}`}>
+        API calls today: {requests_today} / {request_budget}
+        {quota_state === 'paused' && (
+          <span className="ml-2 font-normal">— paused until tomorrow to protect the shared Cupra quota</span>
+        )}
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+        <div
+          className={`h-full rounded-full transition-all ${barColor}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
 function SyncControlsPanel() {
   const [cars, setCars] = useState<CarPayload[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyCarId, setBusyCarId] = useState<number | null>(null)
-  const [toasts, setToasts] = useState<Record<number, { kind: 'success' | 'error' | 'cooldown'; message: string }>>({})
+  const [toasts, setToasts] = useState<Record<number, { kind: 'success' | 'error'; message: string }>>({})
+  const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const startStream = useSyncStore((s) => s.startStream)
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
       try {
-        const list = await api.getCars()
-        if (!cancelled) setCars(list)
+        const [list, status] = await Promise.all([api.getCars(), api.getSyncStatus()])
+        if (!cancelled) {
+          setCars(list)
+          setSyncStatus(status)
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof ApiError ? err.message : String(err))
       } finally {
@@ -263,7 +308,7 @@ function SyncControlsPanel() {
     }
   }, [])
 
-  function setToast(carId: number, t: { kind: 'success' | 'error' | 'cooldown'; message: string }) {
+  function setToast(carId: number, t: { kind: 'success' | 'error'; message: string }) {
     setToasts((prev) => ({ ...prev, [carId]: t }))
     window.setTimeout(() => {
       setToasts((prev) => {
@@ -296,42 +341,11 @@ function SyncControlsPanel() {
     }
   }
 
-  async function handleWake(carId: number) {
-    setBusyCarId(carId)
-    try {
-      const res = await api.wakeCar(carId)
-      setToast(carId, {
-        kind: 'success',
-        message: res.woken
-          ? 'Wake-up sent to the car. The next sync will see fresh data.'
-          : 'Wake call accepted (no provider configured).',
-      })
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 429) {
-        const body = err.body as { retry_after?: number } | null
-        const wait = body?.retry_after ?? 60
-        setToast(carId, {
-          kind: 'cooldown',
-          message: `Rate-limited (12V battery protection). Try again in ${Math.ceil(wait / 60)}m.`,
-        })
-      } else {
-        setToast(carId, {
-          kind: 'error',
-          message: err instanceof ApiError ? err.message : 'Wake failed',
-        })
-      }
-    } finally {
-      setBusyCarId(null)
-    }
-  }
-
   return (
     <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
       <h3 className="mb-2 text-sm font-medium">Manual sync controls</h3>
       <p className="mb-3 text-xs text-slate-500">
-        <strong>Force sync</strong> re-runs the state poll immediately using cached cloud data — cheap, fast.{' '}
-        <strong>Wake car</strong> sends a TCU wake-up command and is rate-limited to 1× per 30 minutes per car
-        to protect the 12V battery.
+        <strong>Force sync</strong> re-runs the state poll immediately using cached cloud data — cheap, fast.
       </p>
       {loading && <p className="text-sm text-slate-500">Loading cars…</p>}
       {error && (
@@ -339,6 +353,7 @@ function SyncControlsPanel() {
           {error}
         </div>
       )}
+      {syncStatus && <QuotaIndicator status={syncStatus} />}
       {!loading && cars.length === 0 && (
         <p className="text-sm text-slate-500">No cars yet.</p>
       )}
@@ -371,25 +386,12 @@ function SyncControlsPanel() {
                   >
                     Force sync
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleWake(car.id)}
-                    disabled={busyCarId === car.id}
-                    className="rounded border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
-                    data-testid={`settings-wake-${car.id}`}
-                  >
-                    Wake car
-                  </button>
                 </div>
               </div>
               {toast && (
                 <p
                   className={`mt-2 text-xs ${
-                    toast.kind === 'success'
-                      ? 'text-emerald-600'
-                      : toast.kind === 'cooldown'
-                        ? 'text-amber-600'
-                        : 'text-red-600'
+                    toast.kind === 'success' ? 'text-emerald-600' : 'text-red-600'
                   }`}
                   role="status"
                 >
