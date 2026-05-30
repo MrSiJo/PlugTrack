@@ -312,6 +312,84 @@ function ChargeMechanics({
   )
 }
 
+interface ChargeContextProps {
+  session: ChargingSessionPayload
+}
+
+const CHARGING_MODE_LABEL: Record<string, string> = {
+  manual: 'Manual',
+  timer: 'Timer',
+  profile: 'Profile',
+}
+
+const CHARGING_TYPE_LABEL: Record<string, string> = {
+  ac: 'AC',
+  dc: 'DC',
+}
+
+function fmtMaxCurrent(v: string | null): string {
+  if (v === null) return '—'
+  if (v === 'maximum') return 'Maximum'
+  if (v === 'reduced') return 'Reduced'
+  return v
+}
+
+function ChargeContext({ session }: ChargeContextProps) {
+  const modeKnown =
+    session.charging_mode !== 'unknown' && Boolean(session.charging_mode)
+  const typeKnown =
+    session.charging_type !== 'unknown' && Boolean(session.charging_type)
+  const hasAny =
+    modeKnown
+    || typeKnown
+    || session.battery_care !== null
+    || session.max_charge_current !== null
+  if (!hasAny) return null
+
+  const modeLabel = modeKnown
+    ? (CHARGING_MODE_LABEL[session.charging_mode] ?? session.charging_mode)
+    : '—'
+  const typeLabel = typeKnown
+    ? (CHARGING_TYPE_LABEL[session.charging_type] ?? session.charging_type)
+    : '—'
+  const careLabel =
+    session.battery_care === null
+      ? '—'
+      : session.battery_care
+        ? 'On'
+        : 'Off'
+
+  return (
+    <section className="mb-6" data-testid="charge-context">
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+        Charge context
+      </h2>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile
+          label="Mode"
+          value={<span data-testid="ctx-mode">{modeLabel}</span>}
+        />
+        <StatTile
+          label="Type"
+          value={<span data-testid="ctx-type">{typeLabel}</span>}
+        />
+        <StatTile
+          label="Battery care"
+          value={<span data-testid="ctx-battery-care">{careLabel}</span>}
+        />
+        <StatTile
+          label="Max current"
+          value={
+            <span data-testid="ctx-max-current">
+              {fmtMaxCurrent(session.max_charge_current)}
+            </span>
+          }
+        />
+      </div>
+    </section>
+  )
+}
+
 interface PetrolComparisonProps {
   metrics: SessionMetricsPayload
   unit: 'mi' | 'km'
@@ -509,6 +587,12 @@ function SessionEditForm({ session, unit, onSaved }: EditFormProps) {
   const [endSoc, setEndSoc] = useState<string>(String(session.end_soc))
   const [chargingType, setChargingType] = useState(session.charging_type)
   const [chargingMode, setChargingMode] = useState(session.charging_mode)
+  const [batteryCare, setBatteryCare] = useState<boolean>(
+    session.battery_care ?? false,
+  )
+  const [maxChargeCurrent, setMaxChargeCurrent] = useState<string>(
+    session.max_charge_current ?? '',
+  )
   const [network, setNetwork] = useState(session.charge_network ?? '')
   const [notes, setNotes] = useState(session.notes ?? '')
   const [perKwh, setPerKwh] = useState<string>(
@@ -543,6 +627,9 @@ function SessionEditForm({ session, unit, onSaved }: EditFormProps) {
         end_soc: Number(endSoc),
         charging_type: chargingType,
         charging_mode: chargingMode,
+        battery_care: batteryCare,
+        max_charge_current:
+          maxChargeCurrent.trim() === '' ? null : maxChargeCurrent,
         charge_network: network.trim() === '' ? null : network,
         notes: notes.trim() === '' ? null : notes,
         cost_per_kwh_override_p: perKwh.trim() === '' ? null : Number(perKwh),
@@ -650,6 +737,28 @@ function SessionEditForm({ session, unit, onSaved }: EditFormProps) {
             <option value="profile">Profile</option>
             <option value="unknown">Unknown</option>
           </select>
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase text-slate-500">Max current</span>
+          <select
+            className={inputCls}
+            value={maxChargeCurrent}
+            onChange={(e) => setMaxChargeCurrent(e.target.value)}
+            data-testid="edit-max-charge-current"
+          >
+            <option value="">—</option>
+            <option value="maximum">Maximum</option>
+            <option value="reduced">Reduced</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={batteryCare}
+            onChange={(e) => setBatteryCare(e.target.checked)}
+            data-testid="edit-battery-care"
+          />
+          <span className="text-xs uppercase text-slate-500">Battery care</span>
         </label>
         <label className="block">
           <span className="text-xs uppercase text-slate-500">Charge network</span>
@@ -916,6 +1025,8 @@ export default function SessionDetail() {
           kwhCalculated={session.kwh_calculated ?? null}
         />
       )}
+
+      <ChargeContext session={session} />
 
       {session.metrics && (
         <section className="mb-6">
