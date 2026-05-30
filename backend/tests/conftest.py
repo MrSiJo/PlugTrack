@@ -81,3 +81,29 @@ def _isolate_env(monkeypatch):
     monkeypatch.setenv("APP_SECRET_KEY", "test-secret-key-for-tests-only-padding-padding")
     monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
     yield
+
+
+@pytest_asyncio.fixture
+async def seeded_user_car(test_sessionmaker):
+    """Insert a User + Car and return ``(user_id, car_id)``."""
+    from plugtrack.models import Car, User
+
+    async with test_sessionmaker() as s:
+        user = User(username="alice", password_hash="x")
+        s.add(user)
+        await s.commit()
+        await s.refresh(user)
+
+        car = Car(
+            user_id=user.id,
+            make="Cupra",
+            model="Born",
+            battery_kwh=58.0,
+            nominal_efficiency_mi_per_kwh=4.2,
+            provider="manual",
+            active=True,
+        )
+        s.add(car)
+        await s.commit()
+        await s.refresh(car)
+        return user.id, car.id

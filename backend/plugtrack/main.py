@@ -93,6 +93,11 @@ async def _apply_additive_migrations(conn) -> None:
 
     additions = (
         ("location", "default_charge_network", "VARCHAR(64)"),
+        ("charging_session", "battery_care", "BOOLEAN"),
+        ("charging_session", "max_charge_current", "VARCHAR(16)"),
+        ("car_state", "last_battery_care", "BOOLEAN"),
+        ("car_state", "last_max_charge_current", "VARCHAR(16)"),
+        ("car_state", "last_charging_estimated_end_at", "DATETIME"),
     )
     for table, column, ddl in additions:
         cols = (await conn.execute(_text(f"PRAGMA table_info({table})"))).all()

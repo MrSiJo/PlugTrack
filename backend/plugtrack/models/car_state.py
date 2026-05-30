@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -37,6 +37,13 @@ class CarStateSnapshot(Base):
     )
     last_charging_power_kw: Mapped[Optional[float]] = mapped_column(
         Float, nullable=True
+    )
+    last_battery_care: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    last_max_charge_current: Mapped[Optional[str]] = mapped_column(
+        String(16), nullable=True
+    )
+    last_charging_estimated_end_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     last_position_lat: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     last_position_lng: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

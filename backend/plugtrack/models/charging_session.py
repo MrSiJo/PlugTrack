@@ -87,6 +87,8 @@ class ChargingSession(Base):
     charging_mode: Mapped[str] = mapped_column(
         String(16), nullable=False, default="unknown"
     )  # 'timer' | 'manual' | 'profile' | 'unknown'
+    battery_care: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    max_charge_current: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     interrupted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     error_reason: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
