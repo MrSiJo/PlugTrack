@@ -59,4 +59,34 @@ describe('HeroCarCard', () => {
     render(<HeroCarCard car={baseCar} />)
     expect(screen.getByTestId('state-pill').textContent).toContain('Charging')
   })
+
+  it('renders a Battery care pill when battery_care is true', () => {
+    render(<HeroCarCard car={{ ...baseCar, battery_care: true }} />)
+    expect(screen.getByTestId('battery-care-pill').textContent).toContain(
+      'Battery care',
+    )
+  })
+
+  it('omits the Battery care pill when battery_care is falsy', () => {
+    render(<HeroCarCard car={baseCar} />)
+    expect(screen.queryByTestId('battery-care-pill')).not.toBeInTheDocument()
+  })
+
+  it('shows an estimated-end line while charging when set', () => {
+    const end = new Date(Date.now() + 3_600_000).toISOString()
+    render(
+      <HeroCarCard car={{ ...baseCar, charging_estimated_end_at: end }} />,
+    )
+    expect(screen.getByTestId('car-est-end')).toBeInTheDocument()
+  })
+
+  it('omits the estimated-end line when not charging', () => {
+    const end = new Date(Date.now() + 3_600_000).toISOString()
+    render(
+      <HeroCarCard
+        car={{ ...baseCar, last_state: 'IDLE', charging_estimated_end_at: end }}
+      />,
+    )
+    expect(screen.queryByTestId('car-est-end')).not.toBeInTheDocument()
+  })
 })

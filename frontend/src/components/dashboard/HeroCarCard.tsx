@@ -37,6 +37,16 @@ function formatRelative(iso: string | null): string {
   return `${Math.round(seconds / 86_400)}d ago`
 }
 
+function formatShortTime(iso: string | null): string | null {
+  if (!iso) return null
+  const t = new Date(iso)
+  if (Number.isNaN(t.getTime())) return null
+  return t.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export interface HeroCarCardProps {
   car: DashboardCarPanel
 }
@@ -70,6 +80,9 @@ export function HeroCarCard({ car }: HeroCarCardProps) {
         : `${(miPerHour / 0.621371).toFixed(1)} km/h`
   }
 
+  const estEndDisplay =
+    isCharging ? formatShortTime(car.charging_estimated_end_at) : null
+
   const locationDisplay = car.location_address
     ? car.location_name
       ? `${car.location_name} · ${car.location_address}`
@@ -94,17 +107,24 @@ export function HeroCarCard({ car }: HeroCarCardProps) {
             </Pill>
           )}
         </div>
-        {isCharging &&
-          car.charging_power_kw !== null &&
-          car.charging_power_kw !== undefined &&
-          car.charging_power_kw > 0 && (
-            <Pill tone="cyan" data-testid="car-charging">
-              {car.charging_power_kw.toFixed(1)} kW
-              {chargeRateDisplay && (
-                <span className="ml-1 opacity-75">· {chargeRateDisplay}</span>
-              )}
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {car.battery_care && (
+            <Pill tone="amber" data-testid="battery-care-pill">
+              Battery care
             </Pill>
           )}
+          {isCharging &&
+            car.charging_power_kw !== null &&
+            car.charging_power_kw !== undefined &&
+            car.charging_power_kw > 0 && (
+              <Pill tone="cyan" data-testid="car-charging">
+                {car.charging_power_kw.toFixed(1)} kW
+                {chargeRateDisplay && (
+                  <span className="ml-1 opacity-75">· {chargeRateDisplay}</span>
+                )}
+              </Pill>
+            )}
+        </div>
       </div>
 
       <div className="flex items-baseline gap-2" data-testid="car-soc">
@@ -163,6 +183,14 @@ export function HeroCarCard({ car }: HeroCarCardProps) {
             {formatRelative(car.next_poll_at)}
           </span>
         </div>
+        {estEndDisplay && (
+          <div data-testid="car-est-end">
+            <span className="text-slate-400 dark:text-slate-500">Full </span>
+            <span className="font-medium tabular-nums text-slate-700 dark:text-slate-200">
+              ~{estEndDisplay}
+            </span>
+          </div>
+        )}
       </div>
 
       {car.mileage_year && (
