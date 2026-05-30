@@ -33,7 +33,7 @@ import { useSyncStore } from '@/stores/syncStore'
 import { formatCurrency } from '@/utils/currency'
 import { useSetting } from '@/stores/settingsStore'
 
-type SourceFilter = 'all' | 'manual' | 'synthesis' | 'cariad' | 'phantom'
+type SourceFilter = 'all' | 'manual' | 'synthesis' | 'cariad' | 'unconfirmed'
 
 type DateRange =
   | 'this_month'
@@ -59,13 +59,14 @@ const SOURCE_TONE: Record<string, PillTone> = {
   manual: 'amber',
   synthesis: 'cyan',
   cariad: 'purple',
+  unconfirmed: 'slate',
 }
 
 const SOURCE_LABEL: Record<string, string> = {
   manual: 'Manual',
   synthesis: 'Cupra',
   cariad: 'Cariad',
-  phantom: 'Phantom',
+  unconfirmed: 'Unconfirmed',
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -318,11 +319,29 @@ export default function Sessions() {
   const [customTo, setCustomTo] = useState<string>(todayIso())
   const [sort, setSort] = useState<SortField>('date')
   const [dir, setDir] = useState<SortDir>('desc')
+  /** All-time count of un-triaged unconfirmed rows (source='unconfirmed'). */
+  const [unconfirmedCount, setUnconfirmedCount] = useState<number | null>(null)
   const recentlyImported = useSyncStore((s) => s.recentlyImportedSessionIds)
   const currency = useSetting<string>('currency') ?? 'GBP'
 
   const isCustom = dateRange === 'custom'
   const invalidCustom = isCustom && customFrom > customTo
+
+  /** Fetch the all-time unconfirmed count separately (no date bounds). */
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const count = await api.countUnconfirmedSessions()
+        if (!cancelled) setUnconfirmedCount(count)
+      } catch {
+        // Non-fatal: badge simply doesn't appear.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (invalidCustom) return
@@ -346,6 +365,12 @@ export default function Sessions() {
         const data = await api.getSessions(qs ? `?${qs}` : undefined)
         if (!cancelled) {
           setSessions(data)
+          // If we are already viewing the unconfirmed filter, the badge count
+          // is exactly the returned set length (no date bounds needed — the
+          // unconfirmed list is always all-time for the badge).
+          if (sourceFilter === 'unconfirmed') {
+            setUnconfirmedCount(data.length)
+          }
           setError(null)
         }
       } catch (err) {
@@ -436,14 +461,14 @@ export default function Sessions() {
       />
 
       <div className="mb-4 flex flex-wrap gap-2" data-testid="source-tabs">
-        {(['all', 'manual', 'synthesis', 'cariad', 'phantom'] as SourceFilter[]).map(
+        {(['all', 'manual', 'synthesis', 'cariad', 'unconfirmed'] as SourceFilter[]).map(
           (f) => (
             <button
               key={f}
               type="button"
               onClick={() => setSourceFilter(f)}
               className={cn(
-                'rounded-md border px-2.5 py-1 text-xs font-medium transition',
+                'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition',
                 sourceFilter === f
                   ? 'border-cyan-300 bg-cyan-500/15 text-cyan-700 dark:border-cyan-900 dark:text-cyan-300'
                   : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800',
@@ -454,6 +479,15 @@ export default function Sessions() {
                 : f === 'synthesis'
                   ? 'Cupra'
                   : SOURCE_LABEL[f]}
+              {f === 'unconfirmed' && unconfirmedCount !== null && unconfirmedCount > 0 && (
+                <span
+                  className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white"
+                  data-testid="unconfirmed-badge"
+                  aria-label={`${unconfirmedCount} unconfirmed`}
+                >
+                  {unconfirmedCount}
+                </span>
+              )}
             </button>
           ),
         )}

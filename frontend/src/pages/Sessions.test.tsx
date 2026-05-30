@@ -665,4 +665,85 @@ describe('Sessions page', () => {
       expect(q.get('date_to')).toBe('2026-05-25')
     })
   })
+
+  describe('unconfirmed source filter', () => {
+    it('shows "Unconfirmed" button in the filter bar (not "Phantom")', async () => {
+      vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession({ id: 1 })])
+      vi.spyOn(api, 'countUnconfirmedSessions').mockResolvedValue(0)
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      const tabs = screen.getByTestId('source-tabs')
+      expect(tabs).toHaveTextContent('Unconfirmed')
+      expect(tabs).not.toHaveTextContent('Phantom')
+    })
+
+    it('shows badge on Unconfirmed button when count > 0', async () => {
+      vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession({ id: 1 })])
+      vi.spyOn(api, 'countUnconfirmedSessions').mockResolvedValue(3)
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      const badge = await screen.findByTestId('unconfirmed-badge')
+      expect(badge).toHaveTextContent('3')
+    })
+
+    it('does not show badge when count is 0', async () => {
+      vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession({ id: 1 })])
+      vi.spyOn(api, 'countUnconfirmedSessions').mockResolvedValue(0)
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      expect(screen.queryByTestId('unconfirmed-badge')).not.toBeInTheDocument()
+    })
+
+    it('sends source=unconfirmed to the API when the Unconfirmed filter is selected', async () => {
+      const user = userEvent.setup()
+      const spy = vi
+        .spyOn(api, 'getSessions')
+        .mockResolvedValue([makeSession({ id: 1, source: 'unconfirmed' })])
+      vi.spyOn(api, 'countUnconfirmedSessions').mockResolvedValue(1)
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      const tabs = screen.getByTestId('source-tabs')
+      const unconfirmedBtn = within(tabs).getByRole('button', {
+        name: /Unconfirmed/i,
+      })
+      await user.click(unconfirmedBtn)
+
+      await waitFor(() => {
+        const q = lastQuery(spy)
+        expect(q.get('source')).toBe('unconfirmed')
+      })
+    })
+  })
 })

@@ -337,6 +337,14 @@ export interface SessionCreateRequest {
 
 export type SessionUpdateRequest = Partial<SessionCreateRequest>
 
+export interface SessionConfirmRequest {
+  location_id?: number | null
+  kwh_added?: number | null
+  cost_per_kwh_override_p?: number | null
+  total_cost_pence_override?: number | null
+  notes?: string | null
+}
+
 export interface LocationPayload {
   id: number
   name: string | null
@@ -488,6 +496,24 @@ export const api = {
 
   deleteSession: (id: number): Promise<void> =>
     fetchJSON<void>(`/api/sessions/${id}`, { method: 'DELETE' }),
+
+  confirmSession: (
+    id: number,
+    req: SessionConfirmRequest,
+  ): Promise<ChargingSessionPayload> =>
+    fetchJSON<ChargingSessionPayload>(`/api/sessions/${id}/confirm`, {
+      method: 'POST',
+      body: req,
+    }),
+
+  /** Count sessions with source='unconfirmed'. Uses the list endpoint with no
+   *  date bounds so all-time unconfirmed rows are counted. */
+  countUnconfirmedSessions: async (): Promise<number> => {
+    const rows = await fetchJSON<ChargingSessionPayload[]>(
+      '/api/sessions?source=unconfirmed',
+    )
+    return rows.length
+  },
 
   // ----- Locations -----
 

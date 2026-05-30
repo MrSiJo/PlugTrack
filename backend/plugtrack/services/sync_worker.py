@@ -317,8 +317,27 @@ class ProductionPollWorker:
             except Exception:  # noqa: BLE001 — never let quota accounting kill a sync
                 logger.warning("quota: failed to record %d getter calls", getter_calls)
 
-        # ---- Run the state machine ----
-        transitions = self._state_machine.step(state, telemetry)
+        # ---- Fetch detection thresholds from Settings, then run the state machine ----
+        # Thresholds are user-tunable; fetch them fresh on every poll so a
+        # settings change takes effect immediately without restarting the worker.
+        _detection_settings = await self._settings_provider(car.user_id)
+
+        def _int_setting(key: str, default: int) -> int:
+            raw = _detection_settings.get(key)
+            try:
+                return int(raw) if raw is not None else default
+            except (ValueError, TypeError):
+                return default
+
+        transitions = self._state_machine.step(
+            state,
+            telemetry,
+            soc_delta_threshold=_int_setting("unconfirmed_soc_delta_threshold", 5),
+            regen_ceiling=_int_setting("unconfirmed_regen_ceiling", 15),
+            stationary_tolerance_km=_int_setting(
+                "unconfirmed_stationary_tolerance_km", 1
+            ),
+        )
 
         await self._publish(
             job, "sync.poll_completed",
@@ -395,12 +414,12 @@ class ProductionPollWorker:
             updated += updated_count
             emitted.append("close_plug_in")
 
-        if transitions.phantom_session is not None:
-            await self._handle_phantom_session(
-                job, car, transitions.phantom_session,
+        if transitions.unconfirmed_session is not None:
+            await self._handle_unconfirmed_session(
+                job, car, transitions.unconfirmed_session, telemetry,
             )
             opened += 1
-            emitted.append("phantom_session")
+            emitted.append("unconfirmed_session")
 
         # ---- Finalise the SyncRun ----
         final_status = "no_change" if transitions.no_change else "completed"
@@ -432,6 +451,10 @@ class ProductionPollWorker:
         state.last_battery_care = telemetry.battery_care
         state.last_max_charge_current = telemetry.max_charge_current
         state.last_charging_estimated_end_at = telemetry.charging_estimated_end_at
+        # Persist the latest odometer reading so the next poll's IDLE→IDLE
+        # unconfirmed detection can compare odometer values to distinguish
+        # a real charge from regenerative braking (which requires movement).
+        state.last_odometer_km = telemetry.distance_km
 
         # Persist the snapshot so a container restart doesn't reset the
         # dashboard to "no state" until the next sync. One row per car;
@@ -445,6 +468,7 @@ class ProductionPollWorker:
                     snap_session.add(existing)
                 existing.last_state = state.last_state
                 existing.last_soc = state.last_soc
+                existing.last_odometer_km = state.last_odometer_km
                 existing.last_target_soc = state.last_target_soc
                 existing.last_electric_range_km = state.last_electric_range_km
                 existing.last_charging_power_kw = state.last_charging_power_kw
@@ -912,56 +936,142 @@ class ProductionPollWorker:
 
         return updated
 
-    async def _handle_phantom_session(
+    async def _handle_unconfirmed_session(
         self,
         job: SyncJob,
         car: Car,
         payload: dict,
+        telemetry: VehicleState,
     ) -> None:
-        """Write a placeholder ChargingSession for an IDLE->IDLE SoC jump.
+        """Write a draft ChargingSession for an IDLE→IDLE SoC jump.
 
-        Confidence is low by construction: we never observed the cable,
-        the charger network, the actual start/end timestamps, or the
-        location. The row goes in as `source="phantom"`,
-        `interrupted=True`, `cost_basis="unknown"`, and `location_id=NULL`
-        so the user is prompted to complete it manually rather than the
-        cost-precedence rule silently attributing it to the home rate.
+        Confidence is low: we never observed the cable, the charger
+        network, the exact start/end timestamps, or the meter reading.
+        The row is written with source="unconfirmed", kwh_added=None
+        (never metered), kwh_calculated from the SoC delta, cost_pence=None,
+        and cost_basis="unknown" — cost-precedence is NOT run here; the user
+        confirms/corrects the row and the confirm endpoint runs cost logic.
+
+        Dedup: if an existing synced/manual session already covers the same
+        SoC range AND time window, creation is silently skipped.
+
+        Suggested location: if the current poll position is available, it is
+        clustered immediately and stored as location_id. Cost stays null —
+        precedence is deferred to confirm. The location_id is used to
+        pre-fill the confirm UI without running any hidden cost assignment.
+
+        Conflation note: when odometer_moved is True (the car drove between
+        the two IDLE polls), an extra note flags that this row may represent
+        multiple charges.
         """
         start_soc = int(payload["start_soc"])
         end_soc = int(payload["end_soc"])
-        kwh_added = max(0.0, (end_soc - start_soc) / 100.0 * float(car.battery_kwh))
+        # Energy basis: SoC-delta × battery capacity (estimate).
+        # kwh_added (metered) stays None — it was never measured.
+        kwh_calculated = max(
+            0.0, (end_soc - start_soc) / 100.0 * float(car.battery_kwh)
+        )
         charge_start_at = payload.get("charge_start_at")
         charge_end_at = payload.get("charge_end_at")
+        odometer_moved: bool = bool(payload.get("odometer_moved", False))
 
         session_date = (
             charge_end_at.date() if isinstance(charge_end_at, datetime) else date.today()
         )
 
+        # ---- Dedup: suppress if an existing session already covers this delta ----
+        # Query for observed (non-unconfirmed) sessions for this car whose SoC
+        # range AND time window overlap with the inferred bracket. If any exist,
+        # skip creation entirely — we don't want to create a duplicate unconfirmed
+        # row for a charge that the system already tracked.
+        # Sources that count as "already observed": synthesis, manual, cariad.
+        # We explicitly exclude "unconfirmed" so a prior unconfirmed draft for the
+        # same window does not prevent creating a new one after deletion.
+        async with self._db_sessionmaker() as dup_session:
+            dup_stmt = select(ChargingSession).where(
+                ChargingSession.car_id == car.id,
+                ChargingSession.user_id == car.user_id,
+                ChargingSession.source.in_(["synthesis", "manual", "cariad"]),
+                # SoC range overlap: existing.start_soc < end_soc AND existing.end_soc > start_soc
+                ChargingSession.start_soc < end_soc,
+                ChargingSession.end_soc > start_soc,
+            )
+            # Additionally filter by time overlap when timestamps are available.
+            if charge_start_at is not None and charge_end_at is not None:
+                dup_stmt = dup_stmt.where(
+                    # Existing charge_end_at > our start AND existing charge_start_at < our end
+                    ChargingSession.charge_end_at > charge_start_at,
+                    ChargingSession.charge_start_at < charge_end_at,
+                )
+            dup_result = (await dup_session.execute(dup_stmt)).scalars().first()
+
+        if dup_result is not None:
+            # An existing session already covers this SoC range + time window.
+            # Skip creation silently — no row, no event.
+            logger.debug(
+                "unconfirmed_session suppressed for car %s: "
+                "duplicate of existing session %s (SoC %s→%s)",
+                car.id, dup_result.id, start_soc, end_soc,
+            )
+            return
+
+        # ---- Resolve suggested location from current poll position ----
+        # Store location_id as a suggestion so the confirm UI can pre-fill it.
+        # Cost-precedence is NOT run here; cost stays null regardless of location.
+        suggested_location_id: Optional[int] = None
+        if telemetry.position is not None:
+            try:
+                async with self._db_sessionmaker() as loc_session:
+                    loc, _ = await find_or_create_location(
+                        loc_session,
+                        user_id=car.user_id,
+                        lat=telemetry.position.lat,
+                        lng=telemetry.position.lng,
+                    )
+                    await loc_session.commit()
+                    suggested_location_id = loc.id
+            except Exception:  # noqa: BLE001 — never let location work block the write
+                suggested_location_id = None
+
+        # ---- Build the provenance note ----
+        notes = (
+            "[auto-detected from SoC delta] "
+            "The cable-connected window was not observed. "
+            "Confirm location, charge network and cost, or delete if incorrect."
+        )
+        if odometer_moved:
+            notes += (
+                " Warning: the odometer changed between the two IDLE polls — "
+                "this row may combine multiple charges (charge → drive → charge). "
+                "Review carefully before confirming."
+            )
+
+        # ---- Write the unconfirmed session ----
         async with self._db_sessionmaker() as session:
             row = ChargingSession(
                 user_id=car.user_id,
                 car_id=car.id,
                 plug_in_record_id=None,
-                location_id=None,
+                location_id=suggested_location_id,
                 date=session_date,
                 charge_start_at=charge_start_at,
                 charge_end_at=charge_end_at,
                 start_soc=start_soc,
                 end_soc=end_soc,
-                kwh_added=kwh_added,
-                kwh_calculated=kwh_added,
+                # kwh_added is pre-populated from the SoC-delta estimate so the
+                # schema NOT NULL constraint is satisfied. The confirm endpoint
+                # can override this with the user's metered value. kwh_calculated
+                # records the estimate independently so the user can compare.
+                kwh_added=kwh_calculated,
+                kwh_calculated=kwh_calculated,
                 charging_type="unknown",
                 charging_mode="unknown",
                 interrupted=True,
-                cost_pence=None,
+                cost_pence=None,         # cost-precedence deferred to confirm
                 cost_basis="unknown",
                 tariff_p_per_kwh=None,
-                source="phantom",
-                notes=(
-                    "auto-detected from SoC delta during IDLE poll - "
-                    "the cable-connected window was not observed. "
-                    "Set location, charge_network and cost manually."
-                ),
+                source="unconfirmed",
+                notes=notes,
             )
             session.add(row)
             await session.commit()
@@ -969,16 +1079,18 @@ class ProductionPollWorker:
             row_id = row.id
 
         await self._publish(
-            job, "sync.phantom_session_created",
+            job, "sync.unconfirmed_session_created",
             {
                 "session": {
                     "id": row_id,
                     "car_id": car.id,
                     "start_soc": start_soc,
                     "end_soc": end_soc,
-                    "kwh_added": kwh_added,
+                    "kwh_calculated": kwh_calculated,
                     "charge_start_at": charge_start_at,
                     "charge_end_at": charge_end_at,
+                    "odometer_moved": odometer_moved,
+                    "location_id": suggested_location_id,
                 },
             },
         )
@@ -1155,6 +1267,10 @@ async def get_user_sync_settings(session: AsyncSession, user_id: int) -> dict:
         "cupra_username",
         "cupra_password",
         "cupra_spin",
+        # Unconfirmed SoC-delta detection thresholds (passed into StateMachine.step)
+        "unconfirmed_soc_delta_threshold",
+        "unconfirmed_regen_ceiling",
+        "unconfirmed_stationary_tolerance_km",
     )
     result = await session.execute(
         select(Setting).where(Setting.key.in_(keys))

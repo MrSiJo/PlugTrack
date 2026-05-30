@@ -309,3 +309,78 @@ describe('SessionDetail — petrol comparison basis', () => {
     expect(screen.queryByTestId('measured-distance-info')).not.toBeInTheDocument()
   })
 })
+
+describe('SessionDetail — unconfirmed session', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    useSettingsStore.setState({ settings: {}, loaded: true })
+  })
+
+  it('shows the UnconfirmedActionPanel when source is "unconfirmed"', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        source: 'unconfirmed',
+        kwh_calculated: 12.5,
+        kwh_added: 0,
+      }),
+    )
+
+    renderDetail()
+
+    const panel = await screen.findByTestId('unconfirmed-panel')
+    expect(panel).toBeInTheDocument()
+    expect(panel).toHaveTextContent('Unconfirmed charge')
+    expect(panel).toHaveTextContent('12.50 kWh')
+
+    // Confirm and Discard buttons present.
+    expect(screen.getByTestId('confirm-charge-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('discard-charge-btn')).toBeInTheDocument()
+  })
+
+  it('does not show the UnconfirmedActionPanel for a normal session', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({ source: 'manual' }),
+    )
+
+    renderDetail()
+
+    await screen.findByTestId('toggle-edit')
+    expect(screen.queryByTestId('unconfirmed-panel')).not.toBeInTheDocument()
+  })
+
+  it('calls confirmSession and refreshes the session after confirm', async () => {
+    const unconfirmedSession = makeSession({
+      source: 'unconfirmed',
+      kwh_calculated: 10.0,
+      kwh_added: 0,
+    })
+    const confirmedSession = makeSession({
+      source: 'manual',
+      kwh_added: 10.0,
+      notes: '[auto-detected from SoC delta]',
+    })
+
+    vi.spyOn(api, 'getSession').mockResolvedValue(unconfirmedSession)
+    const confirmSpy = vi
+      .spyOn(api, 'confirmSession')
+      .mockResolvedValue(confirmedSession)
+
+    const user = (await import('@testing-library/user-event')).default.setup()
+    renderDetail()
+
+    await screen.findByTestId('confirm-charge-btn')
+    await user.click(screen.getByTestId('confirm-charge-btn'))
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalledWith(
+        unconfirmedSession.id,
+        expect.objectContaining({ location_id: null }),
+      )
+    })
+
+    // After confirm the panel should disappear (session promoted to manual).
+    await waitFor(() => {
+      expect(screen.queryByTestId('unconfirmed-panel')).not.toBeInTheDocument()
+    })
+  })
+})

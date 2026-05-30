@@ -15,18 +15,6 @@ from ..plugins.pycupra.models import VehicleState
 from .sync_orchestrator import CarSyncState
 
 
-# Minimum SoC delta (percentage points) for the IDLE→IDLE phantom-charge
-# detector to fire. The Cupra Connect cloud sometimes never reflects
-# cable-connected during a public charge (DC rapids away from home, car
-# cell coverage gaps), or the whole plug-in cycle fits between two polls.
-# In those cases prev.last_state stays IDLE, new_state is also IDLE, and
-# only the SoC has moved. A jump >= this threshold synthesises a
-# placeholder "phantom" session the user can complete by hand. Below the
-# threshold we treat the delta as regen / measurement noise / cabin
-# preconditioning artefacts and stay silent.
-PHANTOM_SOC_DELTA_THRESHOLD: int = 5
-
-
 # Known charging_state_raw enum values per pycupra observations + docs.
 KNOWN_CHARGING_STATES: frozenset[str] = frozenset(
     {
@@ -56,10 +44,10 @@ class Transitions:
     open_session: Optional[dict[str, Any]] = None
     close_session: Optional[dict[str, Any]] = None
     error_session: Optional[dict[str, Any]] = None
-    # IDLE→IDLE with SoC jump above PHANTOM_SOC_DELTA_THRESHOLD.
+    # IDLE→IDLE with SoC jump above the detection threshold.
     # Worker handles this as a single insert: a placeholder session with
-    # source="phantom", interrupted=True, no plug-in linkage, no cost.
-    phantom_session: Optional[dict[str, Any]] = None
+    # source="unconfirmed", interrupted=True, no plug-in linkage, no cost.
+    unconfirmed_session: Optional[dict[str, Any]] = None
     no_change: bool = False
     unknown_state: Optional[str] = None
     state_observed: Optional[str] = None  # post-transition state for cadence
@@ -104,7 +92,15 @@ def derive_state(telemetry: VehicleState, prev_state: str) -> str:
 class StateMachine:
     """Stateless transition engine — call `step()` per poll."""
 
-    def step(self, prev: CarSyncState, telemetry: VehicleState) -> Transitions:
+    def step(
+        self,
+        prev: CarSyncState,
+        telemetry: VehicleState,
+        *,
+        soc_delta_threshold: int = 5,
+        regen_ceiling: int = 15,
+        stationary_tolerance_km: int = 1,
+    ) -> Transitions:
         # ---- Stale-telemetry short-circuit ----
         if (
             prev.last_car_captured_timestamp is not None
@@ -243,26 +239,61 @@ class StateMachine:
                 }
             return tr
 
-        # ---- IDLE → IDLE with SoC jump → phantom session ----
+        # ---- IDLE → IDLE with SoC jump → unconfirmed session ----
         # When the cloud never reflected cable-connected during a public
         # charge, or the whole cycle fits between two polls, prev and
         # new both stay IDLE while the battery has visibly filled. Emit
         # a placeholder session the user can complete; bracket it with
         # the two captured-at timestamps as a best-effort guess.
+        #
+        # Tiered rule (Δ = end_soc − start_soc):
+        #   Δ < soc_delta_threshold              → ignore (regen/noise)
+        #   soc_delta_threshold ≤ Δ < regen_ceiling → fire ONLY if stationary
+        #   Δ ≥ regen_ceiling                    → always fire
         if (
             prev_state == "IDLE"
             and new_state == "IDLE"
             and prev.last_soc is not None
             and telemetry.battery_level is not None
-            and telemetry.battery_level - prev.last_soc >= PHANTOM_SOC_DELTA_THRESHOLD
         ):
-            tr.phantom_session = {
-                "start_soc": prev.last_soc,
-                "end_soc": telemetry.battery_level,
-                "charge_start_at": prev.last_car_captured_timestamp,
-                "charge_end_at": telemetry.car_captured_timestamp,
-            }
-            return tr
+            soc_delta = telemetry.battery_level - prev.last_soc
+            if soc_delta >= soc_delta_threshold:
+                # Compute odometer delta — guard None values.
+                prev_odo = prev.last_odometer_km
+                curr_odo = telemetry.distance_km
+                if prev_odo is not None and curr_odo is not None:
+                    odo_delta = abs(curr_odo - prev_odo)
+                    odometer_known = True
+                else:
+                    odo_delta = None
+                    odometer_known = False
+
+                odometer_moved = (
+                    (odo_delta > stationary_tolerance_km) if odometer_known else False
+                )
+
+                should_fire: bool
+                if soc_delta >= regen_ceiling:
+                    # Large jump — cannot be regen; always fire regardless of
+                    # odometer. odometer_moved reflects actual movement if known.
+                    should_fire = True
+                else:
+                    # Mid-band: only fire if confirmed stationary.
+                    if not odometer_known:
+                        # Cannot confirm stationary — suppress.
+                        should_fire = False
+                    else:
+                        should_fire = odo_delta <= stationary_tolerance_km
+
+                if should_fire:
+                    tr.unconfirmed_session = {
+                        "start_soc": prev.last_soc,
+                        "end_soc": telemetry.battery_level,
+                        "charge_start_at": prev.last_car_captured_timestamp,
+                        "charge_end_at": telemetry.car_captured_timestamp,
+                        "odometer_moved": odometer_moved,
+                    }
+                    return tr
 
         # ---- No actual transition ----
         if new_state == prev_state:

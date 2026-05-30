@@ -98,6 +98,7 @@ async def _apply_additive_migrations(conn) -> None:
         ("car_state", "last_battery_care", "BOOLEAN"),
         ("car_state", "last_max_charge_current", "VARCHAR(16)"),
         ("car_state", "last_charging_estimated_end_at", "DATETIME"),
+        ("car_state", "last_odometer_km", "INTEGER"),
     )
     for table, column, ddl in additions:
         cols = (await conn.execute(_text(f"PRAGMA table_info({table})"))).all()
@@ -108,6 +109,28 @@ async def _apply_additive_migrations(conn) -> None:
             )
 
 
+async def _apply_value_migrations(conn) -> None:
+    """Idempotent value-level data migrations.
+
+    Unlike `_apply_additive_migrations` (which adds columns), this
+    function corrects stored values after renames. Each migration is
+    expressed as a conditional UPDATE so re-runs are cheap no-ops (the
+    WHERE clause finds nothing on subsequent runs).
+    """
+    from sqlalchemy import text as _text
+
+    # Rename: source='phantom' -> source='unconfirmed'.
+    # The 'phantom' name was used during initial development; the stored
+    # value was renamed to 'unconfirmed' in the first public release.
+    # Safe to re-run: rows already updated have source='unconfirmed' so
+    # the WHERE clause matches nothing on subsequent startups.
+    await conn.execute(
+        _text(
+            "UPDATE charging_session SET source='unconfirmed' WHERE source='phantom'"
+        )
+    )
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     _assert_single_worker()
@@ -116,6 +139,7 @@ async def _lifespan(app: FastAPI):
     async with db_module.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _apply_additive_migrations(conn)
+        await _apply_value_migrations(conn)
     async with db_module.SessionLocal() as session:
         await seed_defaults(session)
         await session.commit()
@@ -167,6 +191,7 @@ async def _lifespan(app: FastAPI):
             st = app.state.sync_orchestrator.ensure_state(snap.car_id)
             st.last_state = snap.last_state or "IDLE"
             st.last_soc = snap.last_soc
+            st.last_odometer_km = snap.last_odometer_km
             st.last_target_soc = snap.last_target_soc
             st.last_electric_range_km = snap.last_electric_range_km
             st.last_charging_power_kw = snap.last_charging_power_kw
