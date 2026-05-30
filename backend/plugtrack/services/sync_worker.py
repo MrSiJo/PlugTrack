@@ -366,6 +366,11 @@ class ProductionPollWorker:
                 existing.last_target_soc = state.last_target_soc
                 existing.last_electric_range_km = state.last_electric_range_km
                 existing.last_charging_power_kw = state.last_charging_power_kw
+                existing.last_battery_care = telemetry.battery_care
+                existing.last_max_charge_current = telemetry.max_charge_current
+                existing.last_charging_estimated_end_at = (
+                    telemetry.charging_estimated_end_at
+                )
                 existing.last_position_lat = state.last_position_lat
                 existing.last_position_lng = state.last_position_lng
                 existing.last_location_id = state.last_location_id
@@ -524,6 +529,8 @@ class ProductionPollWorker:
                 odometer_at_session_km=payload.get("odometer_at_session_km"),
                 charging_type=payload.get("charging_type", "unknown"),
                 charging_mode=payload.get("charging_mode", "unknown"),
+                battery_care=payload.get("battery_care"),
+                max_charge_current=payload.get("max_charge_current"),
                 interrupted=False,
                 source="synthesis",
                 raw_payload={
