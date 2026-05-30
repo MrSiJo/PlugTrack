@@ -100,6 +100,8 @@ class SessionPayload(BaseModel):
     odometer_at_session_km: Optional[float]
     charging_type: str
     charging_mode: str
+    battery_care: Optional[bool] = None
+    max_charge_current: Optional[str] = None
     interrupted: bool
     cost_pence: Optional[int]
     cost_basis: str
@@ -154,6 +156,8 @@ class SessionUpdateRequest(BaseModel):
     location_id: Optional[int] = None
     charging_type: Optional[str] = Field(default=None, max_length=16)
     charging_mode: Optional[str] = Field(default=None, max_length=16)
+    battery_care: Optional[bool] = None
+    max_charge_current: Optional[str] = Field(default=None, max_length=16)
     cost_per_kwh_override_p: Optional[float] = Field(default=None, ge=0)
     total_cost_pence_override: Optional[int] = Field(default=None, ge=0)
     charge_network: Optional[str] = Field(default=None, max_length=64)
@@ -191,6 +195,8 @@ def _to_payload(
         odometer_at_session_km=cs.odometer_at_session_km,
         charging_type=cs.charging_type,
         charging_mode=cs.charging_mode,
+        battery_care=cs.battery_care,
+        max_charge_current=cs.max_charge_current,
         interrupted=cs.interrupted,
         cost_pence=cs.cost_pence,
         cost_basis=cs.cost_basis,

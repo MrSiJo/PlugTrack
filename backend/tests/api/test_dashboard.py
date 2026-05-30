@@ -66,7 +66,12 @@ async def test_dashboard_returns_summary_payload(authed_client, test_sessionmake
     assert "top_locations" in data
 
     assert len(data["cars"]) == 1
-    assert data["cars"][0]["make"] == "Cupra"
+    panel = data["cars"][0]
+    assert panel["make"] == "Cupra"
+    # New CarPanel charge-context fields serialise (null without live state).
+    assert "battery_care" in panel
+    assert "max_charge_current" in panel
+    assert "charging_estimated_end_at" in panel
     assert data["lifetime_totals"]["sessions_count"] == 1
     assert data["lifetime_totals"]["kwh"] == pytest.approx(15.0)
     assert data["lifetime_totals"]["cost_pence"] == 120
