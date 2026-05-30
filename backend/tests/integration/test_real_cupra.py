@@ -85,7 +85,7 @@ async def test_real_cupra_authenticate_and_fetch_state(tmp_path):
     vehicle_id = getattr(first, "vin", None) or getattr(first, "unique_id", None)
     assert vehicle_id, "vehicle has no vin/unique_id"
 
-    state = await fetch_vehicle_state(connection, vehicle_id)
+    state, _getter_calls = await fetch_vehicle_state(connection, vehicle_id)
 
     # Basic sanity assertions. Cupra can sometimes return 0 SoC for very
     # stale telemetry; the test is written to catch outright wiring bugs
