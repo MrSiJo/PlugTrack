@@ -123,7 +123,7 @@ function LocationStatRow({ loc, currency }: LocationStatRowProps) {
       </Link>
       <div className="flex items-baseline gap-3 text-xs text-slate-500 dark:text-slate-400">
         <span className="tabular-nums">
-          {loc.visit_count} {loc.visit_count === 1 ? 'visit' : 'visits'}
+          {loc.charge_count} {loc.charge_count === 1 ? 'charge' : 'charges'}
         </span>
         <span className="tabular-nums">{loc.total_kwh.toFixed(1)} kWh</span>
         <GradientNumber size="sm">

@@ -96,7 +96,10 @@ class LifetimeTotals:
 class LocationStat:
     id: int
     name: Optional[str]
-    visit_count: int
+    # Number of charging sessions recorded at this location. NOT the
+    # Location.visit_count clustering counter — that is only bumped by live
+    # plug-in detection and stays 0 for manual / backfilled sessions.
+    charge_count: int
     total_kwh: float
     total_cost_pence: int
 
@@ -326,12 +329,16 @@ async def dashboard_summary(
         sessions_count=int(sessions_count or 0),
     )
 
-    # ---- Top 5 locations (by visit_count) ----
+    # ---- Top 5 locations (by number of charging sessions) ----
+    # Rank by how many charges happened at each location. Locations with zero
+    # charging sessions are excluded (HAVING), so a clustered-but-never-charged
+    # spot doesn't show up with a "0 charges / £0" row.
+    charge_count_col = func.count(ChargingSession.id)
     loc_stmt = (
         select(
             Location.id,
             Location.name,
-            Location.visit_count,
+            charge_count_col,
             func.coalesce(func.sum(ChargingSession.kwh_added), 0.0),
             func.coalesce(func.sum(ChargingSession.cost_pence), 0),
         )
@@ -341,18 +348,19 @@ async def dashboard_summary(
             isouter=True,
         )
         .where(Location.user_id == user_id)
-        .group_by(Location.id, Location.name, Location.visit_count)
-        .order_by(Location.visit_count.desc(), Location.id.asc())
+        .group_by(Location.id, Location.name)
+        .having(charge_count_col > 0)
+        .order_by(charge_count_col.desc(), Location.id.asc())
         .limit(5)
     )
-    for loc_id, name, visit_count, kwh, cost in (
+    for loc_id, name, n_charges, kwh, cost in (
         await session.execute(loc_stmt)
     ).all():
         summary.top_locations.append(
             LocationStat(
                 id=int(loc_id),
                 name=name,
-                visit_count=int(visit_count or 0),
+                charge_count=int(n_charges or 0),
                 total_kwh=float(kwh or 0.0),
                 total_cost_pence=int(cost or 0),
             )

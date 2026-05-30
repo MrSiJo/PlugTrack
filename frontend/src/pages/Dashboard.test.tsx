@@ -92,14 +92,14 @@ function fixtureSummary(): DashboardSummary {
       {
         id: 7,
         name: 'Home',
-        visit_count: 25,
+        charge_count: 25,
         total_kwh: 412.3,
         total_cost_pence: 30_900,
       },
       {
         id: 9,
         name: 'Gridserve',
-        visit_count: 4,
+        charge_count: 4,
         total_kwh: 168.0,
         total_cost_pence: 14_000,
       },

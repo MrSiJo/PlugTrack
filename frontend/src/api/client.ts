@@ -642,7 +642,7 @@ export interface DashboardLifetimeTotals {
 export interface DashboardLocationStat {
   id: number
   name: string | null
-  visit_count: number
+  charge_count: number
   total_kwh: number
   total_cost_pence: number
 }
