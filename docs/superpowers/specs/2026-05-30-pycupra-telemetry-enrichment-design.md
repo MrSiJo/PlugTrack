@@ -1,10 +1,50 @@
 # Design: Surface richer pycupra telemetry in PlugTrack
 
 - **Date:** 2026-05-30
-- **Status:** Approved design, pre-implementation
+- **Status:** REVISED post-probe — see §0
 - **Author:** Simon + Claude
 - **Related:** pycupra bumped to v0.2.32 (commits `d45b25d`, `29c4f45`); recent
   session work (`837e76f` kwh_calculated, `5f1fea7` per-session range/efficiency).
+
+## 0. REVISED SCOPE (post live probe, 2026-05-30)
+
+The §3 verify-first probe (against the real account, fresh capture confirmed
+twice) showed that several fields this design assumed are **unsupported on the
+vehicle** (`is_<field>_supported = false`, empty endpoint payloads). Final scope
+was cut accordingly. **§1–§12 below are the original full design and are kept for
+context; the authoritative buildable scope is this section.**
+
+**KEPT — confirmed live data, supported:**
+- `charging_mode` — property returns e.g. `"Timer"`; normalise `.lower()` →
+  `manual|timer|profile|unknown`. Fills the existing-but-hardcoded column.
+- `charging_battery_care` — `bool` (`batteryCareMode`).
+- `charge_max_ampere` — **enum STRING** (`"maximum"` / `"reduced"`), NOT amps.
+  Store as a **VARCHAR `max_charge_current`** column (the original §5.1 Float
+  `max_charge_current_a` is wrong and is dropped).
+- `charging_estimated_end_time` — `datetime`; live ETA on the dashboard.
+
+**CUT — no data on this account (would be dead UI):**
+- **All trip / driving-efficiency data** (`trip_last_*`, `trip_last_cycle_*` all
+  `null`/unsupported; `get_trip_statistic` returns empty). → drops the
+  `CarTripSnapshot` table, the `/driving` page, the dashboard efficiency tile,
+  and the trips endpoint. (Spec §4 trips, §5.3, §7 trips endpoint, §8 `/driving`,
+  §9 — all VOID.)
+- **`requests_remaining`** — `-1`, unsupported. → drops the display + the
+  `force_refresh` quota guard + the `force_refresh_min_remaining_requests`
+  setting. (§6 guard, §6.1 first key — VOID.)
+- `charge_rate` (unsupported; `charging_power` kW already covers it) and
+  `min_charge_level` (unsupported) — dropped. `driving_efficiency_window_days`
+  setting — VOID. No new settings keys are needed.
+
+**Net feature:** charge-context enrichment — fill `charging_mode`; add
+`battery_care` + `max_charge_current` (string) per session; surface `battery_care`
++ live `charging_estimated_end_time` on the dashboard; mode/type hint on the
+sessions list; a "Charge context" section on session detail. No new table, no new
+route, no new settings → `EXEMPT_PATHS` hash provably unchanged.
+
+The implementation plan
+(`docs/superpowers/plans/2026-05-30-pycupra-telemetry-enrichment.md`) was rewritten
+to this scope.
 
 ## 1. Motivation
 
