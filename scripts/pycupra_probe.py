@@ -695,7 +695,11 @@ def _capture_vehicle_properties(vehicle: Any) -> dict[str, Any]:
         except Exception:
             continue
         # Include @property attributes and basic data attributes; skip methods.
-        if callable(getattr(vehicle, name, None)) and not isinstance(attr, property):
+        # Decide from the class-level attribute — do NOT invoke the instance
+        # property getter here, since some (e.g. outside_temperature) raise
+        # TypeError when their backing data is absent, which getattr()'s
+        # default does not swallow.
+        if callable(attr) and not isinstance(attr, property):
             continue
         seen.add(name)
         name_order.append(name)
