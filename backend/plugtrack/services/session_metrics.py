@@ -139,8 +139,15 @@ async def _forward_zero_mile_chain(
     anchor: ChargingSession,
 ) -> list[ChargingSession]:
     """Walk *forward* in time from `anchor` collecting every subsequent
-    session for the same car whose odometer matches the anchor (or is
-    NULL). Stops at the first session where the odometer has advanced.
+    session for the same car whose odometer *equals* the anchor's — i.e.
+    genuine same-place top-ups before the car next moved. Stops at the
+    first session where the odometer has advanced.
+
+    Null-odometer sessions are NOT absorbed: since the energy-estimate
+    fallback landed, every manual charge lacks an odometer, so a null no
+    longer implies "didn't move since the anchor". Such sessions are
+    independent and get their own estimated comparison instead of being
+    folded (and double-counted) into this chain.
     """
     stmt = (
         select(ChargingSession)
@@ -162,7 +169,7 @@ async def _forward_zero_mile_chain(
     out: list[ChargingSession] = []
     for r in rows:
         if r.odometer_at_session_km is None:
-            out.append(r)
+            # Independent manual charge — excluded from the chain.
             continue
         # Stop at the first session that has actually moved past anchor.
         if (
@@ -260,7 +267,9 @@ def _forward_zero_mile_chain_in_memory(
 ) -> list[ChargingSession]:
     """In-memory equivalent of `_forward_zero_mile_chain`: walk forward in
     time from `anchor` collecting every subsequent session whose odometer
-    matches the anchor (or is NULL), stopping at the first that advanced.
+    *equals* the anchor's, stopping at the first that advanced. Null-
+    odometer sessions are excluded (independent manual charges), not
+    absorbed — matching the DB-backed version.
     """
     out: list[ChargingSession] = []
     for r in history:
@@ -269,7 +278,7 @@ def _forward_zero_mile_chain_in_memory(
         if not _is_before(anchor, r):
             continue
         if r.odometer_at_session_km is None:
-            out.append(r)
+            # Independent manual charge — excluded from the chain.
             continue
         if (
             anchor.odometer_at_session_km is not None
