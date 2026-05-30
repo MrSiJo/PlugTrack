@@ -310,6 +310,14 @@ async def test_open_session_persists_context(seeded, test_sessionmaker):
         assert row.max_charge_current == "maximum"
         assert row.charging_mode == "timer"
 
+    # And the in-memory CarSyncState — what the dashboard actually reads via
+    # orchestrator.get_state — carries the live context fields. (Regression:
+    # the worker previously wrote these only to the DB snapshot, so the
+    # dashboard surfaced None despite the column being set.)
+    assert state.last_battery_care is True
+    assert state.last_max_charge_current == "maximum"
+    assert state.last_charging_estimated_end_at == est_end
+
     # And the CarStateSnapshot persists the live context fields.
     from plugtrack.models import CarStateSnapshot
     async with test_sessionmaker() as session:

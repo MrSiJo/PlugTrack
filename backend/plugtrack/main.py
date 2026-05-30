@@ -160,6 +160,9 @@ async def _lifespan(app: FastAPI):
             st.last_target_soc = snap.last_target_soc
             st.last_electric_range_km = snap.last_electric_range_km
             st.last_charging_power_kw = snap.last_charging_power_kw
+            st.last_battery_care = snap.last_battery_care
+            st.last_max_charge_current = snap.last_max_charge_current
+            st.last_charging_estimated_end_at = snap.last_charging_estimated_end_at
             st.last_position_lat = snap.last_position_lat
             st.last_position_lng = snap.last_position_lng
             st.last_location_id = snap.last_location_id

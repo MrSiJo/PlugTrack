@@ -350,6 +350,9 @@ class ProductionPollWorker:
         state.last_electric_range_km = telemetry.electric_range_km
         state.last_charging_power_kw = telemetry.charging_power
         state.last_target_soc = telemetry.target_soc
+        state.last_battery_care = telemetry.battery_care
+        state.last_max_charge_current = telemetry.max_charge_current
+        state.last_charging_estimated_end_at = telemetry.charging_estimated_end_at
 
         # Persist the snapshot so a container restart doesn't reset the
         # dashboard to "no state" until the next sync. One row per car;
