@@ -24,6 +24,8 @@ function makeSession(
     odometer_at_session_km: 12345,
     charging_type: 'ac',
     charging_mode: 'manual',
+    battery_care: null,
+    max_charge_current: null,
     interrupted: false,
     cost_pence: 347,
     cost_basis: 'home_rate',

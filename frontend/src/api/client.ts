@@ -267,6 +267,8 @@ export interface ChargingSessionPayload {
   odometer_at_session_km: number | null
   charging_type: string
   charging_mode: string
+  battery_care: boolean | null
+  max_charge_current: string | null
   interrupted: boolean
   cost_pence: number | null
   cost_basis: CostBasis
@@ -318,6 +320,8 @@ export interface SessionCreateRequest {
   location_id?: number | null
   charging_type?: string
   charging_mode?: string
+  battery_care?: boolean | null
+  max_charge_current?: string | null
   cost_per_kwh_override_p?: number | null
   total_cost_pence_override?: number | null
   charge_network?: string | null
@@ -607,6 +611,9 @@ export interface DashboardCarPanel {
   electric_range_km: number | null
   charging_power_kw: number | null
   target_soc: number | null
+  battery_care: boolean | null
+  max_charge_current: string | null
+  charging_estimated_end_at: string | null
   nominal_efficiency_mi_per_kwh: number | null
   mileage_year: DashboardMileageYear | null
 }
