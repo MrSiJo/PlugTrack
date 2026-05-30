@@ -173,15 +173,26 @@ def _read_car_captured_timestamp(vehicle: Any) -> datetime:
     return _utcnow()
 
 
-async def fetch_vehicle_state(connection: Connection, vehicle_id: str) -> VehicleState:
+async def fetch_vehicle_state(
+    connection: Connection, vehicle_id: str
+) -> tuple["VehicleState", int]:
     """Pull a typed snapshot of the named vehicle's state.
 
-    Triggers `discover()` + the relevant `get_*` calls so the Vehicle's
-    `attrs` cache is populated, then reads via the property API and
-    coerces into our `VehicleState` dataclass.
+    Triggers ``discover()`` + the relevant ``get_*`` calls so the Vehicle's
+    ``attrs`` cache is populated, then reads via the property API and
+    coerces into our ``VehicleState`` dataclass.
+
+    Returns a ``(VehicleState, getter_calls)`` tuple where *getter_calls* is
+    the number of individual getter functions that succeeded.  The caller
+    (the sync worker) records this against the daily quota counter.
+
+    NOTE: All pycupra requests that count against the Cupra API quota MUST
+    flow through this function.  If additional pycupra calls are added
+    elsewhere in future (e.g. a history endpoint), they must also record
+    their count via the same quota mechanism.
     """
-    # `get_vehicles()` populates `connection._vehicles` and returns a bool.
-    # The actual Vehicle objects live on `_vehicles` (list in pycupra v0.2.x).
+    # ``get_vehicles()`` populates ``connection._vehicles`` and returns a bool.
+    # The actual Vehicle objects live on ``_vehicles`` (list in pycupra v0.2.x).
     #
     # A 403 on the garage endpoint (e.g. Cupra's 2026-05-20 API change vs
     # an outdated pycupra) surfaces here as PyCupraConfigException
@@ -220,7 +231,9 @@ async def fetch_vehicle_state(connection: Connection, vehicle_id: str) -> Vehicl
         )
 
     # Populate the underlying attrs cache. Each call is best-effort —
-    # cars may not support every endpoint.
+    # cars may not support every endpoint.  Count successful calls so the
+    # worker can record them against the daily quota budget.
+    getter_calls = 0
     for fn_name in ("discover", "get_charger", "get_statusreport", "get_position", "get_mileage"):
         fn = getattr(vehicle, fn_name, None)
         if fn is None:
@@ -229,6 +242,7 @@ async def fetch_vehicle_state(connection: Connection, vehicle_id: str) -> Vehicl
             result = fn()
             if hasattr(result, "__await__"):
                 await result
+            getter_calls += 1
         except Exception:
             # Adapter is permissive — let the orchestrator surface
             # missing data via downstream None values rather than
@@ -271,7 +285,7 @@ async def fetch_vehicle_state(connection: Connection, vehicle_id: str) -> Vehicl
         charging_estimated_end_at=_coerce_optional_datetime(
             _safe_attr(vehicle, "charging_estimated_end_time")
         ),
-    )
+    ), getter_calls
 
 
 async def force_refresh(connection: Connection, vehicle_id: str) -> bool:

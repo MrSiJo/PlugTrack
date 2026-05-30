@@ -91,6 +91,30 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         description="Turn the scheduled background sync on or off.",
         default_value="true",
     ),
+    CatalogueEntry(
+        key="sync_daily_request_budget",
+        value_type="int",
+        group_name="sync",
+        label="Daily API request budget",
+        description=(
+            "Maximum number of adapter getter calls PlugTrack may make per day. "
+            "Cupra's account-wide quota is ~1,500/day shared with the phone app; "
+            "the default 800 leaves ~700 headroom for the app."
+        ),
+        default_value="800",
+    ),
+    CatalogueEntry(
+        key="sync_quota_soft_fraction",
+        value_type="float",
+        group_name="sync",
+        label="Quota stretch threshold (fraction)",
+        description=(
+            "Fraction of the daily budget at which polling intervals start to "
+            "stretch. E.g. 0.75 means stretching begins when 75% of the budget "
+            "is used; at 100% polling pauses until the next day."
+        ),
+        default_value="0.75",
+    ),
     # Cost defaults
     CatalogueEntry(
         key="default_home_rate_p_per_kwh",

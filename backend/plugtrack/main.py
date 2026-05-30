@@ -129,7 +129,17 @@ async def _lifespan(app: FastAPI):
         make_pycupra_adapter_provider,
         make_settings_provider,
         make_worker,
+        _quota_cache,
     )
+
+    # Seed the in-memory quota cache from the DB so the scheduler knows
+    # the current day's count immediately after a restart (before the first
+    # poll). Without this, a restart resets the cache to 0 and the scheduler
+    # would ignore accumulated quota until the next poll fires.
+    from .models.sync_quota import read_today_count as _read_today_count
+    async with db_module.SessionLocal() as _quota_seed_session:
+        _today_count = await _read_today_count(_quota_seed_session)
+        _quota_cache.seed(_today_count)
 
     bus = get_event_bus()
     app.state.event_bus = bus
@@ -214,9 +224,12 @@ async def _lifespan(app: FastAPI):
             pass
         return _asyncio.run(_read())
 
+    from .services.sync_worker import get_today_request_count as _quota_provider
+
     app.state.sync_scheduler = SyncScheduler(
         sync_callback=_scheduled_sync,
         settings_provider=_settings_provider,
+        quota_provider=_quota_provider,
     )
     app.state.sync_scheduler.start()
 
