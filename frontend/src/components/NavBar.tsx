@@ -9,6 +9,7 @@ const links = [
   { to: '/cars', label: 'Cars' },
   { to: '/sessions', label: 'Sessions' },
   { to: '/locations', label: 'Locations' },
+  { to: '/planner', label: 'Planner' },
   { to: '/settings', label: 'Settings' },
 ]
 

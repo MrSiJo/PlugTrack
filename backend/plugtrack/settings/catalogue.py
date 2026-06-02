@@ -239,4 +239,42 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         ),
         default_value="1",
     ),
+    # Home charge planner
+    CatalogueEntry(
+        key="home_charge_window_start",
+        value_type="string",
+        group_name="charging",
+        label="Home charge window start (HH:MM)",
+        description=(
+            "Start time of the nightly home-charge window in 24-hour HH:MM "
+            "format. The window is assumed to cross midnight so the start time "
+            "is always later in the day than the end time (e.g. 23:45 → 07:15)."
+        ),
+        default_value="23:45",
+    ),
+    CatalogueEntry(
+        key="home_charge_window_end",
+        value_type="string",
+        group_name="charging",
+        label="Home charge window end (HH:MM)",
+        description=(
+            "End time of the nightly home-charge window in 24-hour HH:MM "
+            "format. Must be earlier in the day than window_start because the "
+            "window crosses midnight (e.g. 23:45 → 07:15 is 450 minutes)."
+        ),
+        default_value="07:15",
+    ),
+    CatalogueEntry(
+        key="home_charge_fallback_kw",
+        value_type="float",
+        group_name="charging",
+        label="Home charge fallback power (kW)",
+        description=(
+            "Assumed AC charging power (kW) used by the home charge planner "
+            "when fewer than 3 recent home AC sessions are available to "
+            "derive a reliable median. Typical 7.4 kW for a 32A Type-2 "
+            "wallbox."
+        ),
+        default_value="7.4",
+    ),
 )

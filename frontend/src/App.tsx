@@ -14,6 +14,7 @@ import Cars from '@/pages/Cars'
 import Dashboard from '@/pages/Dashboard'
 import Locations from '@/pages/Locations'
 import LoginPage from '@/pages/LoginPage'
+import Planner from '@/pages/Planner'
 import SessionDetail from '@/pages/SessionDetail'
 import Sessions from '@/pages/Sessions'
 import SettingsPage from '@/pages/SettingsPage'
@@ -161,6 +162,18 @@ function AppRoutes({ result }: { result: BootstrapResult }) {
             <Navigate to="/login" replace state={{ from: location }} />
           ) : (
             <Cars />
+          )
+        }
+      />
+      <Route
+        path="/planner"
+        element={
+          result.setupNeeded ? (
+            <Navigate to="/setup" replace />
+          ) : !authed ? (
+            <Navigate to="/login" replace state={{ from: location }} />
+          ) : (
+            <Planner />
           )
         }
       />
