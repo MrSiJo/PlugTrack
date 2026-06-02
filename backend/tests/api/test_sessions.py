@@ -504,6 +504,49 @@ async def test_update_session_accepts_charge_context(authed_client):
 
 
 @pytest.mark.asyncio
+async def test_update_session_accepts_timestamps_and_interrupted(authed_client):
+    """PUT can correct charge_start_at/charge_end_at and the interrupted flag.
+
+    This is the public-charging repair path: synthesis often captures only the
+    tail of a public DC charge (cloud reports `charging` late), so the user
+    needs to push the start time back and clear/keep the interrupted flag.
+    """
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": "2026-06-01",
+            "start_soc": 77,
+            "end_soc": 100,
+            "kwh_added": 15.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    sid = create.json()["id"]
+
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={
+            "charge_start_at": "2026-06-01T17:30:00",
+            "charge_end_at": "2026-06-01T18:01:01",
+            "interrupted": False,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200, upd.text
+    body = upd.json()
+    assert body["charge_start_at"].startswith("2026-06-01T17:30:00")
+    assert body["charge_end_at"].startswith("2026-06-01T18:01:01")
+    assert body["interrupted"] is False
+
+    # Survives a reload.
+    got = (await authed_client.get(f"/api/sessions/{sid}")).json()
+    assert got["charge_start_at"].startswith("2026-06-01T17:30:00")
+    assert got["interrupted"] is False
+
+
+@pytest.mark.asyncio
 async def test_create_update_default_savings_fields_to_none(authed_client):
     """`_to_payload` defaults saved_vs_petrol_p/comparison_basis to None, so
     create + update responses (which don't run the batch pass) carry None for

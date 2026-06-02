@@ -168,6 +168,9 @@ class SessionUpdateRequest(BaseModel):
     charging_mode: Optional[str] = Field(default=None, max_length=16)
     battery_care: Optional[bool] = None
     max_charge_current: Optional[str] = Field(default=None, max_length=16)
+    # Editable so a user can correct a synthesis row that the cloud closed as
+    # interrupted (e.g. a public DC charge whose start the cloud never saw).
+    interrupted: Optional[bool] = None
     cost_per_kwh_override_p: Optional[float] = Field(default=None, ge=0)
     total_cost_pence_override: Optional[int] = Field(default=None, ge=0)
     charge_network: Optional[str] = Field(default=None, max_length=64)
