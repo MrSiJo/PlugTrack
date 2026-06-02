@@ -144,6 +144,50 @@ describe('SessionDetail — charge context', () => {
     expect(body.battery_care).toBe(true)
     expect(body.max_charge_current).toBe('reduced')
   })
+
+  it('edits charge start/end time + interrupted and submits them with derived date', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        date: '2026-06-01',
+        charge_start_at: '2026-06-01T17:55:57',
+        charge_end_at: '2026-06-01T18:01:01',
+        interrupted: true,
+      }),
+    )
+    const updateSpy = vi
+      .spyOn(api, 'updateSession')
+      .mockResolvedValue(makeSession())
+
+    const user = (await import('@testing-library/user-event')).default.setup()
+    renderDetail()
+
+    await screen.findByTestId('toggle-edit')
+    await user.click(screen.getByTestId('toggle-edit'))
+
+    const startInput = screen.getByTestId('edit-charge-start') as HTMLInputElement
+    const interruptedInput = screen.getByTestId(
+      'edit-interrupted',
+    ) as HTMLInputElement
+    // Pre-filled (minute precision) from the stored offset-less timestamps.
+    expect(startInput.value).toBe('2026-06-01T17:55')
+    expect(interruptedInput.checked).toBe(true)
+
+    // Push the start time back to 17:30 and clear the interrupted flag.
+    await user.clear(startInput)
+    await user.type(startInput, '2026-06-01T17:30')
+    await user.click(interruptedInput)
+    await user.click(screen.getByTestId('edit-save'))
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalled()
+    })
+    const body = updateSpy.mock.calls[0]![1]
+    expect(body.charge_start_at).toBe('2026-06-01T17:30')
+    expect(body.charge_end_at).toBe('2026-06-01T18:01')
+    expect(body.interrupted).toBe(false)
+    // `date` follows the corrected start so the list stays sorted.
+    expect(body.date).toBe('2026-06-01')
+  })
 })
 
 function makeMetrics(

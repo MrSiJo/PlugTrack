@@ -335,7 +335,11 @@ export interface SessionCreateRequest {
   user_label?: string | null
 }
 
-export type SessionUpdateRequest = Partial<SessionCreateRequest>
+// `interrupted` is editable on update only (create always defaults it to
+// false server-side); everything else mirrors the create payload.
+export type SessionUpdateRequest = Partial<SessionCreateRequest> & {
+  interrupted?: boolean | null
+}
 
 export interface SessionConfirmRequest {
   location_id?: number | null

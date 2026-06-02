@@ -559,6 +559,18 @@ function PetrolComparison({ metrics, unit }: PetrolComparisonProps) {
   )
 }
 
+/**
+ * Convert a stored timestamp into a minute-precision `datetime-local` input
+ * value (`YYYY-MM-DDTHH:MM`). Stored timestamps are offset-less and the rest of
+ * the page treats them as local wall-clock (via `Date.parse`), so we slice the
+ * string rather than reparse — avoiding an accidental UTC shift. `null` → ''.
+ */
+function isoToLocalInput(iso: string | null): string {
+  if (!iso) return ''
+  const m = iso.replace(' ', 'T').match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)
+  return m ? m[0] : ''
+}
+
 interface EditFormProps {
   session: ChargingSessionPayload
   unit: 'mi' | 'km'
@@ -577,6 +589,13 @@ function SessionEditForm({ session, unit, onSaved }: EditFormProps) {
   const [odo, setOdo] = useState<string>(
     initialOdo !== null ? initialOdo.toFixed(0) : '',
   )
+  const [startAt, setStartAt] = useState<string>(
+    isoToLocalInput(session.charge_start_at),
+  )
+  const [endAt, setEndAt] = useState<string>(
+    isoToLocalInput(session.charge_end_at),
+  )
+  const [interrupted, setInterrupted] = useState<boolean>(session.interrupted)
   const [startSoc, setStartSoc] = useState<string>(String(session.start_soc))
   const [endSoc, setEndSoc] = useState<string>(String(session.end_soc))
   const [chargingType, setChargingType] = useState(session.charging_type)
@@ -614,9 +633,17 @@ function SessionEditForm({ session, unit, onSaved }: EditFormProps) {
           : unit === 'mi'
             ? miToKm(odoNum)
             : odoNum
+      const startTrim = startAt.trim()
+      const endTrim = endAt.trim()
       const body: SessionUpdateRequest = {
         kwh_added: Number(kwh),
         odometer_at_session_km: odoKm,
+        charge_start_at: startTrim === '' ? null : startTrim,
+        charge_end_at: endTrim === '' ? null : endTrim,
+        // Keep the denormalised `date` aligned with a corrected start time so
+        // the sessions list stays sorted/grouped correctly.
+        ...(startTrim === '' ? {} : { date: startTrim.slice(0, 10) }),
+        interrupted,
         start_soc: Number(startSoc),
         end_soc: Number(endSoc),
         charging_type: chargingType,
@@ -654,6 +681,26 @@ function SessionEditForm({ session, unit, onSaved }: EditFormProps) {
       data-testid="session-edit-form"
     >
       <div className="grid grid-cols-2 gap-3">
+        <label className="block">
+          <span className="text-xs uppercase text-slate-500">Charge start</span>
+          <input
+            className={inputCls}
+            type="datetime-local"
+            value={startAt}
+            onChange={(e) => setStartAt(e.target.value)}
+            data-testid="edit-charge-start"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase text-slate-500">Charge end</span>
+          <input
+            className={inputCls}
+            type="datetime-local"
+            value={endAt}
+            onChange={(e) => setEndAt(e.target.value)}
+            data-testid="edit-charge-end"
+          />
+        </label>
         <label className="block">
           <span className="text-xs uppercase text-slate-500">kWh added</span>
           <input
@@ -753,6 +800,15 @@ function SessionEditForm({ session, unit, onSaved }: EditFormProps) {
             data-testid="edit-battery-care"
           />
           <span className="text-xs uppercase text-slate-500">Battery care</span>
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={interrupted}
+            onChange={(e) => setInterrupted(e.target.checked)}
+            data-testid="edit-interrupted"
+          />
+          <span className="text-xs uppercase text-slate-500">Interrupted</span>
         </label>
         <label className="block">
           <span className="text-xs uppercase text-slate-500">Charge network</span>
