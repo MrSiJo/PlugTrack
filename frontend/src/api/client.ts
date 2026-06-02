@@ -401,6 +401,39 @@ export interface MergeLocationResponse {
   sessions_recomputed_count: number
 }
 
+// ---------------------------------------------------------------------------
+// Charge Planner
+// ---------------------------------------------------------------------------
+
+export interface ChargePlanNight {
+  index: number
+  minutes: number
+  end_soc: number
+  finish_at: string
+}
+
+export interface ChargePlan {
+  car_id: number
+  start_soc: number
+  target_soc: number
+  battery_kwh: number
+  kwh_needed: number
+  power_kw: number
+  power_basis: 'history' | 'fallback'
+  sample_size: number
+  total_minutes: number
+  window_start: string
+  window_end: string
+  window_minutes: number
+  fits_one_window: boolean
+  nights: ChargePlanNight[]
+  nights_needed: number
+  finish_at: string
+  cost_pence: number
+  home_rate_p_per_kwh: number
+  is_free: boolean
+}
+
 export const api = {
   health: (): Promise<HealthResponse> => fetchJSON<HealthResponse>('/api/health'),
 
@@ -577,6 +610,17 @@ export const api = {
 
   getSpendTrend: (days = 30): Promise<SpendTrendDay[]> =>
     fetchJSON<SpendTrendDay[]>(`/api/dashboard/spend-trend?days=${days}`),
+
+  // ----- Charge Planner -----
+
+  getChargePlan: (
+    carId: number,
+    startSoc: number,
+    targetSoc: number,
+  ): Promise<ChargePlan> =>
+    fetchJSON<ChargePlan>(
+      `/api/charge-plan?car_id=${carId}&start_soc=${startSoc}&target_soc=${targetSoc}`,
+    ),
 }
 
 export interface SpendTrendDay {
