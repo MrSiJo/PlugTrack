@@ -102,6 +102,25 @@ class LocationUpdateRequest(BaseModel):
     radius_m: Optional[int] = Field(default=None, ge=1, le=10_000)
 
 
+class LocationCreateRequest(BaseModel):
+    """Manual location creation — the user supplies the centroid directly
+    (map-click or typed lat/lng) instead of waiting for clustering.
+
+    Unlike clustering-created rows, `centroid_lat`/`centroid_lng` are
+    required here. Cost config is optional and applies forward-going only
+    (there is no history to recompute on a brand-new location).
+    """
+
+    name: Optional[str] = Field(default=None, max_length=128)
+    centroid_lat: float = Field(ge=-90, le=90)
+    centroid_lng: float = Field(ge=-180, le=180)
+    radius_m: int = Field(default=100, ge=1, le=10_000)
+    is_home: bool = False
+    is_free: bool = False
+    default_cost_per_kwh_p: Optional[float] = Field(default=None, ge=0)
+    default_charge_network: Optional[str] = Field(default=None, max_length=64)
+
+
 class LocationMergeRequest(BaseModel):
     target_id: int
 
@@ -306,6 +325,46 @@ async def list_locations(
         )
     )
     return out
+
+
+@router.post("", response_model=LocationPayload, status_code=201)
+async def create_location(
+    request: Request,
+    body: LocationCreateRequest,
+    session: AsyncSession = Depends(get_db),
+) -> LocationPayload:
+    """Create a location manually from a supplied centroid.
+
+    Forward-going only by definition — a new location has no past
+    sessions, so there is nothing to recompute. An empty/whitespace
+    `name` is normalised to NULL so the row still surfaces under the
+    "needs labelling" sort if the user skipped naming it.
+    """
+    user_id = _user_id(request)
+
+    name = body.name.strip() if body.name else None
+    network = (
+        body.default_charge_network.strip()
+        if body.default_charge_network and body.default_charge_network.strip()
+        else None
+    )
+
+    loc = Location(
+        user_id=user_id,
+        name=name or None,
+        centroid_lat=body.centroid_lat,
+        centroid_lng=body.centroid_lng,
+        radius_m=body.radius_m,
+        is_home=body.is_home,
+        is_free=body.is_free,
+        default_cost_per_kwh_p=body.default_cost_per_kwh_p,
+        default_charge_network=network,
+        visit_count=0,
+    )
+    session.add(loc)
+    await session.commit()
+    await session.refresh(loc)
+    return _to_payload(loc)
 
 
 @router.put("/{location_id}", response_model=LocationPayload)

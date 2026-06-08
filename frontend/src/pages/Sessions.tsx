@@ -14,7 +14,10 @@ import { ChevronDown, ChevronUp } from 'lucide-react'
 import {
   ApiError,
   api,
+  type CarPayload,
   type ChargingSessionPayload,
+  type LocationListPayload,
+  type SessionCreateRequest,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/Card'
@@ -309,6 +312,283 @@ function SessionRow({ session, highlighted, currency, breakeven }: SessionRowPro
   )
 }
 
+interface SessionCreateFormProps {
+  onCreated: () => void
+  onCancel: () => void
+}
+
+const INPUT_CLS =
+  'rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200'
+
+function SessionCreateForm({ onCreated, onCancel }: SessionCreateFormProps) {
+  const [cars, setCars] = useState<CarPayload[]>([])
+  const [locations, setLocations] = useState<LocationListPayload[]>([])
+  const [carId, setCarId] = useState<number | null>(null)
+  const [date, setDate] = useState(todayIso())
+  const [startSoc, setStartSoc] = useState('')
+  const [endSoc, setEndSoc] = useState('')
+  const [kwhAdded, setKwhAdded] = useState('')
+  const [chargingType, setChargingType] = useState('unknown')
+  const [locationId, setLocationId] = useState('')
+  const [rateOverride, setRateOverride] = useState('')
+  const [totalOverride, setTotalOverride] = useState('')
+  const [chargeNetwork, setChargeNetwork] = useState('')
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const [carList, locList] = await Promise.all([
+          api.getCars(),
+          api.getLocations(),
+        ])
+        if (cancelled) return
+        setCars(carList)
+        setLocations(locList)
+        // Default to the first active car (or simply the first).
+        const preferred = carList.find((c) => c.active) ?? carList[0]
+        if (preferred) setCarId(preferred.id)
+      } catch (err) {
+        if (!cancelled) {
+          setFormError(
+            err instanceof ApiError ? err.message : 'Failed to load cars',
+          )
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleCreate = async () => {
+    setFormError(null)
+    if (carId === null) {
+      setFormError('Pick a car.')
+      return
+    }
+    const kwh = Number(kwhAdded)
+    if (!Number.isFinite(kwh) || kwh <= 0) {
+      setFormError('Energy added (kWh) must be greater than 0.')
+      return
+    }
+    const start = Number(startSoc)
+    const end = Number(endSoc)
+    if (
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < 0 ||
+      start > 100 ||
+      end < 0 ||
+      end > 100
+    ) {
+      setFormError('Start and end SoC must be whole numbers between 0 and 100.')
+      return
+    }
+
+    setBusy(true)
+    try {
+      const payload: SessionCreateRequest = {
+        car_id: carId,
+        date,
+        start_soc: start,
+        end_soc: end,
+        kwh_added: kwh,
+        charging_type: chargingType,
+        location_id: locationId === '' ? null : Number(locationId),
+        cost_per_kwh_override_p: rateOverride === '' ? null : Number(rateOverride),
+        // The total field is entered in pounds for convenience; the API
+        // stores integer pence.
+        total_cost_pence_override:
+          totalOverride === '' ? null : Math.round(Number(totalOverride) * 100),
+        charge_network: chargeNetwork.trim() === '' ? null : chargeNetwork.trim(),
+        notes: notes.trim() === '' ? null : notes.trim(),
+      }
+      await api.createSession(payload)
+      onCreated()
+    } catch (err) {
+      setFormError(
+        err instanceof ApiError ? err.message : 'Failed to create session',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card className="mb-4 p-4" data-testid="session-create-form">
+      <h2 className="mb-3 text-sm font-semibold">New manual session</h2>
+      {cars.length === 0 && formError === null && (
+        <p className="text-sm text-slate-500">Loading…</p>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">Car</span>
+          <select
+            value={carId === null ? '' : String(carId)}
+            onChange={(e) => setCarId(e.target.value === '' ? null : Number(e.target.value))}
+            className={INPUT_CLS}
+            data-testid="create-car-select"
+          >
+            {cars.map((c) => (
+              <option key={c.id} value={String(c.id)}>
+                {c.make} {c.model}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">Date</span>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className={INPUT_CLS}
+            data-testid="create-date-input"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">Charging type</span>
+          <select
+            value={chargingType}
+            onChange={(e) => setChargingType(e.target.value)}
+            className={INPUT_CLS}
+          >
+            <option value="unknown">Unknown</option>
+            <option value="ac">AC</option>
+            <option value="dc">DC</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">Start SoC (%)</span>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            value={startSoc}
+            onChange={(e) => setStartSoc(e.target.value)}
+            className={INPUT_CLS}
+            data-testid="create-start-soc"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">End SoC (%)</span>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            value={endSoc}
+            onChange={(e) => setEndSoc(e.target.value)}
+            className={INPUT_CLS}
+            data-testid="create-end-soc"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">Energy added (kWh)</span>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={kwhAdded}
+            onChange={(e) => setKwhAdded(e.target.value)}
+            className={INPUT_CLS}
+            data-testid="create-kwh-input"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">Location</span>
+          <select
+            value={locationId}
+            onChange={(e) => setLocationId(e.target.value)}
+            className={INPUT_CLS}
+            data-testid="create-location-select"
+          >
+            <option value="">No location (home/global rate)</option>
+            {locations.map((l) => (
+              <option key={l.id} value={String(l.id)}>
+                {l.name ?? `Unlabelled #${l.id}`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">Override rate (p/kWh)</span>
+          <input
+            type="number"
+            min="0"
+            step="0.1"
+            value={rateOverride}
+            onChange={(e) => setRateOverride(e.target.value)}
+            placeholder="optional"
+            className={INPUT_CLS}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">Override total (£)</span>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={totalOverride}
+            onChange={(e) => setTotalOverride(e.target.value)}
+            placeholder="optional — wins over rate"
+            className={INPUT_CLS}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">Charge network</span>
+          <input
+            type="text"
+            value={chargeNetwork}
+            onChange={(e) => setChargeNetwork(e.target.value)}
+            placeholder="e.g. Tesla, MFG"
+            className={INPUT_CLS}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs sm:col-span-2">
+          <span className="font-medium">Notes</span>
+          <input
+            type="text"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className={INPUT_CLS}
+          />
+        </label>
+      </div>
+
+      <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+        Cost precedence: total override → rate override → location rate →
+        home rate. Leave both overrides blank to cost from the location/home
+        rate automatically.
+      </p>
+
+      {formError && (
+        <div role="alert" className="mt-3 text-sm text-red-600">
+          {formError}
+        </div>
+      )}
+
+      <div className="mt-4 flex items-center gap-2">
+        <Button
+          size="sm"
+          onClick={handleCreate}
+          disabled={busy || carId === null}
+          data-testid="create-session-submit"
+        >
+          {busy ? 'Creating…' : 'Create session'}
+        </Button>
+        <Button variant="outline" size="sm" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
 export default function Sessions() {
   const [sessions, setSessions] = useState<ChargingSessionPayload[]>([])
   const [loading, setLoading] = useState(true)
@@ -321,6 +601,9 @@ export default function Sessions() {
   const [dir, setDir] = useState<SortDir>('desc')
   /** All-time count of un-triaged unconfirmed rows (source='unconfirmed'). */
   const [unconfirmedCount, setUnconfirmedCount] = useState<number | null>(null)
+  const [creating, setCreating] = useState(false)
+  /** Bumped after a manual create to force the list effect to refetch. */
+  const [reloadToken, setReloadToken] = useState(0)
   const recentlyImported = useSyncStore((s) => s.recentlyImportedSessionIds)
   const currency = useSetting<string>('currency') ?? 'GBP'
 
@@ -397,6 +680,7 @@ export default function Sessions() {
     dir,
     isCustom,
     invalidCustom,
+    reloadToken,
   ])
 
   function handleSort(field: SortField) {
@@ -442,23 +726,42 @@ export default function Sessions() {
       <PageHeader
         title="Sessions"
         actions={
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5">
-                {triggerLabel}
-                <ChevronDown className="h-3.5 w-3.5" aria-hidden />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              {(Object.keys(DATE_LABEL) as DateRange[]).map((r) => (
-                <DropdownMenuItem key={r} onSelect={() => setDateRange(r)}>
-                  {DATE_LABEL[r]}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  {triggerLabel}
+                  <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                {(Object.keys(DATE_LABEL) as DateRange[]).map((r) => (
+                  <DropdownMenuItem key={r} onSelect={() => setDateRange(r)}>
+                    {DATE_LABEL[r]}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              size="sm"
+              onClick={() => setCreating((c) => !c)}
+              data-testid="new-session-button"
+            >
+              {creating ? 'Close' : 'New session'}
+            </Button>
+          </div>
         }
       />
+
+      {creating && (
+        <SessionCreateForm
+          onCreated={() => {
+            setCreating(false)
+            setReloadToken((t) => t + 1)
+          }}
+          onCancel={() => setCreating(false)}
+        />
+      )}
 
       <div className="mb-4 flex flex-wrap gap-2" data-testid="source-tabs">
         {(['all', 'manual', 'synthesis', 'cariad', 'unconfirmed'] as SourceFilter[]).map(

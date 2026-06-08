@@ -463,3 +463,74 @@ async def test_delete_location_preserves_sessions(
         assert cs.location_id is None  # Detached.
         # cost_pence retained — recompute is an explicit user action.
         assert cs.cost_pence == pre_cost
+
+
+# ---------------------------------------------------------------------------
+# POST /api/locations — manual create
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_location_requires_auth(seeded_client):
+    r = await seeded_client.post(
+        "/api/locations",
+        json={"centroid_lat": 50.85, "centroid_lng": -0.13},
+        headers=csrf_headers(seeded_client),
+    )
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_create_location_full(authed_client, test_sessionmaker):
+    r = await authed_client.post(
+        "/api/locations",
+        json={
+            "name": "Tesla Camborne",
+            "centroid_lat": 50.2276,
+            "centroid_lng": -5.2801,
+            "radius_m": 120,
+            "is_free": False,
+            "default_cost_per_kwh_p": 45.0,
+            "default_charge_network": "Tesla",
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["name"] == "Tesla Camborne"
+    assert body["centroid_lat"] == pytest.approx(50.2276)
+    assert body["centroid_lng"] == pytest.approx(-5.2801)
+    assert body["radius_m"] == 120
+    assert body["default_cost_per_kwh_p"] == 45.0
+    assert body["default_charge_network"] == "Tesla"
+
+    # Persisted and owned by the authenticated user, visit_count seeded 0.
+    async with test_sessionmaker() as s:
+        loc = await s.get(Location, body["id"])
+        assert loc is not None
+        assert loc.visit_count == 0
+        assert loc.is_home is False
+
+
+@pytest.mark.asyncio
+async def test_create_location_blank_name_becomes_null(authed_client):
+    r = await authed_client.post(
+        "/api/locations",
+        json={"name": "   ", "centroid_lat": 51.5, "centroid_lng": -0.1},
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["name"] is None
+    # Unlabelled rows default radius and surface in the list.
+    assert body["radius_m"] == 100
+
+
+@pytest.mark.asyncio
+async def test_create_location_rejects_out_of_range_coords(authed_client):
+    r = await authed_client.post(
+        "/api/locations",
+        json={"centroid_lat": 200.0, "centroid_lng": -0.1},
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 422
