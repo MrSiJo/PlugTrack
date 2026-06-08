@@ -185,4 +185,52 @@ describe('Locations page', () => {
     expect(deleteSpy).toHaveBeenCalledWith(1)
     vi.unstubAllGlobals()
   })
+
+  it('Add location reveals the form and Create posts typed coordinates', async () => {
+    vi.spyOn(api, 'getLocations').mockResolvedValue([])
+    const createSpy = vi.spyOn(api, 'createLocation').mockResolvedValue({
+      id: 99,
+      name: 'Tesla Camborne',
+      centroid_lat: 50.2276,
+      centroid_lng: -5.2801,
+      radius_m: 100,
+      is_home: false,
+      is_free: false,
+      default_cost_per_kwh_p: 45,
+      default_charge_network: 'Tesla',
+      address: null,
+    })
+
+    render(
+      <MemoryRouter>
+        <Locations />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('add-location-button')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('add-location-button'))
+
+    expect(screen.getByTestId('location-create-form')).toBeInTheDocument()
+    fireEvent.change(screen.getByTestId('create-name-input'), {
+      target: { value: 'Tesla Camborne' },
+    })
+    fireEvent.change(screen.getByTestId('create-lat-input'), {
+      target: { value: '50.2276' },
+    })
+    fireEvent.change(screen.getByTestId('create-lng-input'), {
+      target: { value: '-5.2801' },
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('create-location-submit'))
+    })
+
+    expect(createSpy).toHaveBeenCalledTimes(1)
+    const payload = createSpy.mock.calls[0]![0]
+    expect(payload.name).toBe('Tesla Camborne')
+    expect(payload.centroid_lat).toBeCloseTo(50.2276)
+    expect(payload.centroid_lng).toBeCloseTo(-5.2801)
+  })
 })

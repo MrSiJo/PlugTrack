@@ -391,6 +391,17 @@ export interface LocationUpdateRequest {
   radius_m?: number
 }
 
+export interface LocationCreateRequest {
+  name?: string | null
+  centroid_lat: number
+  centroid_lng: number
+  radius_m?: number
+  is_home?: boolean
+  is_free?: boolean
+  default_cost_per_kwh_p?: number | null
+  default_charge_network?: string | null
+}
+
 export interface RecalculateLocationResponse {
   sessions_recomputed_count: number
 }
@@ -565,6 +576,9 @@ export const api = {
 
   getLocations: (): Promise<LocationListPayload[]> =>
     fetchJSON<LocationListPayload[]>('/api/locations'),
+
+  createLocation: (req: LocationCreateRequest): Promise<LocationPayload> =>
+    fetchJSON<LocationPayload>('/api/locations', { method: 'POST', body: req }),
 
   updateLocation: (
     id: number,

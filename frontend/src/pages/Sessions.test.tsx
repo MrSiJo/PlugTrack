@@ -746,4 +746,106 @@ describe('Sessions page', () => {
       })
     })
   })
+
+  it('New session button opens the form and Create calls createSession', async () => {
+    vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession({ id: 1 })])
+    vi.spyOn(api, 'countUnconfirmedSessions').mockResolvedValue(0)
+    vi.spyOn(api, 'getCars').mockResolvedValue([
+      {
+        id: 7,
+        make: 'Cupra',
+        model: 'Born',
+        vin: null,
+        battery_kwh: 59,
+        nominal_efficiency_mi_per_kwh: 3.5,
+        provider: 'cupra',
+        provider_vehicle_id: null,
+        active: true,
+      },
+    ])
+    vi.spyOn(api, 'getLocations').mockResolvedValue([])
+    const createSpy = vi
+      .spyOn(api, 'createSession')
+      .mockResolvedValue(makeSession({ id: 2 }))
+
+    render(
+      <MemoryRouter>
+        <Sessions />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('new-session-button')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('new-session-button'))
+
+    // Form appears and the car select is populated from getCars.
+    await waitFor(() => {
+      expect(screen.getByTestId('session-create-form')).toBeInTheDocument()
+      expect(screen.getByTestId('create-car-select')).toHaveValue('7')
+    })
+
+    fireEvent.change(screen.getByTestId('create-start-soc'), {
+      target: { value: '50' },
+    })
+    fireEvent.change(screen.getByTestId('create-end-soc'), {
+      target: { value: '80' },
+    })
+    fireEvent.change(screen.getByTestId('create-kwh-input'), {
+      target: { value: '18.66' },
+    })
+
+    fireEvent.click(screen.getByTestId('create-session-submit'))
+
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledTimes(1)
+    })
+    const payload = createSpy.mock.calls[0]![0]
+    expect(payload.car_id).toBe(7)
+    expect(payload.start_soc).toBe(50)
+    expect(payload.end_soc).toBe(80)
+    expect(payload.kwh_added).toBeCloseTo(18.66)
+  })
+
+  it('rejects a zero-kWh manual session before calling the API', async () => {
+    vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession({ id: 1 })])
+    vi.spyOn(api, 'countUnconfirmedSessions').mockResolvedValue(0)
+    vi.spyOn(api, 'getCars').mockResolvedValue([
+      {
+        id: 7,
+        make: 'Cupra',
+        model: 'Born',
+        vin: null,
+        battery_kwh: 59,
+        nominal_efficiency_mi_per_kwh: 3.5,
+        provider: 'cupra',
+        provider_vehicle_id: null,
+        active: true,
+      },
+    ])
+    vi.spyOn(api, 'getLocations').mockResolvedValue([])
+    const createSpy = vi.spyOn(api, 'createSession')
+
+    render(
+      <MemoryRouter>
+        <Sessions />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('new-session-button')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('new-session-button'))
+    await waitFor(() => {
+      expect(screen.getByTestId('create-car-select')).toHaveValue('7')
+    })
+
+    // kWh left at 0 / blank → client-side guard fires, no API call.
+    fireEvent.click(screen.getByTestId('create-session-submit'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/greater than 0/i)
+    })
+    expect(createSpy).not.toHaveBeenCalled()
+  })
 })
