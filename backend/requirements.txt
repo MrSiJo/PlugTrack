@@ -13,8 +13,11 @@ sse-starlette==2.1.3
 apscheduler==3.10.4
 httpx==0.27.2
 python-multipart==0.0.10
-# pycupra: bumped to v0.2.32 (2026-05-29). v0.2.30 fixed the 403 on the garage
-# endpoint after Cupra's 2026-05-20 server change (HA-pycupra #89/#90/#91) that
-# broke get_vehicles ("No vehicles were found for given account!") on v0.2.26.
-# Bump tag + retest adapter on upgrade.
-pycupra @ git+https://github.com/WulfgarW/pycupra.git@v0.2.32
+# pycupra: bumped to v0.2.33 (2026-06-07) — resets loginInProgress when
+# authorize() raises, so failed logins can be retried instead of wedging.
+# KNOWN OUTAGE: since 2026-06-08 ~12:00 CEST VW/CARIAD block third-party API
+# access server-side (Akamai 403 on /garage/vehicles even with valid tokens,
+# likely app attestation). NO pycupra version fixes this — official app working
+# no longer implies a pin bump will help. Track HA-pycupra #99; read-only
+# fallback is the EU Data Act portal (WulfgarW/ha_get_euda_data, 15-min lag).
+pycupra @ git+https://github.com/WulfgarW/pycupra.git@v0.2.33
