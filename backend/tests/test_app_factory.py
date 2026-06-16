@@ -105,6 +105,18 @@ async def test_startup_closes_orphaned_plug_in_when_state_idle(
         await s.commit()
         car_id = car.id
 
+    # This test exercises the orchestrator rehydration / orphan-plug-in
+    # watchdog, which is only wired when the pycupra sync stack is enabled.
+    from plugtrack.settings.seeds import seed_defaults
+
+    async with test_sessionmaker() as s:
+        await seed_defaults(s)
+        row = (
+            await s.execute(select(Setting).where(Setting.key == "pycupra_enabled"))
+        ).scalar_one()
+        row.value = "true"
+        await s.commit()
+
     async with app.router.lifespan_context(app):
         pass
 
