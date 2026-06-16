@@ -1,0 +1,4 @@
+{"source":"osprey","has_cost":true,"energy_kwh":9.78,"cost_total_pence":851,
+ "cost_per_kwh_pence":87.0,"start_at":"2026-06-12T14:26:00","end_at":"2026-06-12T14:40:00",
+ "soc_start":null,"soc_end":null,"location_name":"Land's End Car Park, Penzance",
+ "location_address":"TR19 7AA","network":"Osprey","peak_kw":40.0,"confidence":0.95}

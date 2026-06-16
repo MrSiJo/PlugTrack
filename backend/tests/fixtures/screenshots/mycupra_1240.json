@@ -1,0 +1,4 @@
+{"source":"mycupra","has_cost":false,"energy_kwh":null,"cost_total_pence":null,
+ "cost_per_kwh_pence":null,"start_at":"2026-06-12T14:25:00","end_at":"2026-06-12T14:40:00",
+ "soc_start":56,"soc_end":70,"location_name":null,"location_address":null,
+ "network":null,"peak_kw":40.0,"confidence":0.93}
