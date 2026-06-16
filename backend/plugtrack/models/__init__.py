@@ -5,6 +5,7 @@ from .car_state import CarStateSnapshot
 from .charging_session import ChargingSession
 from .location import Location
 from .plug_in_record import PlugInRecord
+from .screenshot_import import ScreenshotImport
 from .setting import Setting
 from .sync_quota import SyncQuotaDay
 from .sync_run import SyncRun
@@ -18,6 +19,7 @@ __all__ = [
     "ChargingSession",
     "Location",
     "PlugInRecord",
+    "ScreenshotImport",
     "Setting",
     "SyncQuotaDay",
     "SyncRun",
