@@ -59,7 +59,15 @@ export default function SettingsPage() {
     return out
   }, [settings])
 
-  const groupOrder = ['cupra_connect', 'sync', 'cost', 'display', 'locations']
+  const groupOrder = [
+    'cupra_connect',
+    'sync',
+    'telegram',
+    'openai',
+    'cost',
+    'display',
+    'locations',
+  ]
   const orderedGroups = groupOrder.filter((g) => grouped[g])
   for (const g of Object.keys(grouped)) {
     if (!groupOrder.includes(g)) orderedGroups.push(g)
@@ -68,10 +76,19 @@ export default function SettingsPage() {
   const TAB_LABEL: Record<string, string> = {
     cupra_connect: 'Cupra Connect',
     sync: 'Sync',
+    telegram: 'Telegram',
+    openai: 'OpenAI',
     cost: 'Cost',
     display: 'Display',
     locations: 'Locations',
   }
+
+  // The pycupra sync stack is gated off by default in standalone mode; the
+  // manual sync controls are only meaningful when it is enabled.
+  const pycupraEnabled = useMemo(() => {
+    const raw = settings['pycupra_enabled']?.value
+    return raw === 'true' || raw === '1'
+  }, [settings])
 
   const [activeTab, setActiveTab] = useState<string>(orderedGroups[0] ?? 'cupra_connect')
 
@@ -158,7 +175,7 @@ export default function SettingsPage() {
               <SettingRow key={entry.key} entry={entry} />
             ))}
             {activeTab === 'cupra_connect' && <ClearTokensButton />}
-            {activeTab === 'sync' && <SyncControlsPanel />}
+            {activeTab === 'sync' && pycupraEnabled && <SyncControlsPanel />}
           </div>
         </section>
       )}
