@@ -13,6 +13,7 @@ The lifespan handler:
 """
 from __future__ import annotations
 
+import asyncio as _asyncio
 import os
 import sys
 import tempfile
@@ -315,12 +316,32 @@ async def _lifespan(app: FastAPI):
                 except Exception:  # noqa: BLE001
                     pass
 
+    # Telegram screenshot-ingestion bot (independent of pycupra).
+    app.state._telegram_stop = None
+    app.state._telegram_task = None
+    from .services.telegram_ingest import build_context, run_bot
+    _tg_ctx = await build_context(db_module.SessionLocal)
+    if _tg_ctx is not None:
+        stop = _asyncio.Event()
+        app.state._telegram_stop = stop
+        app.state._telegram_task = _asyncio.create_task(run_bot(_tg_ctx, stop=stop))
+
     try:
         yield
     finally:
         scheduler = getattr(app.state, "sync_scheduler", None)
         if scheduler is not None:
             scheduler.stop()
+        stop = getattr(app.state, "_telegram_stop", None)
+        task = getattr(app.state, "_telegram_task", None)
+        if stop is not None:
+            stop.set()
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except (Exception, _asyncio.CancelledError):  # noqa: BLE001
+                pass
 
 
 def create_app() -> FastAPI:
