@@ -1,0 +1,4 @@
+{"source":"tesla","has_cost":true,"energy_kwh":37.9124,"cost_total_pence":1706,
+ "cost_per_kwh_pence":45.0,"start_at":"2026-06-13T08:43:00","end_at":null,
+ "soc_start":null,"soc_end":null,"location_name":"1 Fore Street, Lifton",
+ "location_address":"PL16 0AA","network":"Tesla Supercharger","peak_kw":null,"confidence":0.97}
