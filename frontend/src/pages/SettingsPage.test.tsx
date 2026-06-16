@@ -52,6 +52,17 @@ const sample: clientModule.SettingsMap = {
     description: null,
     is_secret: false,
   },
+  // The manual sync controls are gated behind pycupra_enabled; these tests
+  // exercise that panel, so the gate is on.
+  pycupra_enabled: {
+    key: 'pycupra_enabled',
+    value: 'true',
+    value_type: 'bool',
+    group_name: 'sync',
+    label: 'pycupra integration enabled',
+    description: null,
+    is_secret: false,
+  },
 }
 
 /** Minimal SyncStatusResponse factory */
