@@ -277,4 +277,69 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         ),
         default_value="7.4",
     ),
+    # Standalone mode — gate the (now-blocked) pycupra sync stack off.
+    CatalogueEntry(
+        key="pycupra_enabled",
+        value_type="bool",
+        group_name="sync",
+        label="pycupra integration enabled",
+        description=(
+            "Master switch for the Cupra Connect sync stack. Disabled by "
+            "default: VAG blocked the third-party API (App Check) on 2026-06-08. "
+            "Leave off; PlugTrack is fed by Telegram screenshot imports instead."
+        ),
+        default_value="false",
+    ),
+    # Telegram screenshot ingestion
+    CatalogueEntry(
+        key="telegram_bot_enabled",
+        value_type="bool",
+        group_name="telegram",
+        label="Telegram bot enabled",
+        description="Run the always-on Telegram bot that ingests charge screenshots.",
+        default_value="false",
+    ),
+    CatalogueEntry(
+        key="telegram_bot_token",
+        value_type="string",
+        group_name="telegram",
+        label="Telegram bot token",
+        description="BotFather HTTP API token. Stored encrypted.",
+        default_value=None,
+        is_secret=True,
+    ),
+    CatalogueEntry(
+        key="telegram_allowed_user_ids",
+        value_type="string",
+        group_name="telegram",
+        label="Allowed Telegram user IDs",
+        description="Comma-separated numeric Telegram user IDs permitted to feed the bot.",
+        default_value=None,
+    ),
+    CatalogueEntry(
+        key="telegram_default_car_id",
+        value_type="int",
+        group_name="telegram",
+        label="Default car for imports",
+        description="Car ID that imported charging sessions are attached to.",
+        default_value=None,
+    ),
+    # OpenAI vision extraction
+    CatalogueEntry(
+        key="openai_api_key",
+        value_type="string",
+        group_name="openai",
+        label="OpenAI API key",
+        description="Used for vision extraction of charge screenshots. Stored encrypted.",
+        default_value=None,
+        is_secret=True,
+    ),
+    CatalogueEntry(
+        key="openai_model",
+        value_type="string",
+        group_name="openai",
+        label="OpenAI vision model",
+        description="Vision-capable model for screenshot extraction.",
+        default_value="gpt-5.5",
+    ),
 )
