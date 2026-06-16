@@ -1,0 +1,80 @@
+# backend/plugtrack/services/screenshot_commit.py
+"""Persist a MergedSession as a ChargingSession.
+
+Public charges carry a real total -> total_cost_pence_override (cost_basis
+'override_total', sacred). Location captured as text (network/label/notes);
+location_id left null (cost comes from the override, not a location rate).
+Dedupe: skip if an existing session for the same car overlaps in time and
+matches energy within tolerance.
+"""
+from __future__ import annotations
+
+from datetime import timedelta
+from typing import Optional
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..models import ChargingSession
+from .screenshot_correlation import MergedSession
+
+DEDUPE_TIME_MIN = 30
+DEDUPE_KWH_TOL = 0.5
+
+
+async def _is_duplicate(session: AsyncSession, *, car_id: int, merged: MergedSession) -> bool:
+    lo = merged.start_at - timedelta(minutes=DEDUPE_TIME_MIN)
+    hi = merged.start_at + timedelta(minutes=DEDUPE_TIME_MIN)
+    rows = (
+        await session.execute(
+            select(ChargingSession).where(
+                ChargingSession.car_id == car_id,
+                ChargingSession.charge_start_at.is_not(None),
+                ChargingSession.charge_start_at >= lo,
+                ChargingSession.charge_start_at <= hi,
+            )
+        )
+    ).scalars().all()
+    target = merged.energy_kwh
+    for r in rows:
+        if target is None or abs((r.kwh_added or 0.0) - target) <= DEDUPE_KWH_TOL:
+            return True
+    return False
+
+
+async def commit_merged_session(
+    session: AsyncSession, *, user_id: int, car_id: int, merged: MergedSession
+) -> Optional[ChargingSession]:
+    if await _is_duplicate(session, car_id=car_id, merged=merged):
+        return None
+
+    from ..api.routes.sessions import _apply_cost, _derive_kwh_calculated  # reuse
+
+    label = merged.location_name
+    notes = merged.location_address
+    cs = ChargingSession(
+        user_id=user_id,
+        car_id=car_id,
+        date=merged.start_at.date(),
+        charge_start_at=merged.start_at,
+        charge_end_at=merged.end_at,
+        start_soc=merged.soc_start if merged.soc_start is not None else 0,
+        end_soc=merged.soc_end if merged.soc_end is not None else 0,
+        kwh_added=merged.energy_kwh if merged.energy_kwh is not None else 0.0,
+        charging_type="public_dc",
+        charging_mode="unknown",
+        total_cost_pence_override=merged.cost_total_pence,
+        cost_per_kwh_override_p=(
+            merged.cost_per_kwh_pence if merged.cost_total_pence is None else None
+        ),
+        charge_network=merged.network,
+        user_label=label[:128] if label else None,
+        notes=notes[:512] if notes else None,
+        power_curve=None,
+        source="import",
+    )
+    await _derive_kwh_calculated(session, cs)
+    await _apply_cost(session, cs, user_id)
+    session.add(cs)
+    await session.flush()
+    return cs
