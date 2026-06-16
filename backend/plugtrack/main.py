@@ -130,6 +130,13 @@ async def _apply_value_migrations(conn) -> None:
         )
     )
 
+    # Standalone pivot: VAG blocked the pycupra API (2026-06-08), so existing
+    # 'cupra_connect' cars become standalone 'manual' cars fed by screenshot
+    # imports. Idempotent: re-runs match nothing once flipped.
+    await conn.execute(
+        _text("UPDATE car SET provider='manual' WHERE provider='cupra_connect'")
+    )
+
 
 async def _read_bool_setting(session, key: str, default: bool) -> bool:
     """Read a bool setting value from the DB; fall back to `default`."""
