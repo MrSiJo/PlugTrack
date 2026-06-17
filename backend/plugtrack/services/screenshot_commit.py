@@ -59,12 +59,13 @@ async def match_location_by_name(
     return row
 
 
-async def commit_merged_session(
+async def _build_session(
     session: AsyncSession, *, user_id: int, car_id: int, merged: MergedSession
-) -> Optional[ChargingSession]:
-    if await _is_duplicate(session, car_id=car_id, merged=merged):
-        return None
-
+) -> ChargingSession:
+    """Build the ChargingSession a Save would create — classify type, match a
+    named location, resolve delivered-vs-banked kWh, and apply cost. Does NOT
+    add it to the session or flush. Shared by commit (persists) and preview
+    (renders the confirm card)."""
     from ..api.routes.sessions import _apply_cost, _derive_kwh_calculated  # reuse
 
     has_network = bool(merged.network) or merged.cost_total_pence is not None
@@ -110,6 +111,24 @@ async def commit_merged_session(
         cs.kwh_added = cs.kwh_calculated
 
     await _apply_cost(session, cs, user_id)
+    return cs
+
+
+async def preview_merged_session(
+    session: AsyncSession, *, user_id: int, car_id: int, merged: MergedSession
+) -> ChargingSession:
+    """The unsaved ChargingSession a Save would produce (kwh_added, cost_pence,
+    cost_basis, charging_type), for the confirm card. Ignores dedupe; persists
+    nothing."""
+    return await _build_session(session, user_id=user_id, car_id=car_id, merged=merged)
+
+
+async def commit_merged_session(
+    session: AsyncSession, *, user_id: int, car_id: int, merged: MergedSession
+) -> Optional[ChargingSession]:
+    if await _is_duplicate(session, car_id=car_id, merged=merged):
+        return None
+    cs = await _build_session(session, user_id=user_id, car_id=car_id, merged=merged)
     session.add(cs)
     await session.flush()
     return cs

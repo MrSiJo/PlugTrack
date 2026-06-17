@@ -77,6 +77,39 @@ async def test_save_merges_mycupra_and_untimed_granny(test_sessionmaker, seeded_
         assert all(r.status == "committed" for r in rows)
 
 
+def test_summarise_uses_projected_cost():
+    from plugtrack.services.screenshot_correlation import MergedSession
+    from plugtrack.services.telegram_ingest import _summarise
+    m = MergedSession(
+        start_at=dt.datetime(2026, 6, 15, 19, 27, tzinfo=dt.timezone.utc), end_at=None,
+        energy_kwh=10.74, cost_total_pence=None, cost_per_kwh_pence=None,
+        soc_start=67, soc_end=80, location_name="Home", location_address=None,
+        network=None, peak_kw=2.0, confidence=0.91, source_kinds=["mycupra", "granny"])
+    text = _summarise([m], projected=[
+        {"kwh_added": 10.74, "cost_pence": 207, "cost_basis": "home_rate"}])
+    assert "£2.07" in text and "home_rate" in text and "10.74" in text
+
+
+@pytest.mark.asyncio
+async def test_card_shows_projected_home_cost(test_sessionmaker, seeded_user_car):
+    from plugtrack.services.screenshot_extraction import Usage
+    from plugtrack.services.telegram_ingest import _stage_and_card
+    user_id, car_id = seeded_user_car
+    await _seed_home_rate(test_sessionmaker)
+    # granny (untimed) already staged; the MyCupra (timed) shot now arrives
+    await _stage_row(test_sessionmaker, user_id, "g", _ex(source="granny", energy_kwh=10.74))
+    tg = FakeTg()
+    ctx = _ctx(tg, test_sessionmaker, user_id, car_id)
+    mycupra = _ex(source="mycupra", soc_start=67, soc_end=80,
+                  start_at="2026-06-15T19:27:00", end_at="2026-06-16T06:59:00",
+                  location_name="Home")
+    await _stage_and_card(ctx, user_id=user_id, chat_id=9, extraction=mycupra,
+                          usage=Usage(1, 1, 0), telegram_file_id="m", message_id=1, sha="m")
+    card = tg.sent[-1]
+    assert "10.74 kWh" in card
+    assert "£2.07" in card and "home_rate" in card
+
+
 @pytest.mark.asyncio
 async def test_save_keeps_undated_granny_only_staged(test_sessionmaker, seeded_user_car):
     user_id, car_id = seeded_user_car
