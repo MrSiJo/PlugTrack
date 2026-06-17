@@ -80,9 +80,9 @@ def _merge(group: list[Extraction]) -> MergedSession:
     )
 
 
-def correlate(extractions: list[Extraction]) -> list[MergedSession]:
-    """Cluster by overlapping time window, then merge each cluster."""
-    remaining = list(extractions)
+def _cluster_timed(timed: list[Extraction]) -> list[list[Extraction]]:
+    """Cluster extractions that HAVE a parseable start_at by overlapping window."""
+    remaining = list(timed)
     groups: list[list[Extraction]] = []
     while remaining:
         seed = remaining.pop(0)
@@ -94,6 +94,38 @@ def correlate(extractions: list[Extraction]) -> list[MergedSession]:
             else:
                 i += 1
         groups.append(group)
-    merged = [_merge(g) for g in groups]
-    merged.sort(key=lambda m: m.start_at)
-    return merged
+    return groups
+
+
+def correlate_batch(
+    extractions: list[Extraction],
+) -> tuple[list[MergedSession], list[Extraction]]:
+    """Correlate a Save-batch (one charge per Save) into sessions.
+
+    Timed extractions (app screenshots) cluster by overlapping charge window.
+    Untimed readings (a granny/AC meter display has kWh + duration but no clock
+    time) can't be placed on the timeline on their own, so:
+      - exactly ONE timed charge in the batch -> attach all untimed to it
+        (the batch is one charge, so the target is unambiguous);
+      - otherwise (0 timed, or 2+ timed) -> the untimed are `unplaceable` and
+        returned to the caller to prompt the user for a date / app screenshot.
+
+    Returns (sessions, unplaceable_untimed_extractions).
+    """
+    timed = [e for e in extractions if _parse_dt(e.start_at) is not None]
+    untimed = [e for e in extractions if _parse_dt(e.start_at) is None]
+    groups = _cluster_timed(timed)
+    unplaceable: list[Extraction] = []
+    if untimed:
+        if len(groups) == 1:
+            groups[0].extend(untimed)
+        else:
+            unplaceable = list(untimed)
+    sessions = sorted((_merge(g) for g in groups), key=lambda m: m.start_at)
+    return sessions, unplaceable
+
+
+def correlate(extractions: list[Extraction]) -> list[MergedSession]:
+    """Back-compat: placeable sessions only (see `correlate_batch`)."""
+    sessions, _ = correlate_batch(extractions)
+    return sessions
