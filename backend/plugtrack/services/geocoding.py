@@ -63,6 +63,8 @@ class GeocodingProvider(Protocol):
         self, lat: float, lng: float
     ) -> Optional[GeocodeResult]: ...
 
+    async def forward(self, query: str) -> Optional[GeocodeResult]: ...
+
 
 class NoOpProvider:
     """Always returns None.
@@ -77,6 +79,9 @@ class NoOpProvider:
     async def reverse(
         self, lat: float, lng: float
     ) -> Optional[GeocodeResult]:  # noqa: ARG002
+        return None
+
+    async def forward(self, query: str) -> Optional[GeocodeResult]:  # noqa: ARG002
         return None
 
 
@@ -124,6 +129,7 @@ class NominatimProvider:
 
     name = "nominatim"
     BASE_URL = "https://nominatim.openstreetmap.org/reverse"
+    SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 
     def __init__(
         self,
@@ -177,6 +183,42 @@ class NominatimProvider:
         return GeocodeResult(
             address=str(address), provider=self.name, lat=lat, lng=lng
         )
+
+    async def forward(self, query: str) -> Optional[GeocodeResult]:
+        if not query or not query.strip():
+            return None
+        await self._rate_limiter.acquire()
+        params = {"format": "json", "q": query, "limit": "1"}
+        headers = {"User-Agent": _USER_AGENT}
+        try:
+            client = self._client or httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS)
+            owns_client = self._client is None
+            try:
+                response = await client.get(self.SEARCH_URL, params=params, headers=headers)
+            finally:
+                if owns_client:
+                    await client.aclose()
+        except Exception:
+            logger.exception("nominatim search failed")
+            return None
+        if response.status_code != 200:
+            logger.warning("nominatim search returned status %s for %r", response.status_code, query)
+            return None
+        try:
+            payload = response.json()
+        except Exception:
+            logger.exception("nominatim search returned non-JSON response")
+            return None
+        if not isinstance(payload, list) or not payload:
+            return None
+        top = payload[0]
+        try:
+            lat = float(top["lat"])
+            lng = float(top["lon"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        address = str(top.get("display_name") or query)
+        return GeocodeResult(address=address, provider=self.name, lat=lat, lng=lng)
 
 
 class MapboxProvider:
@@ -243,6 +285,35 @@ class MapboxProvider:
             address=str(address), provider=self.name, lat=lat, lng=lng
         )
 
+    async def forward(self, query: str) -> Optional[GeocodeResult]:
+        if not query or not query.strip():
+            return None
+        from urllib.parse import quote
+        url = f"{self.BASE_URL}/{quote(query)}.json"
+        params = {"access_token": self._api_key, "limit": "1"}
+        try:
+            client = self._client or httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS)
+            owns_client = self._client is None
+            try:
+                response = await client.get(url, params=params)
+            finally:
+                if owns_client:
+                    await client.aclose()
+        except Exception:
+            logger.exception("mapbox search failed")
+            return None
+        if response.status_code != 200:
+            return None
+        try:
+            feats = (response.json() or {}).get("features") or []
+        except Exception:
+            return None
+        if not feats:
+            return None
+        lng, lat = feats[0]["center"]
+        return GeocodeResult(address=str(feats[0].get("place_name") or query),
+                             provider=self.name, lat=float(lat), lng=float(lng))
+
 
 class OpenCageProvider:
     """OpenCage reverse-geocoder. Requires `geocoding_api_key`."""
@@ -306,6 +377,34 @@ class OpenCageProvider:
         return GeocodeResult(
             address=str(address), provider=self.name, lat=lat, lng=lng
         )
+
+    async def forward(self, query: str) -> Optional[GeocodeResult]:
+        if not query or not query.strip():
+            return None
+        url = "https://api.opencagedata.com/geocode/v1/json"
+        params = {"q": query, "key": self._api_key, "limit": "1"}
+        try:
+            client = self._client or httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS)
+            owns_client = self._client is None
+            try:
+                response = await client.get(url, params=params)
+            finally:
+                if owns_client:
+                    await client.aclose()
+        except Exception:
+            logger.exception("opencage search failed")
+            return None
+        if response.status_code != 200:
+            return None
+        try:
+            results = (response.json() or {}).get("results") or []
+        except Exception:
+            return None
+        if not results:
+            return None
+        geo = results[0]["geometry"]
+        return GeocodeResult(address=str(results[0].get("formatted") or query),
+                             provider=self.name, lat=float(geo["lat"]), lng=float(geo["lng"]))
 
 
 def _bool_setting(raw, *, default: bool) -> bool:
