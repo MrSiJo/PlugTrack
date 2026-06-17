@@ -42,6 +42,8 @@ class MergedSession:
     network: Optional[str]
     peak_kw: Optional[float]
     confidence: float
+    odometer: Optional[float] = None
+    odometer_unit: Optional[str] = None
     source_kinds: list[str] = field(default_factory=list)
 
 
@@ -63,6 +65,7 @@ def _merge(group: list[Extraction]) -> MergedSession:
     start_at = min(starts)
     end_at = max(ends) if ends else None
     pick = cost_src or group[0]
+    odo_src = next((e for e in group if e.odometer is not None), None)
     return MergedSession(
         start_at=start_at,
         end_at=end_at,
@@ -76,6 +79,8 @@ def _merge(group: list[Extraction]) -> MergedSession:
         network=pick.network or next((e.network for e in group if e.network), None),
         peak_kw=next((e.peak_kw for e in group if e.peak_kw is not None), None),
         confidence=min(e.confidence for e in group),
+        odometer=odo_src.odometer if odo_src else None,
+        odometer_unit=odo_src.odometer_unit if odo_src else None,
         source_kinds=sorted({e.source for e in group}),
     )
 
