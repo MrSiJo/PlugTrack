@@ -17,8 +17,10 @@ from typing import Any, Awaitable, Callable, Optional
 from sqlalchemy import select
 
 from ..models import ScreenshotImport
-from .screenshot_correlation import MergedSession, correlate_batch
+from .mileage_tracking import KM_PER_MILE, _max_odo_at_or_before
 from .screenshot_commit import commit_merged_session, preview_merged_session
+from .screenshot_commit import _distance_unit as _distance_unit_for
+from .screenshot_correlation import MergedSession, correlate_batch
 from .screenshot_extraction import Extraction, parse_extraction
 
 # Group recently-staged screenshots from the last STAGING_WINDOW_MIN minutes.
@@ -85,11 +87,14 @@ def _kb() -> dict[str, Any]:
     }
 
 
-def _summarise(merged: list[MergedSession], projected: Optional[list[dict]] = None) -> str:
+def _summarise(merged: list[MergedSession], projected: Optional[list[dict]] = None, *, unit: str = "mi") -> str:
     """Render the confirm card. When `projected` is supplied (per-session dicts
     with kwh_added/cost_pence/cost_basis from a commit preview), show the kWh and
     £ the Save will actually produce — including the home/location rate — instead
     of the raw extracted values (which carry no cost for home charges)."""
+    def _odo(km: float) -> str:
+        return f"{km / KM_PER_MILE:,.0f} mi" if unit == "mi" else f"{km:,.0f} km"
+
     lines = [f"Staged {len(merged)} session(s):"]
     for i, m in enumerate(merged):
         proj = projected[i] if (projected and i < len(projected)) else None
@@ -129,9 +134,20 @@ def _summarise(merged: list[MergedSession], projected: Optional[list[dict]] = No
         if m.confidence < 0.6:
             meta.append("⚠ low confidence")
 
+        odo_km = proj.get("odometer_km") if proj else None
+        odo_line = None
+        if odo_km is not None:
+            odo_line = f"🛞 {_odo(odo_km)}"
+            if proj.get("odometer_regressed"):
+                em = proj.get("existing_max_km")
+                if em is not None:
+                    odo_line += f"  ⚠ below last reading ({_odo(em)})"
+
         parts = [" · ".join(head)]
         if detail:
             parts.append("   " + " · ".join(detail))
+        if odo_line:
+            parts.append("   " + odo_line)
         parts.append("   " + " · ".join(meta))
         lines.append("\n".join(parts))
     return "\n".join(lines)
@@ -190,6 +206,7 @@ async def _stage_and_card(
       - none       -> insert a fresh staged row.
     """
     prefix = ""
+    unit = "mi"
     async with ctx.sessionmaker() as s:
         existing = (
             await s.execute(
@@ -233,18 +250,28 @@ async def _stage_and_card(
         # Preview what Save will produce (kWh + home/location-rate cost) so the
         # card shows real figures, not "£?". Best-effort — never block the card.
         _uid, car_id = ctx.resolve_target()
+        unit = await _distance_unit_for(s)
+        from datetime import date as _date
         projected: list[dict] = []
         for m in merged:
             try:
                 cs = await preview_merged_session(s, user_id=user_id, car_id=car_id, merged=m)
-                projected.append({
+                entry = {
                     "kwh_added": cs.kwh_added,
                     "cost_pence": cs.cost_pence,
                     "cost_basis": cs.cost_basis,
-                })
+                }
+                if cs.odometer_at_session_km is not None:
+                    existing_max = await _max_odo_at_or_before(
+                        s, user_id=user_id, car_id=car_id, on_or_before=_date.today())
+                    entry["odometer_km"] = cs.odometer_at_session_km
+                    if existing_max is not None and cs.odometer_at_session_km < existing_max:
+                        entry["odometer_regressed"] = True
+                        entry["existing_max_km"] = existing_max
+                projected.append(entry)
             except Exception:  # noqa: BLE001
                 projected.append({})
-    text = prefix + _summarise(merged, projected=projected)
+    text = prefix + _summarise(merged, projected=projected, unit=unit)
     if unplaceable:
         text += (
             f"\n⚠️ {len(unplaceable)} reading(s) have no date — send the app "
