@@ -18,7 +18,7 @@ from sqlalchemy import select
 
 from ..models import ScreenshotImport
 from .screenshot_correlation import MergedSession, correlate_batch
-from .screenshot_commit import commit_merged_session
+from .screenshot_commit import commit_merged_session, preview_merged_session
 from .screenshot_extraction import Extraction, parse_extraction
 
 # Group recently-staged screenshots from the last STAGING_WINDOW_MIN minutes.
@@ -81,28 +81,55 @@ def _kb() -> dict[str, Any]:
     }
 
 
-def _summarise(merged: list[MergedSession]) -> str:
+def _summarise(merged: list[MergedSession], projected: Optional[list[dict]] = None) -> str:
+    """Render the confirm card. When `projected` is supplied (per-session dicts
+    with kwh_added/cost_pence/cost_basis from a commit preview), show the kWh and
+    £ the Save will actually produce — including the home/location rate — instead
+    of the raw extracted values (which carry no cost for home charges)."""
     lines = [f"Staged {len(merged)} session(s):"]
-    for m in merged:
-        kwh = f"{m.energy_kwh:.2f} kWh" if m.energy_kwh else "? kWh"
-        cost = f"£{m.cost_total_pence/100:.2f}" if m.cost_total_pence else "£?"
-        ppk = f"{m.cost_per_kwh_pence:.0f}p/kWh" if m.cost_per_kwh_pence else "?p/kWh"
-        soc = f"{m.soc_start}→{m.soc_end}%" if m.soc_start is not None else "SoC ?"
-        # AC/home vs DC/network hint: a network/cost implies a public DC charge,
-        # an SoC delta with no network implies an AC/home charge.
+    for i, m in enumerate(merged):
+        proj = projected[i] if (projected and i < len(projected)) else None
+        kwh = (proj.get("kwh_added") if proj else None) or m.energy_kwh
+        cost_pence = (proj.get("cost_pence") if proj else None)
+        if cost_pence is None:
+            cost_pence = m.cost_total_pence
+        basis = proj.get("cost_basis") if proj else None
+
+        # Build each line from only the fields we actually have — omit unknowns
+        # rather than print "?" placeholders.
+        head = [f"⚡ {kwh:.2f} kWh"] if kwh else ["⚡ energy derived from SoC on save"]
+        if cost_pence is not None:
+            head.append(f"£{cost_pence / 100:.2f}" + (f" ({basis})" if basis else ""))
+            if kwh:
+                head.append(f"~{cost_pence / kwh:.0f}p/kWh")
+
+        detail: list[str] = []
+        if m.soc_start is not None and m.soc_end is not None:
+            detail.append(f"{m.soc_start}→{m.soc_end}%")
         is_dc = bool(m.network) or m.cost_total_pence is not None
-        kind = "DC" if is_dc else ("AC/home" if m.soc_start is not None else "?")
-        loc = m.location_name or ("home" if kind == "AC/home" else "?")
-        addr = f" ({m.location_address})" if m.location_address else ""
-        net = m.network or "?"
+        if is_dc:
+            detail.append("DC")
+        elif m.soc_start is not None:
+            detail.append("AC/home")
+        if m.network:
+            detail.append(m.network)
+        if m.location_name:
+            detail.append(m.location_name + (f" ({m.location_address})" if m.location_address else ""))
+        elif m.location_address:
+            detail.append(m.location_address)
+
         when = f"{m.start_at:%d %b %H:%M}"
-        end = f"–{m.end_at:%H:%M}" if m.end_at else ""
-        warn = " ⚠ low confidence" if m.confidence < 0.6 else ""
-        warn += " ⚠ SoC missing" if m.soc_start is None else ""
-        lines.append(
-            f"⚡ {kwh} · {cost} · {ppk}\n   {soc} · {kind} · {net} · {loc}{addr}\n"
-            f"   {when}{end} · conf {m.confidence:.2f}{warn}"
-        )
+        if m.end_at:
+            when += f"–{m.end_at:%H:%M}"
+        meta = [when, f"conf {m.confidence:.2f}"]
+        if m.confidence < 0.6:
+            meta.append("⚠ low confidence")
+
+        parts = [" · ".join(head)]
+        if detail:
+            parts.append("   " + " · ".join(detail))
+        parts.append("   " + " · ".join(meta))
+        lines.append("\n".join(parts))
     return "\n".join(lines)
 
 
@@ -181,8 +208,22 @@ async def _stage_and_card(
             await s.commit()
 
         staged = await _staged_rows(s, user_id)
-    merged, unplaceable = correlate_batch([parse_extraction(r.extracted) for r in staged])
-    text = prefix + _summarise(merged)
+        merged, unplaceable = correlate_batch([parse_extraction(r.extracted) for r in staged])
+        # Preview what Save will produce (kWh + home/location-rate cost) so the
+        # card shows real figures, not "£?". Best-effort — never block the card.
+        _uid, car_id = ctx.resolve_target()
+        projected: list[dict] = []
+        for m in merged:
+            try:
+                cs = await preview_merged_session(s, user_id=user_id, car_id=car_id, merged=m)
+                projected.append({
+                    "kwh_added": cs.kwh_added,
+                    "cost_pence": cs.cost_pence,
+                    "cost_basis": cs.cost_basis,
+                })
+            except Exception:  # noqa: BLE001
+                projected.append({})
+    text = prefix + _summarise(merged, projected=projected)
     if unplaceable:
         text += (
             f"\n⚠️ {len(unplaceable)} reading(s) have no date — send the app "
