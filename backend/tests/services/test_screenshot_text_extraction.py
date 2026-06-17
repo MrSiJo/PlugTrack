@@ -59,3 +59,19 @@ async def test_extract_from_text_non_charge_returns_zero_confidence():
         res = await extract_from_text("how much did I spend?", api_key="sk", model="gpt-5-mini", client=c)
     assert res.extraction.confidence == 0.0
     assert res.extraction.energy_kwh is None
+
+
+@pytest.mark.asyncio
+async def test_extract_from_text_parses_odometer():
+    content = (
+        '{"source":"text","has_cost":false,"energy_kwh":9.3,"cost_total_pence":null,'
+        '"cost_per_kwh_pence":null,"start_at":null,"end_at":null,"soc_start":null,'
+        '"soc_end":null,"location_name":"home","location_address":null,'
+        '"network":null,"peak_kw":null,"confidence":0.9,'
+        '"odometer":12345,"odometer_unit":"mi"}'
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(_resp(content))) as c:
+        res = await extract_from_text("home 12345mi 9.3kwh 8h31m", api_key="sk", model="gpt-5-mini", client=c)
+    assert res.extraction.odometer == 12345
+    assert res.extraction.odometer_unit == "mi"
+    assert res.extraction.energy_kwh == 9.3
