@@ -47,7 +47,7 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
             "source", "has_cost", "energy_kwh", "cost_total_pence",
             "cost_per_kwh_pence", "start_at", "end_at", "soc_start", "soc_end",
             "location_name", "location_address", "location_short_name", "network",
-            "odometer", "odometer_unit", "confidence",
+            "peak_kw", "odometer", "odometer_unit", "confidence",
         ],
     },
 }
