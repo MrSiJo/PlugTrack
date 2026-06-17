@@ -51,6 +51,11 @@ class TelegramClient:
         resp = await self._http.post(self._url("sendMessage"), json=body)
         resp.raise_for_status()
 
+    async def get_me(self) -> dict[str, Any]:
+        resp = await self._http.get(self._url("getMe"))
+        resp.raise_for_status()
+        return resp.json().get("result", {})
+
     async def answer_callback(self, callback_id: str, text: str = "") -> None:
         resp = await self._http.post(
             self._url("answerCallbackQuery"), json={"callback_query_id": callback_id, "text": text}
