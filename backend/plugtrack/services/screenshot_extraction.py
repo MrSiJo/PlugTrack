@@ -50,13 +50,28 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
 
 SYSTEM_PROMPT = (
     "You are extracting a single EV charging session from a screenshot of a "
-    "charging app (e.g. MyCupra, Osprey, Electroverse, Tesla). Read every visible "
+    "charging app (e.g. MyCupra, Osprey, Electroverse, Tesla) OR a portable "
+    "home charger / 'granny' charger / EVSE meter display. Read every visible "
     "field. MyCupra screenshots show state-of-charge %, a power curve, and start/end "
     "times but NO cost/energy. Network apps (Osprey/Tesla/Electroverse) show energy "
-    "in kWh, total cost, and location but NO state-of-charge. Set has_cost true only "
+    "in kWh, total cost, and location but NO state-of-charge. A granny/EVSE meter "
+    "display shows delivered energy in kWh and an elapsed/charging time, but NO "
+    "state-of-charge, cost, or location (set source='granny'). Set has_cost true only "
     "if a monetary total is visible. Convert all money to integer pence. Use ISO 8601 "
     "for times, inferring the date shown. Null any field not present. confidence is "
     "0..1 for your overall read."
+)
+
+TEXT_SYSTEM_PROMPT = (
+    "You are parsing a short free-text note about a single EV charging session "
+    "into the schema. The note may give delivered energy (e.g. '9.3kwh', '9.3 kWh'), "
+    "a duration (e.g. '8h31m', '8hrs 31mins', '8:31'), and/or a location word such "
+    "as 'home'. Put delivered energy in energy_kwh and any location word in "
+    "location_name. If a clock start time is given, use it for start_at (ISO 8601); a "
+    "bare duration with no clock time leaves start_at/end_at null. There is no SoC or "
+    "cost in such notes unless explicitly stated. Null anything absent. If the text is "
+    "NOT a charging note (e.g. a question or chit-chat), return confidence 0 with all "
+    "fields null. source='text'."
 )
 
 
@@ -184,6 +199,50 @@ async def call_openai(
             extraction=parse_extraction(json.loads(text)),
             usage=parse_usage(body),
         )
+    finally:
+        if owns:
+            await client.aclose()
+
+
+def build_text_request_payload(text: str, *, model: str) -> dict[str, Any]:
+    fmt = {
+        "type": "json_schema",
+        "name": EXTRACTION_SCHEMA["name"],
+        "strict": EXTRACTION_SCHEMA["strict"],
+        "schema": EXTRACTION_SCHEMA["schema"],
+    }
+    return {
+        "model": model,
+        "instructions": TEXT_SYSTEM_PROMPT,
+        "input": [{"role": "user", "content": [{"type": "input_text", "text": text}]}],
+        "reasoning": {"effort": "none"},
+        "text": {"format": fmt},
+        "max_output_tokens": 400,
+    }
+
+
+async def extract_from_text(
+    text: str, *, api_key: str, model: str,
+    client: Optional[httpx.AsyncClient] = None,
+) -> ExtractionResult:
+    payload = build_text_request_payload(text, model=model)
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    owns = client is None
+    client = client or httpx.AsyncClient(timeout=60)
+    try:
+        resp = await client.post(RESPONSES_URL, json=payload, headers=headers)
+        if resp.status_code == 400 and "effort" in resp.text.lower():
+            payload["reasoning"]["effort"] = "minimal"
+            resp = await client.post(RESPONSES_URL, json=payload, headers=headers)
+        resp.raise_for_status()
+        body = resp.json()
+        if body.get("status") == "incomplete":
+            reason = (body.get("incomplete_details") or {}).get("reason", "unknown")
+            raise RuntimeError(f"OpenAI response incomplete: {reason}")
+        out = extract_output_text(body)
+        if not out:
+            raise RuntimeError("OpenAI response had no output text")
+        return ExtractionResult(extraction=parse_extraction(json.loads(out)), usage=parse_usage(body))
     finally:
         if owns:
             await client.aclose()
