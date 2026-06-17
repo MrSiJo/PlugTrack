@@ -66,6 +66,78 @@ async def _geocoding_settings(session: AsyncSession) -> dict:
     return {r.key: r.value for r in rows}
 
 
+async def clean_location_name(
+    network: Optional[str], label: Optional[str], address: Optional[str],
+    *, api_key: str, model: str, client=None,
+) -> Optional[str]:
+    """One-off LLM cleaner for backfill: returns a single '<Network> <Place>' line."""
+    import httpx
+    from .screenshot_extraction import RESPONSES_URL, extract_output_text
+    prompt = (
+        "Return ONLY a concise '<Network> <Place>' label for this EV charging location, "
+        "e.g. 'Tesla Lifton', 'Osprey Land's End', 'MFG Morrisons Yeovil'. Normalise the "
+        "network ('Supercharging' -> 'Tesla'); drop site noise ('Car Park', bay numbers, "
+        "', UK'). No quotes, no other text."
+    )
+    user = f"network={network!r} label={label!r} address={address!r}"
+    payload = {
+        "model": model, "instructions": prompt,
+        "input": [{"role": "user", "content": [{"type": "input_text", "text": user}]}],
+        "reasoning": {"effort": "none"}, "max_output_tokens": 40,
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    owns = client is None
+    client = client or httpx.AsyncClient(timeout=30)
+    try:
+        resp = await client.post(RESPONSES_URL, json=payload, headers=headers)
+        if resp.status_code == 400 and "effort" in resp.text.lower():
+            payload["reasoning"]["effort"] = "minimal"
+            resp = await client.post(RESPONSES_URL, json=payload, headers=headers)
+        resp.raise_for_status()
+        text = extract_output_text(resp.json()).strip().strip('"')
+        return text or None
+    except Exception:
+        logger.exception("clean_location_name failed")
+        return None
+    finally:
+        if owns:
+            await client.aclose()
+
+
+async def backfill_import_session_locations(
+    session: AsyncSession, *, user_id: int, provider: Optional[GeocodingProvider] = None,
+    name_cleaner=None,
+) -> int:
+    """Link/create Locations for source='import' sessions that have none. Idempotent."""
+    from ..models import ChargingSession
+    rows = (
+        await session.execute(
+            select(ChargingSession).where(
+                ChargingSession.user_id == user_id,
+                ChargingSession.source == "import",
+                ChargingSession.location_id.is_(None),
+            )
+        )
+    ).scalars().all()
+    linked = 0
+    for cs in rows:
+        if not (cs.user_label or cs.notes):
+            continue
+        name = None
+        if name_cleaner is not None:
+            name = await name_cleaner(cs.charge_network, cs.user_label, cs.notes)
+        if not name:
+            name = compose_location_name(cs.charge_network, cs.user_label)
+        loc_id = await resolve_ingested_location(
+            session, user_id=user_id, place_name=name, raw_label=cs.user_label,
+            address=cs.notes, network=cs.charge_network, provider=provider)
+        if loc_id is not None:
+            cs.location_id = loc_id
+            linked += 1
+    await session.flush()
+    return linked
+
+
 async def resolve_ingested_location(
     session: AsyncSession, *, user_id: int, place_name: Optional[str],
     raw_label: Optional[str], address: Optional[str], network: Optional[str],
