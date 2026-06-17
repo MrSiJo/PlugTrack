@@ -50,3 +50,16 @@ async def test_dispatch_routes_callback(monkeypatch):
     }
     await dispatch_update(ctx=None, update=update)
     assert calls and calls[0]["data"] == "save"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_routes_text(monkeypatch):
+    calls = []
+    async def fake_text(ctx, **kw):
+        calls.append(kw)
+    monkeypatch.setattr("plugtrack.services.telegram_ingest.handle_text", fake_text)
+    update = {"update_id": 7, "message": {"message_id": 3, "chat": {"id": 9},
+              "from": {"id": 111}, "text": "/test"}}
+    from plugtrack.services.telegram_ingest import dispatch_update
+    await dispatch_update(ctx=None, update=update)
+    assert calls and calls[0]["text"] == "/test"

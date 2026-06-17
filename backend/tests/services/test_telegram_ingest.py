@@ -1,12 +1,25 @@
 # backend/tests/services/test_telegram_ingest.py
+import datetime as dt
 import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
-from plugtrack.services.screenshot_extraction import parse_extraction
-from plugtrack.services.telegram_ingest import IngestContext, handle_photo, handle_callback
+from plugtrack.services.screenshot_extraction import (
+    Extraction,
+    ExtractionResult,
+    Usage,
+    parse_extraction,
+)
+from plugtrack.services.telegram_ingest import (
+    IngestContext,
+    MergedSession,
+    _summarise,
+    handle_callback,
+    handle_photo,
+    handle_text,
+)
 
 FX = Path(__file__).parent.parent / "fixtures" / "screenshots"
 
@@ -34,7 +47,10 @@ def _ctx(tg, test_sessionmaker, car_id, user_id):
     async def extractor(image_bytes: bytes):
         # Map fake file bytes -> the matching fixture by content tag.
         name = image_bytes.decode()
-        return parse_extraction(json.loads((FX / name).read_text()))
+        return ExtractionResult(
+            extraction=parse_extraction(json.loads((FX / name).read_text())),
+            usage=Usage(None, None, None),
+        )
 
     return IngestContext(
         telegram=tg,
@@ -79,3 +95,47 @@ async def test_disallowed_user_ignored(test_sessionmaker, seeded_user_car):
     ctx = _ctx(tg, test_sessionmaker, car_id, user_id)
     await handle_photo(ctx, from_id=999, chat_id=9, message_id=1, file_id="osprey.json")
     assert tg.sent == []  # silently ignored
+
+
+def _merged():
+    return MergedSession(
+        start_at=dt.datetime(2026, 6, 12, 14, 25, tzinfo=dt.timezone.utc),
+        end_at=dt.datetime(2026, 6, 12, 14, 40, tzinfo=dt.timezone.utc),
+        energy_kwh=9.78, cost_total_pence=851, cost_per_kwh_pence=87.0,
+        soc_start=56, soc_end=70, location_name="Land's End", location_address="TR19 7AA",
+        network="Osprey", peak_kw=40.0, confidence=0.95, source_kinds=["mycupra", "osprey"])
+
+
+def test_summarise_shows_all_fields():
+    text = _summarise([_merged()])
+    for token in ("9.78", "8.51", "56", "70", "Osprey", "Land's End", "TR19 7AA", "0.95"):
+        assert token in text
+
+
+class FakeTgText:
+    def __init__(self): self.sent = []
+    async def send_message(self, *, chat_id, text, reply_markup=None):
+        self.sent.append(text)
+
+
+@pytest.mark.asyncio
+async def test_handle_text_runs_health_for_command():
+    tg = FakeTgText()
+    called = {}
+    async def health(from_id):
+        called["id"] = from_id
+        from plugtrack.services.telegram_health import HealthReport, Check
+        return HealthReport(checks=[Check("Telegram", True, "ok")], all_ok=True, usage_this_month=None)
+    ctx = IngestContext(telegram=tg, sessionmaker=None, extractor=None,
+                        resolve_target=lambda: (1, 1), allowed_user_ids={111}, health_check=health)
+    await handle_text(ctx, from_id=111, chat_id=9, text="/test")
+    assert called["id"] == 111 and tg.sent and "Telegram" in tg.sent[-1]
+
+
+@pytest.mark.asyncio
+async def test_handle_text_disallowed_ignored():
+    tg = FakeTgText()
+    ctx = IngestContext(telegram=tg, sessionmaker=None, extractor=None,
+                        resolve_target=lambda: (1, 1), allowed_user_ids={111})
+    await handle_text(ctx, from_id=999, chat_id=9, text="/test")
+    assert tg.sent == []
