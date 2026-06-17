@@ -13,6 +13,7 @@ def _merged(**over):
         energy_kwh=None, cost_total_pence=None, cost_per_kwh_pence=None,
         soc_start=67, soc_end=80, location_name=None, location_address=None,
         network=None, peak_kw=2.0, confidence=0.95, source_kinds=["mycupra"],
+        location_short_name=None,
     )
     base.update(over)
     return MergedSession(**base)
@@ -147,6 +148,56 @@ async def test_commit_normalizes_unit_aliases(test_sessionmaker, seeded_user_car
                            energy_kwh=5.0, location_name="home", odometer=20000, odometer_unit="kilometres"))
         await s.commit(); await s.refresh(cs2)
     assert cs2.odometer_at_session_km == pytest.approx(20000.0)
+
+
+@pytest.mark.asyncio
+async def test_commit_creates_geocoded_location(test_sessionmaker, seeded_user_car, monkeypatch):
+    from sqlalchemy import func, select
+    from plugtrack.models import Location
+    from plugtrack.services.geocoding import GeocodeResult
+    import plugtrack.services.ingest_location as il
+
+    class FakeProvider:
+        async def forward(self, query):
+            return GeocodeResult(address="Lifton", provider="fake", lat=50.6437, lng=-4.2846)
+        async def reverse(self, lat, lng):
+            return None
+    monkeypatch.setattr(il, "get_provider", lambda settings: FakeProvider())
+
+    user_id, car_id = seeded_user_car
+    merged = _merged(
+        energy_kwh=37.9, cost_total_pence=1706, network="Tesla", soc_start=None, soc_end=None,
+        location_name="Lifton", location_address="1 Fore Street, Lifton, PL16 0AA",
+        location_short_name="Tesla Lifton", source_kinds=["tesla"])
+    async with test_sessionmaker() as s:
+        cs = await commit_merged_session(s, user_id=user_id, car_id=car_id, merged=merged)
+        await s.commit()
+        assert cs.location_id is not None
+        loc = await s.get(Location, cs.location_id)
+        assert loc.name == "Tesla Lifton"
+        assert (await s.execute(select(func.count(Location.id)))).scalar_one() == 1
+
+
+@pytest.mark.asyncio
+async def test_preview_does_not_geocode_or_create(test_sessionmaker, seeded_user_car, monkeypatch):
+    from sqlalchemy import func, select
+    from plugtrack.models import Location
+    import plugtrack.services.ingest_location as il
+    from plugtrack.services.screenshot_commit import preview_merged_session
+
+    def _boom(settings):
+        raise AssertionError("preview must not build a geocoder")
+    monkeypatch.setattr(il, "get_provider", _boom)
+
+    user_id, car_id = seeded_user_car
+    merged = _merged(
+        energy_kwh=37.9, cost_total_pence=1706, network="Tesla", soc_start=None, soc_end=None,
+        location_name="Lifton", location_address="1 Fore Street, Lifton",
+        location_short_name="Tesla Lifton", source_kinds=["tesla"])
+    async with test_sessionmaker() as s:
+        cs = await preview_merged_session(s, user_id=user_id, car_id=car_id, merged=merged)
+        assert cs.location_id is None
+        assert (await s.execute(select(func.count(Location.id)))).scalar_one() == 0
 
 
 @pytest.mark.asyncio
