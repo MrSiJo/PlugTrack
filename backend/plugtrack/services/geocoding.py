@@ -27,6 +27,7 @@ import logging
 import time
 from dataclasses import dataclass
 from typing import Optional, Protocol, runtime_checkable
+from urllib.parse import quote
 
 import httpx
 
@@ -288,7 +289,6 @@ class MapboxProvider:
     async def forward(self, query: str) -> Optional[GeocodeResult]:
         if not query or not query.strip():
             return None
-        from urllib.parse import quote
         url = f"{self.BASE_URL}/{quote(query)}.json"
         params = {"access_token": self._api_key, "limit": "1"}
         try:
@@ -381,13 +381,12 @@ class OpenCageProvider:
     async def forward(self, query: str) -> Optional[GeocodeResult]:
         if not query or not query.strip():
             return None
-        url = "https://api.opencagedata.com/geocode/v1/json"
         params = {"q": query, "key": self._api_key, "limit": "1"}
         try:
             client = self._client or httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS)
             owns_client = self._client is None
             try:
-                response = await client.get(url, params=params)
+                response = await client.get(self.BASE_URL, params=params)
             finally:
                 if owns_client:
                     await client.aclose()
@@ -402,9 +401,14 @@ class OpenCageProvider:
             return None
         if not results:
             return None
-        geo = results[0]["geometry"]
+        try:
+            geo = results[0]["geometry"]
+            lat = float(geo["lat"])
+            lng = float(geo["lng"])
+        except (KeyError, TypeError, ValueError):
+            return None
         return GeocodeResult(address=str(results[0].get("formatted") or query),
-                             provider=self.name, lat=float(geo["lat"]), lng=float(geo["lng"]))
+                             provider=self.name, lat=lat, lng=lng)
 
 
 def _bool_setting(raw, *, default: bool) -> bool:

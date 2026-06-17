@@ -13,13 +13,13 @@ import logging
 from datetime import timedelta
 from typing import Optional
 
-logger = logging.getLogger(__name__)
-
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import ChargingSession
 from .screenshot_correlation import MergedSession
+
+logger = logging.getLogger(__name__)
 
 DEDUPE_TIME_MIN = 30
 DEDUPE_KWH_TOL = 0.5
