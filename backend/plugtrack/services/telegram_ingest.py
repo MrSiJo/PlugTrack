@@ -39,6 +39,7 @@ class IngestContext:
     output_price_p: Optional[float] = None
     health_check: Optional[Callable[[int], Awaitable[Any]]] = None
     extractor_text: Optional[Callable[[str], Awaitable[Any]]] = None
+    usage_answerer: Optional[Callable[[str], Awaitable[Any]]] = None
     # chat_id -> message_id of the current batch's confirm card, so we EDIT it
     # in place as more screenshots merge in (instead of spamming new cards).
     # Scoped to the bot instance (reset on reconcile); cleared on Save/Discard.
@@ -393,6 +394,15 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
                                   usage=result.usage, telegram_file_id=None,
                                   message_id=None, sha=sha)
             return
+    if ctx.usage_answerer is not None and text and text.strip():
+        try:
+            answer, _usage = await ctx.usage_answerer(text)
+        except Exception:  # noqa: BLE001 — never crash the long-poll loop
+            await ctx.telegram.send_message(
+                chat_id=chat_id, text="Sorry — I couldn't answer that right now.")
+            return
+        await ctx.telegram.send_message(chat_id=chat_id, text=answer)
+        return
     await ctx.telegram.send_message(
         chat_id=chat_id, text="Send me a charge screenshot, or /test to check status.")
 
@@ -528,6 +538,17 @@ def build_ingest_context(config: BotConfig, *, sessionmaker, health_check=None) 
     async def extractor_text(text: str) -> ExtractionResult:
         return await extract_from_text(text, api_key=config.openai_key, model=config.model)
 
+    async def usage_answerer(question: str):
+        from datetime import date
+        from .usage_stats import build_usage_snapshot
+        from .usage_chat import answer_usage_question
+        async with sessionmaker() as s:
+            unit = await _distance_unit_for(s)
+            snap = await build_usage_snapshot(
+                s, user_id=config.user_id, today=date.today(), distance_unit=unit)
+        return await answer_usage_question(
+            question, snap.to_prompt_dict(), api_key=config.openai_key, model=config.model)
+
     return IngestContext(
         telegram=telegram,
         sessionmaker=sessionmaker,
@@ -539,4 +560,5 @@ def build_ingest_context(config: BotConfig, *, sessionmaker, health_check=None) 
         output_price_p=config.output_price_p,
         health_check=health_check,
         extractor_text=extractor_text,
+        usage_answerer=usage_answerer,
     )

@@ -204,6 +204,66 @@ async def test_handle_text_non_charge_falls_back_to_help(test_sessionmaker, seed
     assert "screenshot" in tg.sent[-1]["text"].lower()
 
 
+@pytest.mark.asyncio
+async def test_non_charge_text_routes_to_usage_answerer(monkeypatch):
+    import plugtrack.services.telegram_ingest as ti
+
+    sent = []
+
+    class FakeTg:
+        async def send_message(self, *, chat_id, text, reply_markup=None):
+            sent.append(text); return 1
+
+    async def fake_text_extractor(text):
+        # charge-parse proves NOT usable (a question, not a charge note)
+        from plugtrack.services.screenshot_extraction import Extraction, ExtractionResult, Usage
+        e = Extraction(source="text", has_cost=False, energy_kwh=None, cost_total_pence=None,
+                       cost_per_kwh_pence=None, start_at=None, end_at=None, soc_start=None,
+                       soc_end=None, location_name=None, location_address=None, network=None,
+                       peak_kw=None, confidence=0.0)
+        return ExtractionResult(extraction=e, usage=Usage(None, None, None))
+
+    async def fake_answerer(question):
+        return (f"answer to: {question}", object())
+
+    ctx = ti.IngestContext(
+        telegram=FakeTg(), sessionmaker=None, extractor=None,
+        resolve_target=lambda: (1, 1), allowed_user_ids={42},
+        extractor_text=fake_text_extractor, usage_answerer=fake_answerer,
+    )
+    await ti.handle_text(ctx, from_id=42, chat_id=99, text="how much did I spend this month?")
+    assert any("answer to: how much did I spend this month?" in s for s in sent)
+
+
+@pytest.mark.asyncio
+async def test_usage_answerer_error_is_graceful(monkeypatch):
+    import plugtrack.services.telegram_ingest as ti
+    sent = []
+
+    class FakeTg:
+        async def send_message(self, *, chat_id, text, reply_markup=None):
+            sent.append(text); return 1
+
+    async def fake_text_extractor(text):
+        from plugtrack.services.screenshot_extraction import Extraction, ExtractionResult, Usage
+        e = Extraction(source="text", has_cost=False, energy_kwh=None, cost_total_pence=None,
+                       cost_per_kwh_pence=None, start_at=None, end_at=None, soc_start=None,
+                       soc_end=None, location_name=None, location_address=None, network=None,
+                       peak_kw=None, confidence=0.0)
+        return ExtractionResult(extraction=e, usage=Usage(None, None, None))
+
+    async def boom(question):
+        raise RuntimeError("openai down")
+
+    ctx = ti.IngestContext(
+        telegram=FakeTg(), sessionmaker=None, extractor=None,
+        resolve_target=lambda: (1, 1), allowed_user_ids={42},
+        extractor_text=fake_text_extractor, usage_answerer=boom,
+    )
+    await ti.handle_text(ctx, from_id=42, chat_id=99, text="anything")
+    assert any("couldn't answer" in s.lower() for s in sent)
+
+
 def test_summarise_renders_odometer_and_warning():
     import datetime as dt
     from plugtrack.services.screenshot_correlation import MergedSession
