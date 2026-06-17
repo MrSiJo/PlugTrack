@@ -46,6 +46,18 @@ async def test_home_mycupra_only_derives_kwh_and_costs_home_rate(test_sessionmak
 
 
 @pytest.mark.asyncio
+async def test_commit_sets_actual_charge_seconds(test_sessionmaker, seeded_user_car):
+    user_id, car_id = seeded_user_car
+    await _set_home_rate(test_sessionmaker)
+    async with test_sessionmaker() as s:
+        cs = await commit_merged_session(
+            s, user_id=user_id, car_id=car_id,
+            merged=_merged(actual_charge_seconds=13783))
+        await s.commit(); await s.refresh(cs)
+    assert cs.actual_charge_seconds == 13783
+
+
+@pytest.mark.asyncio
 async def test_home_with_granny_uses_delivered_and_matches_location(test_sessionmaker, seeded_user_car):
     from plugtrack.models import Location
     user_id, car_id = seeded_user_car

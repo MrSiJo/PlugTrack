@@ -45,6 +45,7 @@ class MergedSession:
     odometer: Optional[float] = None
     odometer_unit: Optional[str] = None
     location_short_name: Optional[str] = None
+    actual_charge_seconds: Optional[int] = None
     source_kinds: list[str] = field(default_factory=list)
 
 
@@ -83,6 +84,7 @@ def _merge(group: list[Extraction]) -> MergedSession:
         odometer=odo_src.odometer if odo_src else None,
         odometer_unit=odo_src.odometer_unit if odo_src else None,
         location_short_name=pick.location_short_name or next((e.location_short_name for e in group if e.location_short_name), None),
+        actual_charge_seconds=next((e.actual_charge_seconds for e in group if e.actual_charge_seconds is not None), None),
         source_kinds=sorted({e.source for e in group}),
     )
 

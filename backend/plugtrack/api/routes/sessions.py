@@ -109,6 +109,7 @@ class SessionPayload(BaseModel):
     charging_mode: str
     battery_care: Optional[bool] = None
     max_charge_current: Optional[str] = None
+    actual_charge_seconds: Optional[int] = None
     interrupted: bool
     cost_pence: Optional[int]
     cost_basis: str
@@ -213,6 +214,7 @@ def _to_payload(
         charging_mode=cs.charging_mode,
         battery_care=cs.battery_care,
         max_charge_current=cs.max_charge_current,
+        actual_charge_seconds=cs.actual_charge_seconds,
         interrupted=cs.interrupted,
         cost_pence=cs.cost_pence,
         cost_basis=cs.cost_basis,

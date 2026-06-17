@@ -295,6 +295,7 @@ export interface ChargingSessionPayload {
   charging_mode: string
   battery_care: boolean | null
   max_charge_current: string | null
+  actual_charge_seconds: number | null
   interrupted: boolean
   cost_pence: number | null
   cost_basis: CostBasis

@@ -62,6 +62,20 @@ def test_merge_carries_odometer():
     assert sessions[0].odometer_unit == "mi"
 
 
+def test_merge_carries_actual_charge_seconds():
+    from plugtrack.services.screenshot_extraction import Extraction
+    from plugtrack.services.screenshot_correlation import correlate_batch
+    e = Extraction(
+        source="mycupra", has_cost=False, energy_kwh=None, cost_total_pence=None,
+        cost_per_kwh_pence=None, start_at="2026-06-15T19:27:00+00:00",
+        end_at="2026-06-16T06:59:00+00:00", soc_start=67, soc_end=80,
+        location_name=None, location_address=None, network=None, peak_kw=2.0,
+        confidence=0.9, actual_charge_seconds=13783,
+    )
+    sessions, _ = correlate_batch([e])
+    assert sessions[0].actual_charge_seconds == 13783
+
+
 def test_merge_carries_location_short_name():
     from plugtrack.services.screenshot_extraction import Extraction
     from plugtrack.services.screenshot_correlation import correlate_batch

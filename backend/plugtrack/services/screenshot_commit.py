@@ -110,6 +110,7 @@ async def _build_session(
         user_label=label[:128] if label else None,
         notes=notes[:512] if notes else None,
         power_curve=None,
+        actual_charge_seconds=merged.actual_charge_seconds,
         source="telegram",
     )
 

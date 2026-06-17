@@ -219,6 +219,7 @@ interface ChargeMechanicsProps {
   unit: 'mi' | 'km'
   kwhAdded: number
   kwhCalculated: number | null
+  actualChargeSeconds: number | null
 }
 
 function fmtDuration(minutes: number | null): string {
@@ -233,6 +234,16 @@ function fmtKw(v: number | null): string {
   return v === null ? '—' : `${v.toFixed(1)} kW`
 }
 
+/** Actual charging time (seconds) → "9h 09m" / "45m". `—` when unknown. */
+export function fmtChargeSeconds(seconds: number | null): string {
+  if (seconds === null) return '—'
+  const mins = Math.round(seconds / 60)
+  if (mins < 60) return `${mins}m`
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return `${h}h ${String(m).padStart(2, '0')}m`
+}
+
 function fmtRange(miles: number | null, unit: 'mi' | 'km'): string {
   if (miles === null) return '—'
   return unit === 'mi'
@@ -245,6 +256,7 @@ function ChargeMechanics({
   unit,
   kwhAdded,
   kwhCalculated,
+  actualChargeSeconds,
 }: ChargeMechanicsProps) {
   // Suppress the whole section if every field is None (e.g. a manual
   // session with only SoC + kWh + cost — nothing useful to display).
@@ -254,6 +266,7 @@ function ChargeMechanics({
     || metrics.average_power_kw !== null
     || metrics.peak_power_kw !== null
     || metrics.efficiency_percent !== null
+    || actualChargeSeconds !== null
   if (!hasAny) return null
 
   return (
@@ -306,6 +319,18 @@ function ChargeMechanics({
               {' '}(charger {kwhAdded.toFixed(1)} kWh → pack{' '}
               {kwhCalculated.toFixed(1)} kWh)
             </>
+          )}
+        </p>
+      )}
+      {actualChargeSeconds !== null && (
+        <p
+          className="mt-1 text-[11px] text-slate-500 dark:text-slate-400"
+          data-testid="metric-actual-charge"
+        >
+          Actual charging time:{' '}
+          <strong>{fmtChargeSeconds(actualChargeSeconds)}</strong>
+          {metrics.duration_minutes !== null && (
+            <> of {fmtDuration(metrics.duration_minutes)} plugged in</>
           )}
         </p>
       )}
@@ -1103,7 +1128,7 @@ export default function SessionDetail() {
       ? 'amber'
       : session.source === 'telegram'
         ? 'green'
-        : session.source === 'cariad'
+        : session.source === 'import'
           ? 'purple'
           : session.source === 'unconfirmed'
             ? 'slate'
@@ -1113,8 +1138,8 @@ export default function SessionDetail() {
       ? 'Manual'
       : session.source === 'telegram'
         ? 'Telegram'
-        : session.source === 'cariad'
-          ? 'Cariad'
+        : session.source === 'import'
+          ? 'Import'
           : session.source === 'unconfirmed'
             ? 'Unconfirmed'
             : 'Cupra'
@@ -1276,6 +1301,7 @@ export default function SessionDetail() {
           unit={unit}
           kwhAdded={session.kwh_added}
           kwhCalculated={session.kwh_calculated ?? null}
+          actualChargeSeconds={session.actual_charge_seconds ?? null}
         />
       )}
 
