@@ -74,3 +74,34 @@ async def test_resolve_geocode_none_returns_none(test_sessionmaker, seeded_user_
         assert loc_id is None
         count = (await s.execute(select(func.count(Location.id)))).scalar_one()
         assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_backfill_links_unlinked_import_sessions(test_sessionmaker, seeded_user_car):
+    import datetime as dt
+    from plugtrack.models import ChargingSession, Location
+    from sqlalchemy import func, select
+    from plugtrack.services.ingest_location import backfill_import_session_locations
+
+    user_id, car_id = seeded_user_car
+    async with test_sessionmaker() as s:
+        s.add(ChargingSession(
+            user_id=user_id, car_id=car_id, date=dt.date(2026, 6, 13), start_soc=20, end_soc=80,
+            kwh_added=37.9, charging_type="dc", charging_mode="manual", cost_pence=1706,
+            cost_basis="override_total", charge_network="Tesla", user_label="Lifton",
+            notes="1 Fore Street, Lifton, PL16 0AA", source="import"))
+        await s.commit()
+
+    prov = FakeProvider(GeocodeResult(address="Lifton", provider="fake", lat=50.6437, lng=-4.2846))
+
+    async with test_sessionmaker() as s:
+        n = await backfill_import_session_locations(s, user_id=user_id, provider=prov)
+        await s.commit()
+    assert n == 1
+    async with test_sessionmaker() as s:
+        cs = (await s.execute(select(ChargingSession).where(ChargingSession.user_id == user_id))).scalars().first()
+        assert cs.location_id is not None
+        assert (await s.execute(select(func.count(Location.id)))).scalar_one() == 1
+        # idempotent: a second run links nothing more
+        n2 = await backfill_import_session_locations(s, user_id=user_id, provider=prov)
+        assert n2 == 0
