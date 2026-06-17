@@ -63,3 +63,17 @@ async def test_dispatch_routes_text(monkeypatch):
     from plugtrack.services.telegram_ingest import dispatch_update
     await dispatch_update(ctx=None, update=update)
     assert calls and calls[0]["text"] == "/test"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_passes_caption(monkeypatch):
+    calls = []
+    async def fake_photo(ctx, **kw):
+        calls.append(kw)
+    monkeypatch.setattr("plugtrack.services.telegram_ingest.handle_photo", fake_photo)
+    update = {"update_id": 9, "message": {"message_id": 2, "chat": {"id": 9},
+              "from": {"id": 111}, "photo": [{"file_id": "s"}, {"file_id": "big"}],
+              "caption": "home"}}
+    from plugtrack.services.telegram_ingest import dispatch_update
+    await dispatch_update(ctx=None, update=update)
+    assert calls and calls[0].get("caption") == "home"
