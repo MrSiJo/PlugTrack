@@ -124,8 +124,9 @@ async def _build_session(
     if merged.odometer is not None:
         from .mileage_tracking import miles_to_km
         unit = (merged.odometer_unit or await _distance_unit(session)).lower()
+        is_km = unit.startswith("k")
         cs.odometer_at_session_km = (
-            miles_to_km(merged.odometer) if unit == "mi" else float(merged.odometer)
+            float(merged.odometer) if is_km else miles_to_km(merged.odometer)
         )
 
     return cs

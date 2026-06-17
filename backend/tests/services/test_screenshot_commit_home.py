@@ -131,6 +131,25 @@ async def test_commit_no_odometer_leaves_field_unset(test_sessionmaker, seeded_u
 
 
 @pytest.mark.asyncio
+async def test_commit_normalizes_unit_aliases(test_sessionmaker, seeded_user_car):
+    user_id, car_id = seeded_user_car
+    await _set_home_rate(test_sessionmaker)
+    async with test_sessionmaker() as s:
+        cs = await commit_merged_session(
+            s, user_id=user_id, car_id=car_id,
+            merged=_merged(energy_kwh=9.3, location_name="home", odometer=12345, odometer_unit="miles"))
+        await s.commit(); await s.refresh(cs)
+    assert cs.odometer_at_session_km == pytest.approx(12345 * 1.609344)
+    async with test_sessionmaker() as s:
+        cs2 = await commit_merged_session(
+            s, user_id=user_id, car_id=car_id,
+            merged=_merged(start_at=__import__("datetime").datetime(2026, 6, 14, 9, 0, tzinfo=__import__("datetime").timezone.utc),
+                           energy_kwh=5.0, location_name="home", odometer=20000, odometer_unit="kilometres"))
+        await s.commit(); await s.refresh(cs2)
+    assert cs2.odometer_at_session_km == pytest.approx(20000.0)
+
+
+@pytest.mark.asyncio
 async def test_committed_odometer_drives_current_mileage(test_sessionmaker, seeded_user_car):
     import datetime as dt
     from plugtrack.services import mileage_tracking as mt
