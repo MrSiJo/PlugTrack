@@ -1,13 +1,35 @@
 # PlugTrack
 
-PlugTrack v2 is a self-hosted, container-native EV charging tracker. A FastAPI backend pulls telematics from the official **My Cupra** cloud (via [pycupra](https://pypi.org/project/pycupra/)), synthesises charging sessions from the SoC stream, and serves them to a React 19 single-page app. There is no manual logging step — plug the car in, and a session appears once it finishes charging.
+PlugTrack v2 is a self-hosted, container-native EV charging tracker. You charge, screenshot the charging app — Tesla, Osprey, Electroverse, My Cupra, a home granny charger, anything — and send it to a **Telegram bot**. An OpenAI vision model reads the energy, cost, location, SoC and times off the image, merges multiple screenshots of the same charge into one session, and you confirm it with a single tap. A FastAPI backend persists the sessions and serves them to a React 19 single-page app.
+
+> **Telematics is deprecated.** PlugTrack began by pulling data straight from the My Cupra cloud via [pycupra](https://pypi.org/project/pycupra/). In June 2026 the VW Group gated that third-party API behind Firebase **App Check / Play Integrity** — a device-bound attestation that can't be satisfied headlessly — so the telematics path no longer works and is **off by default** (`pycupra_enabled=false`). The adapter is kept dormant in-tree, but screenshot ingestion is now PlugTrack's primary, **OEM-agnostic** input: because it reads screenshots, it works with any charging network's app, not one manufacturer's API.
 
 It is built around four ideas:
 
-- **Telematics-first.** A state machine consumes the polled SoC + charging-status stream and emits one `ChargingSession` per plug-in cycle. No CSV imports, no scraping, no manual data entry (though manual entry is supported as a fallback).
+- **Screenshot-first, app-agnostic.** Send the screenshots you already take to a Telegram bot; an OpenAI vision model (a `gpt-5`-class model, swappable) extracts the fields, and a deterministic correlator merges the network screenshot (kWh + cost + location) with the My Cupra screenshot (SoC + curve) into one `ChargingSession`. Free-text notes and photo captions work too. Manual entry remains as a fallback.
 - **Cost is sacred.** Per-kWh / total-cost overrides set by the user are never overwritten by re-syncs. A strict precedence rule (`override_total` → `override_per_kwh` → `location_free` → `location_rate` → `home_rate` → `unknown`) is implemented exactly once in `services/cost.py`.
-- **Locations cluster themselves.** Plug-in coordinates are clustered into per-user `Location` rows with reverse-geocoded addresses; labelling a location retro-recomputes the costs of past sessions that resolved against it.
+- **Locations build themselves.** Imported charges are forward-geocoded from their address and clustered into per-user `Location` rows with clean `<Network> <Place>` names (e.g. "Tesla Lifton", "Osprey Land's End"); live plug-in coordinates cluster the same way when telematics is enabled. Labelling a location retro-recomputes the costs of past sessions that resolved against it.
 - **Single-user, single-worker.** SQLite + an in-process APScheduler. Multi-worker is hard-blocked at startup. This keeps the operational surface tiny.
+
+## Features
+
+**Telegram ingestion (primary input)**
+
+- Send one or more screenshots of a finished charge from any app; an OpenAI vision model extracts energy, cost, per-kWh, start/end times, SoC, location, network and peak power.
+- Multiple screenshots of the same charge (e.g. the network app *and* My Cupra) auto-merge by overlapping time window into a single session — the model is **"Save = one charge"**.
+- A photo **caption** ("home") or a **free-text note** (`home 9.3kwh 8h31m`) is parsed by the same model — no rigid syntax.
+- **Home / granny-charger** charges: the metered *delivered* kWh is billed truth; SoC-banked energy and the AC→DC efficiency surface for free.
+- An inline **confirm card** shows projected kWh + cost (including the home/location rate) and edits itself in place as more screenshots merge; one tap to Save or Discard. A duplicate-screenshot guard means re-sending a saved charge never double-counts.
+
+**Mileage via text** — include an odometer in a message or caption (`home 12345mi 9.3kwh 8h31m`); it lands on the session and auto-updates current mileage and annual mileage tracking (both derived from session odometers).
+
+**Usage chat** — ask the bot read-only questions about your data ("spend this month?", "avg p/kWh?", "how much on rapids?", "on track for my mileage?"). Answers are grounded in a server-computed stats snapshot, so the model only restates real figures — it never invents numbers.
+
+**Geocoded locations** — imported charges are forward-geocoded (Nominatim, keyless by default) and either linked to a nearby existing location or created as a new named one.
+
+**Dashboard & analytics** — per-car hero card with live charging progress, a 30-day spend chart, lifetime KPIs, recent sessions, top locations, annual mileage tracking, and a petrol-cost comparison. A locations map (OpenStreetMap) shows cost-banded markers.
+
+**Bot health** — `/test` returns a health report (token + key validity, config completeness) straight to the chat.
 
 ## Screenshots
 
@@ -31,9 +53,10 @@ docker compose up -d
 
 Open http://localhost:9279 in a browser. First-run setup prompts you to create the single administrator account. After that:
 
-- Add your Cupra Connect credentials in **Settings → Cupra Connect** to start syncing.
-- Add a car in **Cars** (or use **Discover from Cupra** to pull one off your account).
-- Sit back. Plug in. A session will appear on the dashboard once charging completes.
+- Add a car in **Cars** (manual entry — make, model, battery size).
+- In **Settings → Telegram & AI**, paste your Telegram bot token and OpenAI API key (both encrypted at rest), and set your allowed Telegram user id + default car. Enable the bot.
+- Message your bot a charge screenshot, confirm the card, and the session appears on the dashboard.
+- (Optional) Cupra Connect telematics is deprecated and off by default; manual session entry and full CRUD remain available regardless.
 
 ### Pinning a specific image tag
 
@@ -133,28 +156,33 @@ All configuration lives in two places.
 After first-run setup, all per-user configuration is in **Settings**:
 
 - **Display:** theme (light/dark/system), distance unit (mi/km), currency.
-- **Cupra Connect:** username / password / S-PIN. Encrypted at rest.
+- **Telegram & AI:** Telegram bot token, allowed Telegram user id(s), default car, OpenAI API key + model, optional input/output token prices (for cost accounting). The bot runs as a lifespan background task, gated by `telegram_bot_enabled`.
+- **Geocoding:** provider (`nominatim` default — free and keyless), optional API key for Mapbox / OpenCage.
 - **Charging defaults:** default home rate (p/kWh), petrol price (p/L), petrol MPG (used for the petrol comparison).
-- **Sync:** active/idle poll cadences and the cap on simultaneous syncs.
+- **Telematics (deprecated):** Cupra Connect username / password / S-PIN and the active/idle poll cadences. Off by default behind `pycupra_enabled`; see the note at the top of this README.
 
-Cupra credentials are encrypted with `APP_SECRET_KEY` — rotating that secret renders saved credentials unreadable, so plan accordingly.
+Secrets (Telegram token, OpenAI key, Cupra credentials) are encrypted at rest with `APP_SECRET_KEY` — rotating that secret renders them unreadable, so plan accordingly.
 
 ## Architecture
 
 PlugTrack is two services on a shared bridge network:
 
 ```
-┌─────────────────┐  /api/*  ┌────────────────────────────────┐
-│ plugtrack-ui    │ ───────► │ plugtrack-api                  │
-│ nginx + SPA     │          │ FastAPI · async SQLAlchemy 2.x │
-│ port 80 → :9279 │          │ APScheduler · pycupra adapter  │
-│                 │          │ port 9278                      │
-└─────────────────┘          └─────────────┬──────────────────┘
-                                           │
-                                           ▼
-                                    SQLite + APScheduler
-                                    (single-worker, in-process)
+   Telegram  ──photos/text──►  ┌────────────────────────────────┐
+   (your phone)                │ plugtrack-api                  │
+                               │ FastAPI · async SQLAlchemy 2.x │
+┌─────────────────┐  /api/*    │ Telegram long-poll bot         │
+│ plugtrack-ui    │ ─────────► │ OpenAI vision extraction       │
+│ nginx + SPA     │            │ APScheduler · pycupra (dormant)│
+│ port 80 → :9279 │            │ port 9278                      │
+└─────────────────┘            └─────────────┬──────────────────┘
+                                             │            ▲
+                                             ▼            └─ OpenAI API / Nominatim
+                                      SQLite + APScheduler
+                                      (single-worker, in-process)
 ```
+
+The bot long-polls Telegram (no inbound webhook needed), sends images to the OpenAI Responses API for extraction, forward-geocodes new locations via Nominatim, and persists confirmed sessions to the same SQLite database the dashboard reads.
 
 ### Backend
 
@@ -172,15 +200,18 @@ Key services live under `backend/plugtrack/services/`:
 
 | Service                        | Purpose                                                                 |
 | ------------------------------ | ----------------------------------------------------------------------- |
-| `sync_orchestrator.py`         | Per-car mutex + live state cache.                                       |
-| `sync_scheduler.py`            | APScheduler-backed adaptive poll cadence.                               |
-| `sync_worker.py`               | Reads pycupra adapter, runs the state machine, persists sessions.       |
-| `session_synthesiser.py`       | Pure state-machine: SoC + charging-status stream → one ChargingSession. |
+| `telegram_ingest.py`           | Long-poll bot: routes photos/captions/text → stage → confirm card → commit; `/test` health + usage-chat routing. |
+| `screenshot_extraction.py`     | OpenAI vision/text extraction → structured `Extraction` (energy, cost, SoC, location, odometer, `<Network> <Place>` short name). |
+| `screenshot_correlation.py`    | Merges a Save-batch of extractions into one `MergedSession` per charge by overlapping time window. |
+| `screenshot_commit.py`         | Persists a `MergedSession` as a `ChargingSession` (cost, kWh, location resolution). |
+| `ingest_location.py`           | Forward-geocodes an import's address → links/creates a named `Location`; one-off backfill. |
+| `usage_stats.py` / `usage_chat.py` | Server-computed stats snapshot + grounded natural-language answers for the bot. |
 | `cost.py`                      | Single source of truth for cost computation (precedence rule).          |
-| `location_clustering.py`       | Auto-clusters plug-in coords into per-user `Location` rows.             |
-| `geocoding.py`                 | Reverse-geocodes addresses on first sighting.                           |
-| `dashboard_service.py`         | Single AsyncSession aggregation pass for the dashboard.                 |
-| `dashboard_trend.py`           | Daily spend totals (powers the dashboard chart).                        |
+| `location_clustering.py`       | Clusters coordinates into per-user `Location` rows (shared by ingest + live sync). |
+| `geocoding.py`                 | Forward (address→coords) and reverse (coords→address) geocoding providers. |
+| `mileage_tracking.py`          | Annual mileage periods; current mileage derived from session odometers. |
+| `dashboard_service.py` / `dashboard_trend.py` | Aggregation passes for the dashboard + daily spend chart.   |
+| `sync_orchestrator.py` / `sync_scheduler.py` / `sync_worker.py` / `session_synthesiser.py` | The telematics sync stack (dormant unless `pycupra_enabled`). |
 | `event_bus.py`                 | `EventBus.publish(event)` / `subscribe(job_id)` pair backing SSE.       |
 
 Routes are thin and live under `backend/plugtrack/api/routes/`. **Every query filters by `request.state.user_id`** — multi-user isolation is enforced at the query level, not by the database.
