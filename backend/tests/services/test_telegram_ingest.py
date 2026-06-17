@@ -112,6 +112,20 @@ def test_summarise_shows_all_fields():
         assert token in text
 
 
+def test_summarise_shows_actual_charge_time():
+    from plugtrack.services.screenshot_correlation import MergedSession
+    m = MergedSession(
+        start_at=dt.datetime(2026, 6, 15, 18, 27, tzinfo=dt.timezone.utc),
+        end_at=dt.datetime(2026, 6, 16, 5, 59, tzinfo=dt.timezone.utc),
+        energy_kwh=None, cost_total_pence=None, cost_per_kwh_pence=None,
+        soc_start=67, soc_end=80, location_name=None, location_address=None,
+        network=None, peak_kw=2.0, confidence=0.95,
+        actual_charge_seconds=3 * 3600 + 49 * 60, source_kinds=["mycupra"])
+    text = _summarise([m])
+    assert "actual" in text.lower()
+    assert "3h49m" in text
+
+
 def test_summarise_shows_efficiency_and_location():
     from plugtrack.services.screenshot_correlation import MergedSession
     m = MergedSession(

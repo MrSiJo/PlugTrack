@@ -29,6 +29,7 @@ function makeSession(
     charging_mode: 'manual',
     battery_care: null,
     max_charge_current: null,
+    actual_charge_seconds: null,
     interrupted: false,
     cost_pence: 347,
     cost_basis: 'home_rate',
@@ -88,6 +89,21 @@ describe('SessionDetail — charge context', () => {
     expect(section).toHaveTextContent('AC')
     expect(section).toHaveTextContent('Battery care')
     expect(section).toHaveTextContent('Maximum')
+  })
+
+  it('shows actual charging time against the plugged-in duration', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        actual_charge_seconds: 9 * 3600 + 9 * 60,
+        metrics: makeMetrics({ duration_minutes: 19 * 60 + 5 }),
+      }),
+    )
+
+    renderDetail()
+
+    const line = await screen.findByTestId('metric-actual-charge')
+    expect(line).toHaveTextContent('9h 09m')
+    expect(line).toHaveTextContent('plugged in')
   })
 
   it('omits the Charge context section when nothing useful is known', async () => {

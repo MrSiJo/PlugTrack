@@ -89,6 +89,10 @@ class ChargingSession(Base):
     )  # 'timer' | 'manual' | 'profile' | 'unknown'
     battery_care: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     max_charge_current: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # Real energy-transfer time in seconds. Distinct from the plug-in window
+    # (charge_start_at..charge_end_at): for AC scheduled charges the car can sit
+    # plugged in for hours before/after actually drawing power. NULL when unknown.
+    actual_charge_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     interrupted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     error_reason: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
@@ -116,7 +120,7 @@ class ChargingSession(Base):
 
     source: Mapped[str] = mapped_column(
         String(16), nullable=False
-    )  # 'synthesis' | 'manual' | 'cariad'
+    )  # 'synthesis' | 'manual' | 'telegram' | 'import' | 'unconfirmed'
     telematics_session_id: Mapped[Optional[str]] = mapped_column(
         String(128), nullable=True
     )

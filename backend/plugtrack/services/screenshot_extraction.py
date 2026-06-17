@@ -41,13 +41,15 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
             "peak_kw": {"type": ["number", "null"]},
             "odometer": {"type": ["number", "null"]},
             "odometer_unit": {"type": ["string", "null"]},
+            "actual_charge_seconds": {"type": ["integer", "null"]},
             "confidence": {"type": "number"},
         },
         "required": [
             "source", "has_cost", "energy_kwh", "cost_total_pence",
             "cost_per_kwh_pence", "start_at", "end_at", "soc_start", "soc_end",
             "location_name", "location_address", "location_short_name", "network",
-            "peak_kw", "odometer", "odometer_unit", "confidence",
+            "peak_kw", "odometer", "odometer_unit", "actual_charge_seconds",
+            "confidence",
         ],
     },
 }
@@ -67,6 +69,11 @@ SYSTEM_PROMPT = (
     "If an odometer / mileage reading is visible (e.g. a MyCupra vehicle status "
     "screen), put the number in odometer and its unit ('mi' or 'km') in odometer_unit "
     "if shown; otherwise null both. "
+    "MyCupra charge screens show TWO durations: a 'Charging time' (the whole "
+    "plug-in window) and an 'Actual charging time' (the time actually drawing "
+    "power — shorter when charging was scheduled/delayed). Put the ACTUAL "
+    "charging time, converted to whole seconds, in actual_charge_seconds. If only "
+    "one duration is shown, or none, set actual_charge_seconds null. "
     "Also produce location_short_name: a concise '<Network> <Place>' label for this "
     "charge, e.g. 'Tesla Lifton', 'Osprey Land's End', 'MFG Morrisons Yeovil'. Normalise "
     "the network ('Supercharging'/'Tesla Supercharging' -> 'Tesla'), and drop site noise "
@@ -112,6 +119,7 @@ class Extraction:
     odometer: Optional[float] = None
     odometer_unit: Optional[str] = None
     location_short_name: Optional[str] = None
+    actual_charge_seconds: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -172,6 +180,7 @@ def parse_extraction(raw: dict[str, Any]) -> Extraction:
         odometer=raw.get("odometer"),
         odometer_unit=raw.get("odometer_unit"),
         location_short_name=raw.get("location_short_name"),
+        actual_charge_seconds=raw.get("actual_charge_seconds"),
     )
 
 

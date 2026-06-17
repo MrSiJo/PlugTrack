@@ -131,7 +131,12 @@ def _summarise(merged: list[MergedSession], projected: Optional[list[dict]] = No
         when = f"{m.start_at:%d %b %H:%M}"
         if m.end_at:
             when += f"–{m.end_at:%H:%M}"
-        meta = [when, f"conf {m.confidence:.2f}"]
+        meta = [when]
+        if m.actual_charge_seconds:
+            mins = m.actual_charge_seconds // 60
+            h, mm = divmod(mins, 60)
+            meta.append(f"actual {h}h{mm:02d}m" if h else f"actual {mm}m")
+        meta.append(f"conf {m.confidence:.2f}")
         if m.confidence < 0.6:
             meta.append("⚠ low confidence")
 
