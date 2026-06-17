@@ -8,6 +8,7 @@ import asyncio
 import json
 
 import pytest
+import pytest_asyncio
 
 from plugtrack.api.routes import sync as sync_routes
 from plugtrack.services.event_bus import SyncEvent, get_event_bus, reset_event_bus
@@ -21,6 +22,37 @@ def _reset_module_state():
     reset_event_bus()
     yield
     reset_event_bus()
+
+
+@pytest_asyncio.fixture
+async def authed_car_id(test_sessionmaker):
+    """Insert a Car owned by the bootstrapped `admin` user and return its id.
+
+    The force-sync route now scopes by `user_id` (defense-in-depth IDOR),
+    so the car must actually belong to the signed-in user for the happy
+    path to work.
+    """
+    from sqlalchemy import select
+
+    from plugtrack.models import Car, User
+
+    async with test_sessionmaker() as s:
+        user = (
+            await s.execute(select(User).where(User.username == "admin"))
+        ).scalar_one()
+        car = Car(
+            user_id=user.id,
+            make="Cupra",
+            model="Born",
+            battery_kwh=58.0,
+            nominal_efficiency_mi_per_kwh=4.2,
+            provider="manual",
+            active=True,
+        )
+        s.add(car)
+        await s.commit()
+        await s.refresh(car)
+        return car.id
 
 
 @pytest.mark.asyncio
@@ -37,7 +69,7 @@ async def test_force_sync_requires_csrf(authed_client):
 
 
 @pytest.mark.asyncio
-async def test_force_sync_returns_job_and_stream_url(authed_client, app):
+async def test_force_sync_returns_job_and_stream_url(authed_client, app, authed_car_id):
     started: list[str] = []
 
     async def worker(job: SyncJob, state: CarSyncState) -> None:
@@ -46,7 +78,9 @@ async def test_force_sync_returns_job_and_stream_url(authed_client, app):
 
     app.state.sync_orchestrator = SyncOrchestrator(poll_worker=worker)
 
-    r = await authed_client.post("/api/sync/1", headers=csrf_headers(authed_client))
+    r = await authed_client.post(
+        f"/api/sync/{authed_car_id}", headers=csrf_headers(authed_client)
+    )
     assert r.status_code in (200, 202)
     body = r.json()
     assert "job_id" in body
@@ -55,7 +89,27 @@ async def test_force_sync_returns_job_and_stream_url(authed_client, app):
 
 
 @pytest.mark.asyncio
-async def test_force_sync_idempotent_returns_existing_job(authed_client, app):
+async def test_force_sync_unowned_car_returns_404(authed_client, app):
+    """A car_id that doesn't belong to the user (here: doesn't exist) 404s
+    before any sync job is started — defense-in-depth IDOR guard."""
+    started: list[str] = []
+
+    async def worker(job: SyncJob, state: CarSyncState) -> None:
+        started.append(job.job_id)
+
+    app.state.sync_orchestrator = SyncOrchestrator(poll_worker=worker)
+
+    r = await authed_client.post(
+        "/api/sync/999999", headers=csrf_headers(authed_client)
+    )
+    assert r.status_code == 404
+    assert started == []  # no job ever started for an unowned car
+
+
+@pytest.mark.asyncio
+async def test_force_sync_idempotent_returns_existing_job(
+    authed_client, app, authed_car_id
+):
     """Second POST while a sync is in flight returns the same job_id with 202."""
     finished = asyncio.Event()
 
@@ -64,12 +118,16 @@ async def test_force_sync_idempotent_returns_existing_job(authed_client, app):
 
     app.state.sync_orchestrator = SyncOrchestrator(poll_worker=slow)
 
-    r1 = await authed_client.post("/api/sync/1", headers=csrf_headers(authed_client))
+    r1 = await authed_client.post(
+        f"/api/sync/{authed_car_id}", headers=csrf_headers(authed_client)
+    )
     assert r1.status_code in (200, 202)
     body1 = r1.json()
 
     # Second request while the first is still running.
-    r2 = await authed_client.post("/api/sync/1", headers=csrf_headers(authed_client))
+    r2 = await authed_client.post(
+        f"/api/sync/{authed_car_id}", headers=csrf_headers(authed_client)
+    )
     assert r2.status_code == 202
     body2 = r2.json()
     assert body2["job_id"] == body1["job_id"]
@@ -78,6 +136,15 @@ async def test_force_sync_idempotent_returns_existing_job(authed_client, app):
     finished.set()
     # Drain any remaining task ticks.
     await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_stream_unknown_job_returns_404(authed_client, app):
+    """Subscribing to a job_id the user never started (unregistered owner)
+    is gated to 404 — the SSE stream is ownership-scoped."""
+    app.state.sync_orchestrator = SyncOrchestrator()
+    r = await authed_client.get("/api/sync/stream/nonexistent-job-id")
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio

@@ -105,6 +105,11 @@ class SyncOrchestrator:
         self._locks: dict[int, asyncio.Lock] = {}
         self._state: dict[int, CarSyncState] = {}
         self._active_jobs: dict[int, SyncJob] = {}
+        # job_id -> owning user_id. Populated by the force-sync route so
+        # the SSE stream can be gated by ownership (a user may only
+        # subscribe to a job they started). Periodic/system jobs are not
+        # registered here, so their job_ids are not streamable.
+        self._job_owner: dict[str, int] = {}
         # Worker indirection: defaults to a no-op so this task is testable
         # in isolation. Phase 4.4 wiring replaces the default with the
         # full session-synthesiser + event-bus pipeline.
@@ -140,6 +145,28 @@ class SyncOrchestrator:
             st = CarSyncState()
             self._state[car_id] = st
         return st
+
+    def register_job_owner(self, job_id: str, user_id: int) -> None:
+        """Associate a job_id with the user that started it.
+
+        Called by the force-sync route after it has verified the user
+        owns the car. Gates the SSE stream so a user can only subscribe
+        to jobs they own. We cap the map size defensively — completed
+        jobs are pruned lazily as new ones are registered.
+        """
+        self._job_owner[job_id] = user_id
+        if len(self._job_owner) > 256:
+            # Drop owner entries for jobs that are no longer active for
+            # any car. Bounded cleanup keeps the map from growing without
+            # leaking ownership for in-flight jobs.
+            active_ids = {j.job_id for j in self._active_jobs.values()}
+            for jid in [k for k in self._job_owner if k not in active_ids]:
+                if jid != job_id:
+                    self._job_owner.pop(jid, None)
+
+    def job_owner(self, job_id: str) -> Optional[int]:
+        """Return the user_id that owns `job_id`, or None if unknown."""
+        return self._job_owner.get(job_id)
 
     def active_job(self, car_id: int) -> Optional[SyncJob]:
         job = self._active_jobs.get(car_id)

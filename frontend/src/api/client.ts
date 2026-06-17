@@ -476,7 +476,7 @@ export const api = {
   // ----- Cars -----
 
   discoverVehicles: (): Promise<DiscoveredVehicle[]> =>
-    fetchJSON<DiscoveredVehicle[]>('/api/cars/discover'),
+    fetchJSON<DiscoveredVehicle[]>('/api/cars/discover', { method: 'POST' }),
 
   getCars: (): Promise<CarPayload[]> => fetchJSON<CarPayload[]>('/api/cars'),
 
