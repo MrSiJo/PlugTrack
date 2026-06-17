@@ -8,6 +8,7 @@ IngestContext and dispatches updates to these functions.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import hashlib
 import logging
 from dataclasses import dataclass, field
@@ -35,6 +36,7 @@ class IngestContext:
     input_price_p: Optional[float] = None
     output_price_p: Optional[float] = None
     health_check: Optional[Callable[[int], Awaitable[Any]]] = None
+    extractor_text: Optional[Callable[[str], Awaitable[Any]]] = None
 
 
 @dataclass
@@ -86,7 +88,11 @@ def _summarise(merged: list[MergedSession]) -> str:
         cost = f"£{m.cost_total_pence/100:.2f}" if m.cost_total_pence else "£?"
         ppk = f"{m.cost_per_kwh_pence:.0f}p/kWh" if m.cost_per_kwh_pence else "?p/kWh"
         soc = f"{m.soc_start}→{m.soc_end}%" if m.soc_start is not None else "SoC ?"
-        loc = m.location_name or "?"
+        # AC/home vs DC/network hint: a network/cost implies a public DC charge,
+        # an SoC delta with no network implies an AC/home charge.
+        is_dc = bool(m.network) or m.cost_total_pence is not None
+        kind = "DC" if is_dc else ("AC/home" if m.soc_start is not None else "?")
+        loc = m.location_name or ("home" if kind == "AC/home" else "?")
         addr = f" ({m.location_address})" if m.location_address else ""
         net = m.network or "?"
         when = f"{m.start_at:%d %b %H:%M}"
@@ -94,14 +100,50 @@ def _summarise(merged: list[MergedSession]) -> str:
         warn = " ⚠ low confidence" if m.confidence < 0.6 else ""
         warn += " ⚠ SoC missing" if m.soc_start is None else ""
         lines.append(
-            f"⚡ {kwh} · {cost} · {ppk}\n   {soc} · {net} · {loc}{addr}\n"
+            f"⚡ {kwh} · {cost} · {ppk}\n   {soc} · {kind} · {net} · {loc}{addr}\n"
             f"   {when}{end} · conf {m.confidence:.2f}{warn}"
         )
     return "\n".join(lines)
 
 
+async def _stage_and_card(
+    ctx: IngestContext, *, user_id, chat_id, extraction, usage,
+    telegram_file_id, message_id, sha,
+) -> None:
+    async with ctx.sessionmaker() as s:
+        exists = (
+            await s.execute(
+                select(ScreenshotImport).where(
+                    ScreenshotImport.user_id == user_id,
+                    ScreenshotImport.image_sha256 == sha,
+                )
+            )
+        ).scalar_one_or_none()
+        if exists is not None:
+            await ctx.telegram.send_message(chat_id=chat_id, text="Already have that one.")
+            return
+        s.add(ScreenshotImport(
+            user_id=user_id, telegram_file_id=telegram_file_id,
+            telegram_message_id=message_id, image_sha256=sha,
+            source=extraction.source, extracted=extraction.__dict__, status="staged",
+            input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+            reasoning_tokens=usage.reasoning_tokens))
+        await s.commit()
+        staged = (
+            await s.execute(
+                select(ScreenshotImport).where(
+                    ScreenshotImport.user_id == user_id,
+                    ScreenshotImport.status == "staged",
+                )
+            )
+        ).scalars().all()
+    merged = correlate([parse_extraction(r.extracted) for r in staged])
+    await ctx.telegram.send_message(chat_id=chat_id, text=_summarise(merged), reply_markup=_kb())
+
+
 async def handle_photo(
-    ctx: IngestContext, *, from_id: int, chat_id: int, message_id: int, file_id: str
+    ctx: IngestContext, *, from_id: int, chat_id: int, message_id: int, file_id: str,
+    caption: Optional[str] = None,
 ) -> None:
     if from_id not in ctx.allowed_user_ids:
         return
@@ -122,34 +164,14 @@ async def handle_photo(
             await ctx.telegram.send_message(chat_id=chat_id, text="Already have that screenshot.")
             return
 
-        result = await ctx.extractor(image)
-        extraction = result.extraction
-        row = ScreenshotImport(
-            user_id=user_id,
-            telegram_file_id=file_id,
-            telegram_message_id=message_id,
-            image_sha256=sha,
-            source=extraction.source,
-            extracted=extraction.__dict__,
-            status="staged",
-            input_tokens=result.usage.input_tokens,
-            output_tokens=result.usage.output_tokens,
-            reasoning_tokens=result.usage.reasoning_tokens,
-        )
-        s.add(row)
-        await s.commit()
-
-        staged = (
-            await s.execute(
-                select(ScreenshotImport).where(
-                    ScreenshotImport.user_id == user_id, ScreenshotImport.status == "staged"
-                )
-            )
-        ).scalars().all()
-
-    extractions = [parse_extraction(r.extracted) for r in staged]
-    merged = correlate(extractions)
-    await ctx.telegram.send_message(chat_id=chat_id, text=_summarise(merged), reply_markup=_kb())
+    result = await ctx.extractor(image)
+    extraction = result.extraction
+    if caption and caption.strip() and not extraction.location_name:
+        extraction = dataclasses.replace(extraction, location_name=caption.strip())
+    await _stage_and_card(
+        ctx, user_id=user_id, chat_id=chat_id, extraction=extraction,
+        usage=result.usage, telegram_file_id=file_id, message_id=message_id, sha=sha,
+    )
 
 
 async def handle_callback(
@@ -178,20 +200,24 @@ async def handle_callback(
 
         # data == "save"
         merged = correlate([parse_extraction(r.extracted) for r in staged])
-        created_ids: list[int] = []
+        created: list[tuple[int, Optional[int], Optional[str]]] = []  # (id, cost_pence, cost_basis)
         for m in merged:
             cs = await commit_merged_session(s, user_id=user_id, car_id=car_id, merged=m)
             if cs is not None:
-                created_ids.append(cs.id)
+                created.append((cs.id, cs.cost_pence, cs.cost_basis))
         for r in staged:
             r.status = "committed"
         await s.commit()
 
     await ctx.telegram.answer_callback(callback_id, "Saved")
-    lines = [f"Saved {len(created_ids)} session(s)."]
-    if ctx.public_base_url:
-        base = ctx.public_base_url.rstrip("/")
-        lines += [f"{base}/sessions/{sid}" for sid in created_ids]
+    lines = [f"Saved {len(created)} session(s)."]
+    base = ctx.public_base_url.rstrip("/") if ctx.public_base_url else None
+    for sid, cost_pence, basis in created:
+        cost = f"£{cost_pence/100:.2f} ({basis})" if cost_pence is not None else "cost n/a"
+        line = f"#{sid}: {cost}"
+        if base:
+            line += f" — {base}/sessions/{sid}"
+        lines.append(line)
     await ctx.telegram.send_message(chat_id=chat_id, text="\n".join(lines))
 
 
@@ -207,6 +233,21 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
         report = await ctx.health_check(from_id)
         await ctx.telegram.send_message(chat_id=chat_id, text=format_health_text(report))
         return
+    # Try to parse a free-text charge note.
+    if ctx.extractor_text is not None and text and text.strip():
+        result = await ctx.extractor_text(text)
+        e = result.extraction
+        usable = e.confidence > 0 and (
+            e.energy_kwh is not None or e.soc_start is not None
+            or e.soc_end is not None or e.cost_total_pence is not None)
+        if usable:
+            import hashlib as _hashlib
+            sha = _hashlib.sha256(("text:" + text.strip().lower()).encode()).hexdigest()
+            user_id, _car_id = ctx.resolve_target()
+            await _stage_and_card(ctx, user_id=user_id, chat_id=chat_id, extraction=e,
+                                  usage=result.usage, telegram_file_id=None,
+                                  message_id=None, sha=sha)
+            return
     await ctx.telegram.send_message(
         chat_id=chat_id, text="Send me a charge screenshot, or /test to check status.")
 
@@ -224,6 +265,7 @@ async def dispatch_update(*, ctx: Optional[IngestContext], update: dict[str, Any
             chat_id=msg["chat"]["id"],
             message_id=msg["message_id"],
             file_id=photos[-1]["file_id"],  # largest size
+            caption=msg.get("caption"),
         )
         return
     if msg and msg.get("text"):
@@ -330,13 +372,16 @@ async def read_raw_credentials(sessionmaker):
 
 
 def build_ingest_context(config: BotConfig, *, sessionmaker, health_check=None) -> "IngestContext":
-    from .screenshot_extraction import ExtractionResult, call_openai
+    from .screenshot_extraction import ExtractionResult, call_openai, extract_from_text
     from .telegram_client import TelegramClient
 
     telegram = TelegramClient(token=config.token)
 
     async def extractor(image: bytes) -> ExtractionResult:
         return await call_openai(image, api_key=config.openai_key, model=config.model)
+
+    async def extractor_text(text: str) -> ExtractionResult:
+        return await extract_from_text(text, api_key=config.openai_key, model=config.model)
 
     return IngestContext(
         telegram=telegram,
@@ -348,4 +393,5 @@ def build_ingest_context(config: BotConfig, *, sessionmaker, health_check=None) 
         input_price_p=config.input_price_p,
         output_price_p=config.output_price_p,
         health_check=health_check,
+        extractor_text=extractor_text,
     )

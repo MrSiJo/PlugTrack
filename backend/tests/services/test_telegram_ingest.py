@@ -112,6 +112,19 @@ def test_summarise_shows_all_fields():
         assert token in text
 
 
+def test_summarise_shows_efficiency_and_location():
+    from plugtrack.services.screenshot_correlation import MergedSession
+    m = MergedSession(
+        start_at=dt.datetime(2026, 6, 15, 19, 27, tzinfo=dt.timezone.utc),
+        end_at=dt.datetime(2026, 6, 16, 6, 59, tzinfo=dt.timezone.utc),
+        energy_kwh=9.3, cost_total_pence=None, cost_per_kwh_pence=None,
+        soc_start=67, soc_end=80, location_name="home", location_address=None,
+        network=None, peak_kw=2.0, confidence=0.95, source_kinds=["mycupra", "granny"])
+    text = _summarise([m])
+    assert "home" in text.lower()
+    assert "%" in text  # efficiency or SoC percentage shown
+
+
 class FakeTgText:
     def __init__(self): self.sent = []
     async def send_message(self, *, chat_id, text, reply_markup=None):
@@ -139,3 +152,91 @@ async def test_handle_text_disallowed_ignored():
                         resolve_target=lambda: (1, 1), allowed_user_ids={111})
     await handle_text(ctx, from_id=999, chat_id=9, text="/test")
     assert tg.sent == []
+
+
+def _ex_text(**kw):
+    base = dict(source="text", has_cost=False, energy_kwh=9.3, cost_total_pence=None,
+                cost_per_kwh_pence=None, start_at="2026-06-15T19:27:00", end_at=None,
+                soc_start=None, soc_end=None, location_name="home", location_address=None,
+                network=None, peak_kw=None, confidence=0.9)
+    base.update(kw)
+    return Extraction(**base)
+
+
+class FakeTg2:
+    def __init__(self): self.sent = []
+    async def send_message(self, *, chat_id, text, reply_markup=None):
+        self.sent.append({"text": text, "kb": reply_markup})
+
+
+@pytest.mark.asyncio
+async def test_handle_text_charge_note_stages_and_cards(test_sessionmaker, seeded_user_car):
+    user_id, car_id = seeded_user_car
+    tg = FakeTg2()
+
+    async def extractor_text(text):
+        return ExtractionResult(extraction=_ex_text(), usage=Usage(10, 10, 0))
+
+    ctx = IngestContext(
+        telegram=tg, sessionmaker=test_sessionmaker, extractor=None,
+        resolve_target=lambda: (user_id, car_id), allowed_user_ids={111},
+        extractor_text=extractor_text)
+    await handle_text(ctx, from_id=111, chat_id=9, text="home 9.3kwh 8h31m")
+    assert tg.sent and tg.sent[-1]["kb"] is not None       # confirm card with buttons
+    assert "9.3" in tg.sent[-1]["text"] or "home" in tg.sent[-1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_handle_text_non_charge_falls_back_to_help(test_sessionmaker, seeded_user_car):
+    user_id, car_id = seeded_user_car
+    tg = FakeTg2()
+
+    async def extractor_text(text):
+        return ExtractionResult(extraction=_ex_text(energy_kwh=None, location_name=None,
+                                start_at=None, confidence=0.0), usage=Usage(5, 5, 0))
+
+    ctx = IngestContext(
+        telegram=tg, sessionmaker=test_sessionmaker, extractor=None,
+        resolve_target=lambda: (user_id, car_id), allowed_user_ids={111},
+        extractor_text=extractor_text)
+    await handle_text(ctx, from_id=111, chat_id=9, text="how much have I spent?")
+    assert tg.sent and tg.sent[-1]["kb"] is None           # help line, no buttons
+    assert "screenshot" in tg.sent[-1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_save_reply_includes_committed_cost(test_sessionmaker, seeded_user_car):
+    from sqlalchemy import select
+    from plugtrack.models import Location, Setting
+    from plugtrack.settings.seeds import seed_defaults
+
+    user_id, car_id = seeded_user_car
+
+    # Seed defaults + a home rate, plus a "home" location for rate-based costing.
+    async with test_sessionmaker() as s:
+        await seed_defaults(s)
+        row = (await s.execute(select(Setting).where(
+            Setting.key == "default_home_rate_p_per_kwh"))).scalar_one()
+        row.value = "19.26"
+        s.add(Location(user_id=user_id, name="Home", is_free=False,
+                       default_cost_per_kwh_p=19.26, centroid_lat=0.0, centroid_lng=0.0,
+                       radius_m=50))
+        await s.commit()
+
+    tg = FakeTelegram({})
+
+    async def extractor_text(text):
+        return ExtractionResult(extraction=_ex_text(), usage=Usage(10, 10, 0))
+
+    ctx = IngestContext(
+        telegram=tg, sessionmaker=test_sessionmaker, extractor=None,
+        resolve_target=lambda: (user_id, car_id), allowed_user_ids={111},
+        extractor_text=extractor_text)
+
+    # Stage a home charge note, then Save it.
+    await handle_text(ctx, from_id=111, chat_id=9, text="home 9.3kwh 8h31m")
+    await handle_callback(ctx, from_id=111, callback_id="cb1", data="save", chat_id=9)
+
+    reply = tg.sent[-1]["text"]
+    assert "Saved 1 session(s)." in reply
+    assert "£" in reply
