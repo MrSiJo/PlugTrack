@@ -205,7 +205,7 @@ async def test_handle_text_non_charge_falls_back_to_help(test_sessionmaker, seed
 
 
 @pytest.mark.asyncio
-async def test_non_charge_text_routes_to_usage_answerer(monkeypatch):
+async def test_non_charge_text_routes_to_usage_answerer():
     import plugtrack.services.telegram_ingest as ti
 
     sent = []
@@ -236,7 +236,7 @@ async def test_non_charge_text_routes_to_usage_answerer(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_usage_answerer_error_is_graceful(monkeypatch):
+async def test_usage_answerer_error_is_graceful():
     import plugtrack.services.telegram_ingest as ti
     sent = []
 
