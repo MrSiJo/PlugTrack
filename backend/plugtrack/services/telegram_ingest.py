@@ -306,6 +306,29 @@ async def load_bot_config(sessionmaker):
     )
 
 
+async def read_raw_credentials(sessionmaker):
+    """Return (token, openai_key, model) decrypted from settings, or Nones.
+
+    Unlike `load_bot_config`, this never gates on the full config being
+    complete — it just surfaces the raw secrets so the health check can
+    validate the token/key independently (e.g. mid-setup, bot not running).
+    """
+    from sqlalchemy import select as _select
+
+    from ..bootstrap import get_settings
+    from ..models import Setting
+    from ..security.crypto import decrypt_secret
+
+    async with sessionmaker() as s:
+        rows = {r.key: r.value for r in (await s.execute(_select(Setting))).scalars().all()}
+
+    secret = get_settings().app_secret_key
+    token = decrypt_secret(rows["telegram_bot_token"], secret) if rows.get("telegram_bot_token") else None
+    openai_key = decrypt_secret(rows["openai_api_key"], secret) if rows.get("openai_api_key") else None
+    model = rows.get("openai_model") or None
+    return token, openai_key, model
+
+
 def build_ingest_context(config: BotConfig, *, sessionmaker, health_check=None) -> "IngestContext":
     from .screenshot_extraction import ExtractionResult, call_openai
     from .telegram_client import TelegramClient
