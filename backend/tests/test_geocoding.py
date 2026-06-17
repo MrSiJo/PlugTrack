@@ -261,3 +261,41 @@ def test_factory_unknown_provider_falls_back_to_noop():
         {"geocoding_enabled": "true", "geocoding_provider": "garmin-or-something"}
     )
     assert isinstance(provider, NoOpProvider)
+
+
+# ---------------------------------------------------------------------------
+# Forward geocoding
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_nominatim_forward_parses_first_hit():
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.get.return_value = _mock_response(
+        200, [{"lat": "50.6437", "lon": "-4.2846", "display_name": "Lifton, PL16 0AA"}]
+    )
+    provider = NominatimProvider(client=client)
+    result = await provider.forward("1 Fore Street, Lifton, PL16 0AA")
+    assert result == GeocodeResult(address="Lifton, PL16 0AA", provider="nominatim",
+                                   lat=50.6437, lng=-4.2846)
+    args, kwargs = client.get.call_args
+    assert args[0] == NominatimProvider.SEARCH_URL
+    assert kwargs["params"]["q"] == "1 Fore Street, Lifton, PL16 0AA"
+    assert kwargs["headers"]["User-Agent"] == "plugtrack/2.0"
+
+
+@pytest.mark.asyncio
+async def test_nominatim_forward_empty_list_returns_none():
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.get.return_value = _mock_response(200, [])
+    assert await NominatimProvider(client=client).forward("nowhere") is None
+
+
+@pytest.mark.asyncio
+async def test_nominatim_forward_blank_query_returns_none():
+    assert await NominatimProvider().forward("  ") is None
+
+
+@pytest.mark.asyncio
+async def test_noop_forward_returns_none():
+    assert await NoOpProvider().forward("anywhere") is None
