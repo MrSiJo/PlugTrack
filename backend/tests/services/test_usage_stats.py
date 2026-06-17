@@ -62,3 +62,29 @@ async def test_empty_user_zeroed(test_sessionmaker, seeded_user_car):
     tm = _w(snap, "this month")
     assert tm.sessions == 0 and tm.spend == "£0.00" and tm.energy == "0.0 kWh"
     assert tm.avg_p_per_kwh is None
+
+
+def _split(snap, label):
+    return next(sp for sp in snap.splits if sp.label == label)
+
+
+@pytest.mark.asyncio
+async def test_home_public_and_network_split(test_sessionmaker, seeded_user_car):
+    user_id, car_id = seeded_user_car
+    today = dt.date(2026, 6, 17)
+    # home (ac) this month
+    await _mk(test_sessionmaker, user_id=user_id, car_id=car_id, when=dt.date(2026, 6, 3), kwh=10.0, cost_pence=200, ctype="ac")
+    # public (dc) this month, two networks
+    await _mk(test_sessionmaker, user_id=user_id, car_id=car_id, when=dt.date(2026, 6, 4), kwh=30.0, cost_pence=1500, ctype="dc", network="Tesla")
+    await _mk(test_sessionmaker, user_id=user_id, car_id=car_id, when=dt.date(2026, 6, 5), kwh=20.0, cost_pence=1000, ctype="dc", network="Osprey")
+
+    async with test_sessionmaker() as s:
+        snap = await build_usage_snapshot(s, user_id=user_id, today=today, distance_unit="mi")
+
+    tm = _split(snap, "this month")
+    assert "£2.00" in tm.home and "10.0 kWh" in tm.home
+    assert "£25.00" in tm.public and "50.0 kWh" in tm.public
+    assert "Tesla" in tm.by_network and "£15.00" in tm.by_network["Tesla"]
+    assert "Osprey" in tm.by_network and "£10.00" in tm.by_network["Osprey"]
+    # lifetime split also present
+    assert any(sp.label == "lifetime" for sp in snap.splits)
