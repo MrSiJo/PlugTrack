@@ -9,8 +9,11 @@ matches energy within tolerance.
 """
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -147,6 +150,17 @@ async def commit_merged_session(
     if await _is_duplicate(session, car_id=car_id, merged=merged):
         return None
     cs = await _build_session(session, user_id=user_id, car_id=car_id, merged=merged)
+    if cs.location_id is None and (merged.location_name or merged.location_address):
+        from .ingest_location import compose_location_name, resolve_ingested_location
+        name = merged.location_short_name or compose_location_name(merged.network, merged.location_name)
+        try:
+            loc_id = await resolve_ingested_location(
+                session, user_id=user_id, place_name=name, raw_label=merged.location_name,
+                address=merged.location_address, network=merged.network)
+            if loc_id is not None:
+                cs.location_id = loc_id
+        except Exception:  # noqa: BLE001 — never abort a Save over geocoding
+            logger.exception("ingest location resolution failed; leaving text-only")
     session.add(cs)
     await session.flush()
     return cs
