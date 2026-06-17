@@ -11,9 +11,10 @@ def test_payload_grounds_on_snapshot_and_question():
     p = build_usage_payload("spend this month?", snap, model="gpt-5-mini", today="2026-06-17")
     assert p["model"] == "gpt-5-mini"
     assert p["reasoning"] == {"effort": "none"}
-    assert "json_schema" not in str(p.get("text", {}))     # free-text output, not structured
+    assert "text" not in p                                   # free-text output, not structured
     assert "£42.18" in p["instructions"]                    # snapshot embedded
     assert "only" in p["instructions"].lower()              # grounding instruction present
+    assert "need not add up" in p["instructions"]           # home/public split caveat present
     parts = p["input"][0]["content"]
     assert any("spend this month?" in c.get("text", "") for c in parts)
 

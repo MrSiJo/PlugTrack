@@ -24,8 +24,10 @@ USAGE_SYSTEM_PROMPT = (
     "answered from the snapshot, say you can't answer that and list what you CAN answer: "
     "spend, energy (kWh), average p/kWh, home vs public split, spend by network, and "
     "mileage / annual pace — over this month, last month, last 30 days, year to date, or "
-    "lifetime. Be concise and friendly. Money is in £; distances are already in the "
-    "user's units. Today is {today}.\n\nSNAPSHOT:\n{snapshot}"
+    "lifetime. Note: some charges may be unclassified, so the home and public split need "
+    "not add up to the total spend — say so if the user asks for a home-vs-public breakdown "
+    "and they don't reconcile. Be concise and friendly. Money is in £; distances are already "
+    "in the user's units. Today is {today}.\n\nSNAPSHOT:\n{snapshot}"
 )
 
 
