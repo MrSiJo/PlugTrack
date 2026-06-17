@@ -36,6 +36,16 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 # Catalogue lookup keyed by `key` for O(1) access.
 _CATALOGUE_BY_KEY = {entry.key: entry for entry in CATALOGUE}
 
+# Settings whose change must reconcile the live Telegram bot manager.
+_RECONCILE_KEYS = {
+    "telegram_bot_enabled",
+    "telegram_bot_token",
+    "telegram_allowed_user_ids",
+    "telegram_default_car_id",
+    "openai_api_key",
+    "openai_model",
+}
+
 
 class SettingPayload(BaseModel):
     key: str
@@ -111,6 +121,15 @@ async def update_setting(
 
     row.value = new_value
     await session.commit()
+
+    # When a Telegram/OpenAI key that affects the running bot changes,
+    # reconcile the live TelegramBotManager so start/stop/restart happen
+    # without a redeploy. PUT updates one key per call, so the changed-key
+    # set is just {body.key}.
+    if body.key in _RECONCILE_KEYS:
+        mgr = getattr(request.app.state, "telegram_manager", None)
+        if mgr is not None:
+            await mgr.reconcile()
 
     # Phase 5.4: when the user re-saves a cupra_* credential we wipe the
     # in-memory adapter cache, clear the auth_invalid flag for every car

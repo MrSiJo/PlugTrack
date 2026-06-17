@@ -35,6 +35,9 @@ class ScreenshotImport(Base):
     created_session_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("charging_session.id"), nullable=True
     )
+    input_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    reasoning_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
