@@ -17,10 +17,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from ...db import get_db
+from ...models import Car
 from ...services.event_bus import get_event_bus
 
 
@@ -38,6 +42,20 @@ def _user_id(request: Request) -> int:
     return user_id
 
 
+async def _assert_owns_car(session: AsyncSession, car_id: int, user_id: int) -> None:
+    """Defense-in-depth IDOR guard: 404 unless `car_id` belongs to the user.
+
+    Mirrors `cars.py:_get_owned` — multi-user isolation is enforced at the
+    query level, so the sync routes must scope by user_id like every other
+    route does, not merely require a logged-in user.
+    """
+    result = await session.execute(
+        select(Car.id).where(Car.id == car_id, Car.user_id == user_id)
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="car not found")
+
+
 def _orchestrator(request: Request):
     orch = getattr(request.app.state, "sync_orchestrator", None)
     if orch is None:
@@ -46,12 +64,18 @@ def _orchestrator(request: Request):
 
 
 @router.post("/{car_id}")
-async def force_sync(car_id: int, request: Request) -> JSONResponse:
-    _user_id(request)
+async def force_sync(
+    car_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    user_id = _user_id(request)
+    await _assert_owns_car(session, car_id, user_id)
     orch = _orchestrator(request)
 
     existing = orch.active_job(car_id)
     if existing is not None:
+        orch.register_job_owner(existing.job_id, user_id)
         return JSONResponse(
             status_code=202,
             content={
@@ -94,6 +118,7 @@ async def force_sync(car_id: int, request: Request) -> JSONResponse:
                 status_code=500,
                 content={"detail": "failed to start sync"},
             )
+        orch.register_job_owner(active.job_id, user_id)
         return JSONResponse(
             status_code=202,
             content={
@@ -107,6 +132,7 @@ async def force_sync(car_id: int, request: Request) -> JSONResponse:
     handle = job[0]
     # Don't await the task — let the orchestrator finish in the background.
     _ = task
+    orch.register_job_owner(handle.job_id, user_id)
     return JSONResponse(
         status_code=200,
         content={
@@ -120,7 +146,15 @@ async def force_sync(car_id: int, request: Request) -> JSONResponse:
 
 @router.get("/stream/{job_id}")
 async def stream_events(job_id: str, request: Request):
-    _user_id(request)
+    user_id = _user_id(request)
+    orch = _orchestrator(request)
+    # Ownership gate: a user may only subscribe to a job they started.
+    # Unknown job_ids (incl. periodic/system jobs that were never
+    # registered) and jobs owned by another user are indistinguishable
+    # from "not found" to the caller.
+    owner = orch.job_owner(job_id)
+    if owner != user_id:
+        raise HTTPException(status_code=404, detail="job not found")
     bus = get_event_bus()
 
     async def _events():

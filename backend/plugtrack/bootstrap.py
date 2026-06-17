@@ -42,7 +42,9 @@ class Settings(BaseSettings):
 
     session_cookie_name: str = Field(default="plugtrack_session")
     csrf_cookie_name: str = Field(default="plugtrack_csrf")
-    cookie_secure: bool = Field(default=False, alias="COOKIE_SECURE")
+    # Secure-by-default: the Set-Cookie Secure flag is on unless explicitly
+    # disabled via COOKIE_SECURE=false for plain-HTTP localhost dev.
+    cookie_secure: bool = Field(default=True, alias="COOKIE_SECURE")
     session_max_age_seconds: int = Field(default=86400 * 7)
 
     @field_validator("app_secret_key")

@@ -80,6 +80,16 @@ async def client(app):
 def _isolate_env(monkeypatch):
     monkeypatch.setenv("APP_SECRET_KEY", "test-secret-key-for-tests-only-padding-padding")
     monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+    # cookie_secure now defaults to True (secure-by-default). The test client
+    # talks plain HTTP to http://testserver, where httpx won't store/send
+    # Secure cookies — so the primed CSRF cookie would never come back and
+    # every CSRF-protected POST would 403. Pin the localhost-dev default here.
+    monkeypatch.setenv("COOKIE_SECURE", "false")
+    # Settings are lru_cached; clear so the env above is honoured per test
+    # regardless of import/cache order.
+    from plugtrack.bootstrap import get_settings
+
+    get_settings.cache_clear()
     yield
 
 

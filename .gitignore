@@ -123,6 +123,10 @@ scripts/probe_output/
 # pycupra runtime cache (token + per-VIN car images) — local only, contains VIN/PII.
 www/
 
+# pycupra OAuth token cache + credentials — local only, never commit (PII/secrets).
+pycupra_data/
+*pycupra_credentials.json
+
 # Python (additional)
 .ruff_cache/
 .mypy_cache/

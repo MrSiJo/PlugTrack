@@ -8,6 +8,7 @@ single-user app shape better than soft-deleting.
 """
 from __future__ import annotations
 
+import logging
 import os
 from datetime import date as date_cls
 from pathlib import Path
@@ -22,6 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...db import get_db
 from ...models import Car
 from ...services import mileage_tracking
+
+
+logger = logging.getLogger(__name__)
 
 
 # pycupra hard-codes images at `<base>/pycupra/image_<vin>_<view>.png`
@@ -105,10 +109,10 @@ class DiscoveredVehicle(BaseModel):
     year: Optional[str] = None
 
 
-@router.get("/discover", response_model=list[DiscoveredVehicle])
+@router.post("/discover", response_model=list[DiscoveredVehicle])
 async def discover_vehicles(
     request: Request,
-    session: AsyncSession = Depends(get_db),  # noqa: ARG001 — needed for auth
+    session: AsyncSession = Depends(get_db),
 ) -> list[DiscoveredVehicle]:
     """Authenticate against Cupra Connect with saved creds and list VINs.
 
@@ -118,7 +122,9 @@ async def discover_vehicles(
     "Provider vehicle ID" picker on the Cars page so users don't need
     to look up the VIN manually.
 
-    Auth required (handled by AuthMiddleware). No CSRF (GET).
+    POST (not GET) because it performs a side-effecting upstream login
+    against Cupra Connect, so it must be CSRF-protected like every other
+    state-changing call. Auth + CSRF are enforced by the middleware.
     """
     _user_id(request)
 
@@ -151,7 +157,10 @@ async def discover_vehicles(
         password = decrypt_secret(p_raw, secret)
         spin = decrypt_secret(s_raw, secret) if s_raw else None
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"failed to decrypt credentials: {exc}") from exc
+        logger.exception("Failed to decrypt Cupra credentials during discovery")
+        raise HTTPException(
+            status_code=500, detail="failed to decrypt stored credentials"
+        ) from exc
 
     token_dir = Path(_get_settings().data_dir) / "pycupra"
     try:
@@ -160,7 +169,8 @@ async def discover_vehicles(
             token_dir=token_dir,
         )
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Cupra auth failed: {exc}") from exc
+        logger.exception("Cupra authentication failed during discovery")
+        raise HTTPException(status_code=502, detail="vehicle discovery failed") from exc
 
     if not getattr(connection, "_user_id", None):
         raise HTTPException(
@@ -171,7 +181,8 @@ async def discover_vehicles(
     try:
         await connection.get_vehicles()
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"get_vehicles failed: {exc}") from exc
+        logger.exception("Cupra get_vehicles failed during discovery")
+        raise HTTPException(status_code=502, detail="vehicle discovery failed") from exc
 
     out: list[DiscoveredVehicle] = []
     raw = getattr(connection, "_vehicles", None)
