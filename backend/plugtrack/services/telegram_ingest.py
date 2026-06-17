@@ -106,12 +106,44 @@ def _summarise(merged: list[MergedSession]) -> str:
     return "\n".join(lines)
 
 
+def _committed_dupe_text(ctx: IngestContext, existing: "ScreenshotImport") -> str:
+    sid = existing.created_session_id
+    when = existing.created_at.strftime("%d %b") if existing.created_at else ""
+    msg = "⚠️ Looks like I've already saved this screenshot"
+    if sid:
+        msg += f" (session #{sid}{', ' + when if when else ''})"
+    msg += ". Re-sending a saved charge never duplicates it — edit the existing one instead"
+    if ctx.public_base_url and sid:
+        msg += f":\n{ctx.public_base_url.rstrip('/')}/sessions/{sid}"
+    else:
+        msg += "."
+    return msg
+
+
+async def _staged_rows(s, user_id):
+    return (
+        await s.execute(
+            select(ScreenshotImport).where(
+                ScreenshotImport.user_id == user_id,
+                ScreenshotImport.status == "staged",
+            )
+        )
+    ).scalars().all()
+
+
 async def _stage_and_card(
     ctx: IngestContext, *, user_id, chat_id, extraction, usage,
     telegram_file_id, message_id, sha,
 ) -> None:
+    """Single dedupe authority. By (user_id, sha) — which is UNIQUE:
+      - committed  -> warn, don't touch the saved row (commit guard also blocks dupes).
+      - staged     -> already in the current batch; re-show the card, no duplicate row.
+      - discarded  -> re-stage by REUSING the row (can't insert a 2nd same-sha row).
+      - none       -> insert a fresh staged row.
+    """
+    prefix = ""
     async with ctx.sessionmaker() as s:
-        exists = (
+        existing = (
             await s.execute(
                 select(ScreenshotImport).where(
                     ScreenshotImport.user_id == user_id,
@@ -119,26 +151,39 @@ async def _stage_and_card(
                 )
             )
         ).scalar_one_or_none()
-        if exists is not None:
-            await ctx.telegram.send_message(chat_id=chat_id, text="Already have that one.")
+
+        if existing is not None and existing.status == "committed":
+            await ctx.telegram.send_message(
+                chat_id=chat_id, text=_committed_dupe_text(ctx, existing))
             return
-        s.add(ScreenshotImport(
-            user_id=user_id, telegram_file_id=telegram_file_id,
-            telegram_message_id=message_id, image_sha256=sha,
-            source=extraction.source, extracted=extraction.__dict__, status="staged",
-            input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
-            reasoning_tokens=usage.reasoning_tokens))
-        await s.commit()
-        staged = (
-            await s.execute(
-                select(ScreenshotImport).where(
-                    ScreenshotImport.user_id == user_id,
-                    ScreenshotImport.status == "staged",
-                )
-            )
-        ).scalars().all()
+
+        if existing is not None and existing.status == "staged":
+            prefix = "That's already staged — use Save/Discard below.\n"
+        elif existing is not None:  # discarded -> reuse the row (unique sha)
+            existing.status = "staged"
+            existing.source = extraction.source
+            existing.extracted = extraction.__dict__
+            existing.input_tokens = usage.input_tokens
+            existing.output_tokens = usage.output_tokens
+            existing.reasoning_tokens = usage.reasoning_tokens
+            if telegram_file_id is not None:
+                existing.telegram_file_id = telegram_file_id
+            if message_id is not None:
+                existing.telegram_message_id = message_id
+            await s.commit()
+        else:  # new
+            s.add(ScreenshotImport(
+                user_id=user_id, telegram_file_id=telegram_file_id,
+                telegram_message_id=message_id, image_sha256=sha,
+                source=extraction.source, extracted=extraction.__dict__, status="staged",
+                input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+                reasoning_tokens=usage.reasoning_tokens))
+            await s.commit()
+
+        staged = await _staged_rows(s, user_id)
     merged = correlate([parse_extraction(r.extracted) for r in staged])
-    await ctx.telegram.send_message(chat_id=chat_id, text=_summarise(merged), reply_markup=_kb())
+    await ctx.telegram.send_message(
+        chat_id=chat_id, text=prefix + _summarise(merged), reply_markup=_kb())
 
 
 async def handle_photo(
@@ -152,18 +197,8 @@ async def handle_photo(
     image = await ctx.telegram.download_file(path)
     sha = hashlib.sha256(image).hexdigest()
 
-    async with ctx.sessionmaker() as s:
-        exists = (
-            await s.execute(
-                select(ScreenshotImport).where(
-                    ScreenshotImport.user_id == user_id, ScreenshotImport.image_sha256 == sha
-                )
-            )
-        ).scalar_one_or_none()
-        if exists is not None:
-            await ctx.telegram.send_message(chat_id=chat_id, text="Already have that screenshot.")
-            return
-
+    # Dedupe is resolved in _stage_and_card (committed -> warn, staged -> re-show,
+    # discarded -> re-stage, new -> insert), so it's the single source of truth.
     result = await ctx.extractor(image)
     extraction = result.extraction
     if caption and caption.strip() and not extraction.location_name:
