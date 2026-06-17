@@ -22,6 +22,15 @@ DEDUPE_TIME_MIN = 30
 DEDUPE_KWH_TOL = 0.5
 
 
+async def _distance_unit(session: AsyncSession) -> str:
+    """The user-facing distance unit ('mi'/'km') from settings; default 'mi'."""
+    from ..models import Setting
+    row = (
+        await session.execute(select(Setting).where(Setting.key == "distance_unit"))
+    ).scalar_one_or_none()
+    return (row.value or "mi").lower() if row and row.value else "mi"
+
+
 async def _is_duplicate(session: AsyncSession, *, car_id: int, merged: MergedSession) -> bool:
     lo = merged.start_at - timedelta(minutes=DEDUPE_TIME_MIN)
     hi = merged.start_at + timedelta(minutes=DEDUPE_TIME_MIN)
@@ -111,6 +120,14 @@ async def _build_session(
         cs.kwh_added = cs.kwh_calculated
 
     await _apply_cost(session, cs, user_id)
+
+    if merged.odometer is not None:
+        from .mileage_tracking import miles_to_km
+        unit = (merged.odometer_unit or await _distance_unit(session)).lower()
+        cs.odometer_at_session_km = (
+            miles_to_km(merged.odometer) if unit == "mi" else float(merged.odometer)
+        )
+
     return cs
 
 

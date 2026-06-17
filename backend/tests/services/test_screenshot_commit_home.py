@@ -77,3 +77,54 @@ async def test_network_charge_is_dc(test_sessionmaker, seeded_user_car):
         await s.commit(); await s.refresh(cs)
     assert cs.charging_type == "dc"
     assert cs.cost_basis == "override_total" and cs.cost_pence == 1706
+
+
+@pytest.mark.asyncio
+async def test_commit_sets_odometer_miles_to_km(test_sessionmaker, seeded_user_car):
+    user_id, car_id = seeded_user_car
+    await _set_home_rate(test_sessionmaker)
+    async with test_sessionmaker() as s:
+        cs = await commit_merged_session(
+            s, user_id=user_id, car_id=car_id,
+            merged=_merged(energy_kwh=9.3, location_name="home", odometer=12345, odometer_unit="mi"))
+        await s.commit(); await s.refresh(cs)
+    assert cs.odometer_at_session_km == pytest.approx(12345 * 1.609344)
+
+
+@pytest.mark.asyncio
+async def test_commit_respects_explicit_km(test_sessionmaker, seeded_user_car):
+    user_id, car_id = seeded_user_car
+    await _set_home_rate(test_sessionmaker)
+    async with test_sessionmaker() as s:
+        cs = await commit_merged_session(
+            s, user_id=user_id, car_id=car_id,
+            merged=_merged(energy_kwh=9.3, location_name="home", odometer=20000, odometer_unit="km"))
+        await s.commit(); await s.refresh(cs)
+    assert cs.odometer_at_session_km == pytest.approx(20000.0)
+
+
+@pytest.mark.asyncio
+async def test_commit_defaults_unit_from_setting(test_sessionmaker, seeded_user_car):
+    # distance_unit default is "mi" (seeded), so a bare number is treated as miles.
+    user_id, car_id = seeded_user_car
+    await _set_home_rate(test_sessionmaker)
+    async with test_sessionmaker() as s:
+        from plugtrack.settings.seeds import seed_defaults
+        await seed_defaults(s); await s.commit()
+    async with test_sessionmaker() as s:
+        cs = await commit_merged_session(
+            s, user_id=user_id, car_id=car_id,
+            merged=_merged(energy_kwh=9.3, location_name="home", odometer=12345, odometer_unit=None))
+        await s.commit(); await s.refresh(cs)
+    assert cs.odometer_at_session_km == pytest.approx(12345 * 1.609344)
+
+
+@pytest.mark.asyncio
+async def test_commit_no_odometer_leaves_field_unset(test_sessionmaker, seeded_user_car):
+    user_id, car_id = seeded_user_car
+    await _set_home_rate(test_sessionmaker)
+    async with test_sessionmaker() as s:
+        cs = await commit_merged_session(
+            s, user_id=user_id, car_id=car_id, merged=_merged())
+        await s.commit(); await s.refresh(cs)
+    assert cs.odometer_at_session_km is None
