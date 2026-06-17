@@ -15,7 +15,8 @@ from typing import Optional
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import ChargingSession
+from ..models import Car, ChargingSession
+from . import mileage_tracking
 from .mileage_tracking import KM_PER_MILE
 
 
@@ -171,6 +172,41 @@ async def _split_stats(
     )
 
 
+async def _mileage_stats(
+    session: AsyncSession, *, user_id: int, today: date, distance_unit: str
+) -> list[MileageStats]:
+    cars = (
+        await session.execute(
+            select(Car).where(Car.user_id == user_id, Car.active == True)  # noqa: E712
+        )
+    ).scalars().all()
+    out: list[MileageStats] = []
+    for car in cars:
+        status = await mileage_tracking.get_status(
+            session, user_id=user_id, car_id=car.id, today=today
+        )
+        cp = status.current_period
+        if cp is None:
+            continue
+        this_year_km = max(0.0, cp.current_odometer_km - cp.opening_odometer_km)
+        days = (today - cp.period_start_date).days
+        pace: Optional[str] = None
+        if days > 0:
+            annual_km = this_year_km / days * 365
+            pace = f"on pace for {_dist(annual_km, distance_unit)}"
+        target: Optional[str] = None
+        if cp.annual_mileage_target_km is not None:
+            target = f"{_dist(cp.annual_mileage_target_km, distance_unit)}/yr target"
+        out.append(MileageStats(
+            car_label=f"{car.make} {car.model}".strip(),
+            current=_dist(cp.current_odometer_km, distance_unit),
+            this_year=f"{_dist(this_year_km, distance_unit)} this tracking year",
+            target=target,
+            pace=pace,
+        ))
+    return out
+
+
 async def build_usage_snapshot(
     session: AsyncSession, *, user_id: int, today: date, distance_unit: str
 ) -> UsageSnapshot:
@@ -185,4 +221,7 @@ async def build_usage_snapshot(
         snap.splits.append(
             await _split_stats(session, user_id=user_id, label=label, lo=lo, hi=hi)
         )
+    snap.mileage = await _mileage_stats(
+        session, user_id=user_id, today=today, distance_unit=distance_unit
+    )
     return snap
