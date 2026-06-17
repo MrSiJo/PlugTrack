@@ -60,3 +60,18 @@ def test_merge_carries_odometer():
     assert len(sessions) == 1
     assert sessions[0].odometer == 12345
     assert sessions[0].odometer_unit == "mi"
+
+
+def test_merge_carries_location_short_name():
+    from plugtrack.services.screenshot_extraction import Extraction
+    from plugtrack.services.screenshot_correlation import correlate_batch
+    e = Extraction(
+        source="osprey", has_cost=True, energy_kwh=9.78, cost_total_pence=851,
+        cost_per_kwh_pence=None, start_at="2026-06-12T10:00:00+00:00",
+        end_at="2026-06-12T10:30:00+00:00", soc_start=None, soc_end=None,
+        location_name="Land's End Car Park, Penzance", location_address="Land's End, TR19 7AA",
+        network="Osprey", peak_kw=None, confidence=0.9,
+        location_short_name="Osprey Land's End",
+    )
+    sessions, _ = correlate_batch([e])
+    assert sessions[0].location_short_name == "Osprey Land's End"
