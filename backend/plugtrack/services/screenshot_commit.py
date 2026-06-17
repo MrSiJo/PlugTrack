@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import ChargingSession
@@ -42,6 +42,23 @@ async def _is_duplicate(session: AsyncSession, *, car_id: int, merged: MergedSes
     return False
 
 
+async def match_location_by_name(
+    session: AsyncSession, *, user_id: int, name: Optional[str]
+) -> Optional[int]:
+    if not name or not name.strip():
+        return None
+    from ..models import Location
+    row = (
+        await session.execute(
+            select(Location.id).where(
+                Location.user_id == user_id,
+                func.lower(Location.name) == name.strip().lower(),
+            )
+        )
+    ).scalar_one_or_none()
+    return row
+
+
 async def commit_merged_session(
     session: AsyncSession, *, user_id: int, car_id: int, merged: MergedSession
 ) -> Optional[ChargingSession]:
@@ -49,6 +66,15 @@ async def commit_merged_session(
         return None
 
     from ..api.routes.sessions import _apply_cost, _derive_kwh_calculated  # reuse
+
+    has_network = bool(merged.network) or merged.cost_total_pence is not None
+    has_soc = merged.soc_start is not None or merged.soc_end is not None
+    if has_network:
+        charging_type = "dc"
+    elif has_soc:
+        charging_type = "ac"        # home / AC
+    else:
+        charging_type = "unknown"
 
     label = merged.location_name
     notes = merged.location_address
@@ -61,7 +87,7 @@ async def commit_merged_session(
         start_soc=merged.soc_start if merged.soc_start is not None else 0,
         end_soc=merged.soc_end if merged.soc_end is not None else 0,
         kwh_added=merged.energy_kwh if merged.energy_kwh is not None else 0.0,
-        charging_type="public_dc",
+        charging_type=charging_type,
         charging_mode="unknown",
         total_cost_pence_override=merged.cost_total_pence,
         cost_per_kwh_override_p=(
@@ -73,7 +99,16 @@ async def commit_merged_session(
         power_curve=None,
         source="import",
     )
+
+    # Match a named location (e.g. caption "home") for rate-based costing.
+    cs.location_id = await match_location_by_name(session, user_id=user_id, name=merged.location_name)
+
+    # Banked energy from SoC (kwh_calculated). For home/metered-less charges,
+    # promote it to kwh_added so cost (delivered-based) and totals work.
     await _derive_kwh_calculated(session, cs)
+    if (cs.kwh_added is None or cs.kwh_added == 0.0) and cs.kwh_calculated:
+        cs.kwh_added = cs.kwh_calculated
+
     await _apply_cost(session, cs, user_id)
     session.add(cs)
     await session.flush()
