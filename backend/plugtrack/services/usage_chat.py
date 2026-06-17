@@ -27,8 +27,9 @@ USAGE_SYSTEM_PROMPT = (
     "30 / 60 / 90 days, year to date, or lifetime. Note: some charges may be unclassified, "
     "so the home and public split need "
     "not add up to the total spend — say so if the user asks for a home-vs-public breakdown "
-    "and they don't reconcile. Be concise and friendly. Money is in £; distances are already "
-    "in the user's units. Today is {today}.\n\nSNAPSHOT:\n{snapshot}"
+    "and they don't reconcile. Be concise and friendly. Reply in PLAIN TEXT — no Markdown, "
+    "asterisks, bullets, or other formatting (the chat shows it literally). Money is in £; "
+    "distances are already in the user's units. Today is {today}.\n\nSNAPSHOT:\n{snapshot}"
 )
 
 
