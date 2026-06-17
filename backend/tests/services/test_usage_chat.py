@@ -15,6 +15,7 @@ def test_payload_grounds_on_snapshot_and_question():
     assert "£42.18" in p["instructions"]                    # snapshot embedded
     assert "only" in p["instructions"].lower()              # grounding instruction present
     assert "need not add up" in p["instructions"]           # home/public split caveat present
+    assert "plain text" in p["instructions"].lower()         # no-markdown instruction present
     parts = p["input"][0]["content"]
     assert any("spend this month?" in c.get("text", "") for c in parts)
 
