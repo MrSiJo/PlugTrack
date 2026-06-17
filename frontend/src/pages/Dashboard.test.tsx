@@ -104,6 +104,10 @@ function fixtureSummary(): DashboardSummary {
         total_cost_pence: 14_000,
       },
     ],
+    cost_per_mile: {
+      lifetime_pence: 8.5,
+      rolling_30d_pence: 9.2,
+    },
   }
 }
 
@@ -242,12 +246,44 @@ describe('Dashboard page', () => {
     expect(screen.getByTestId('lifetime-cost')).toHaveTextContent('£899.00')
   })
 
+  it('shows cost per mile with lifetime headline and a 30-day sub-line', async () => {
+    vi.spyOn(api, 'getDashboard').mockResolvedValue(fixtureSummary())
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('lifetime-cost-per-mile')).toBeInTheDocument(),
+    )
+    const tile = screen.getByTestId('lifetime-cost-per-mile')
+    expect(tile).toHaveTextContent('8.5 p/mi')
+    expect(tile).toHaveTextContent('30d 9.2 p/mi')
+  })
+
+  it('shows a dash for cost per mile when odometer coverage is missing', async () => {
+    vi.spyOn(api, 'getDashboard').mockResolvedValue({
+      ...fixtureSummary(),
+      cost_per_mile: { lifetime_pence: null, rolling_30d_pence: null },
+    })
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('lifetime-cost-per-mile')).toBeInTheDocument(),
+    )
+    expect(screen.getByTestId('lifetime-cost-per-mile')).toHaveTextContent('—')
+  })
+
   it('shows an empty state when the dashboard is empty', async () => {
     vi.spyOn(api, 'getDashboard').mockResolvedValue({
       cars: [],
       recent_sessions: [],
       lifetime_totals: { kwh: 0, cost_pence: 0, distance_km: 0, sessions_count: 0 },
       top_locations: [],
+      cost_per_mile: { lifetime_pence: null, rolling_30d_pence: null },
     })
     render(
       <MemoryRouter>
