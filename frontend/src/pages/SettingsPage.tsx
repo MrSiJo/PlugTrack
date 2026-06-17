@@ -4,6 +4,8 @@ import {
   ApiError,
   api,
   type CarPayload,
+  type HealthReport,
+  type OpenAiModelsResponse,
   type SettingPayload,
   type SyncStatusResponse,
 } from '@/api/client'
@@ -176,10 +178,95 @@ export default function SettingsPage() {
             ))}
             {activeTab === 'cupra_connect' && <ClearTokensButton />}
             {activeTab === 'sync' && pycupraEnabled && <SyncControlsPanel />}
+            {(activeTab === 'telegram' || activeTab === 'openai') && <TestConnectionPanel />}
           </div>
         </section>
       )}
     </div>
+  )
+}
+
+export function TestConnectionPanel() {
+  const [report, setReport] = useState<HealthReport | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  async function run() {
+    setBusy(true)
+    setErr(null)
+    try {
+      setReport(await api.testTelegram())
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Test failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+      <button
+        type="button"
+        onClick={run}
+        disabled={busy}
+        className="rounded bg-indigo-600 px-3 py-1 text-sm text-white disabled:opacity-50"
+      >
+        {busy ? 'Testing…' : 'Test connection'}
+      </button>
+      {err && <p role="alert" className="mt-2 text-xs text-red-600">{err}</p>}
+      {report && (
+        <ul className="mt-2 space-y-1 text-sm">
+          {report.checks.map((c) => (
+            <li key={c.name} className={c.ok ? 'text-emerald-600' : 'text-red-600'}>
+              {c.ok ? '✓' : '✗'} {c.name}: {c.detail}
+            </li>
+          ))}
+          {report.usage_this_month && (
+            <li className="text-slate-500">
+              📊 This month:{' '}
+              {report.usage_this_month.input_tokens + report.usage_this_month.output_tokens} tokens
+              {report.usage_this_month.cost_pence != null &&
+                ` · £${(report.usage_this_month.cost_pence / 100).toFixed(2)}`}
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+export function ModelSelect({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (v: string) => void
+}) {
+  const [data, setData] = useState<OpenAiModelsResponse | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    api.getOpenAiModels().then(setData).catch(() => setFailed(true))
+  }, [])
+  if (failed || !data) {
+    return (
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={failed ? 'Save your OpenAI key first, then reload' : 'Loading models…'}
+        className="w-full rounded border border-slate-300 px-3 py-1 text-sm dark:border-slate-700 dark:bg-slate-800"
+      />
+    )
+  }
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full rounded border border-slate-300 px-3 py-1 text-sm dark:border-slate-700 dark:bg-slate-800"
+    >
+      {data.models.map((m) => (
+        <option key={m.id} value={m.id}>
+          {m.recommended ? `⭐ ${m.id}` : m.id}
+        </option>
+      ))}
+    </select>
   )
 }
 
@@ -566,6 +653,10 @@ function SettingInput({ id, entry, value, onChange }: SettingInputProps) {
         className={baseClass}
       />
     )
+  }
+
+  if (entry.key === 'openai_model') {
+    return <ModelSelect value={value} onChange={onChange} />
   }
 
   // string (possibly secret).
