@@ -38,12 +38,15 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
             "location_address": {"type": ["string", "null"]},
             "network": {"type": ["string", "null"]},
             "peak_kw": {"type": ["number", "null"]},
+            "odometer": {"type": ["number", "null"]},
+            "odometer_unit": {"type": ["string", "null"]},
             "confidence": {"type": "number"},
         },
         "required": [
             "source", "has_cost", "energy_kwh", "cost_total_pence",
             "cost_per_kwh_pence", "start_at", "end_at", "soc_start", "soc_end",
-            "location_name", "location_address", "network", "peak_kw", "confidence",
+            "location_name", "location_address", "network", "peak_kw",
+            "odometer", "odometer_unit", "confidence",
         ],
     },
 }
@@ -59,7 +62,10 @@ SYSTEM_PROMPT = (
     "state-of-charge, cost, or location (set source='granny'). Set has_cost true only "
     "if a monetary total is visible. Convert all money to integer pence. Use ISO 8601 "
     "for times, inferring the date shown. Null any field not present. confidence is "
-    "0..1 for your overall read."
+    "0..1 for your overall read. "
+    "If an odometer / mileage reading is visible (e.g. a MyCupra vehicle status "
+    "screen), put the number in odometer and its unit ('mi' or 'km') in odometer_unit "
+    "if shown; otherwise null both. "
 )
 
 TEXT_SYSTEM_PROMPT = (
@@ -71,7 +77,12 @@ TEXT_SYSTEM_PROMPT = (
     "bare duration with no clock time leaves start_at/end_at null. There is no SoC or "
     "cost in such notes unless explicitly stated. Null anything absent. If the text is "
     "NOT a charging note (e.g. a question or chit-chat), return confidence 0 with all "
-    "fields null. source='text'."
+    "fields null. source='text'. "
+    "A number with a 'mi'/'miles'/'km' suffix or an explicit 'odo'/'mileage' word is an "
+    "odometer reading: put the number in odometer and the unit in odometer_unit. Only set "
+    "odometer when such a suffix or word is present, so you never mistake the energy value "
+    "(e.g. the 9.3 of '9.3kwh') for mileage. If an odometer number has no unit suffix, set "
+    "odometer and leave odometer_unit null. "
 )
 
 
@@ -91,6 +102,8 @@ class Extraction:
     network: Optional[str]
     peak_kw: Optional[float]
     confidence: float
+    odometer: Optional[float] = None
+    odometer_unit: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -148,6 +161,8 @@ def parse_extraction(raw: dict[str, Any]) -> Extraction:
         network=raw.get("network"),
         peak_kw=raw.get("peak_kw"),
         confidence=float(raw.get("confidence") or 0.0),
+        odometer=raw.get("odometer"),
+        odometer_unit=raw.get("odometer_unit"),
     )
 
 

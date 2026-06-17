@@ -94,3 +94,25 @@ async def test_call_openai_raises_on_incomplete():
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
         with pytest.raises(RuntimeError, match="incomplete"):
             await call_openai(b"img", api_key="sk-x", model="gpt-5-mini", client=c)
+
+
+def test_schema_has_odometer_fields():
+    from plugtrack.services.screenshot_extraction import EXTRACTION_SCHEMA
+    props = EXTRACTION_SCHEMA["schema"]["properties"]
+    assert props["odometer"] == {"type": ["number", "null"]}
+    assert props["odometer_unit"] == {"type": ["string", "null"]}
+    req = EXTRACTION_SCHEMA["schema"]["required"]
+    assert "odometer" in req and "odometer_unit" in req
+
+
+def test_parse_extraction_reads_odometer():
+    from plugtrack.services.screenshot_extraction import parse_extraction
+    e = parse_extraction({"source": "text", "odometer": 12345, "odometer_unit": "mi"})
+    assert e.odometer == 12345
+    assert e.odometer_unit == "mi"
+
+
+def test_parse_extraction_odometer_defaults_none():
+    from plugtrack.services.screenshot_extraction import parse_extraction
+    e = parse_extraction({"source": "text"})
+    assert e.odometer is None and e.odometer_unit is None
