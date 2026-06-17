@@ -120,6 +120,57 @@ async def _window_stats(
     )
 
 
+def _over(pence: Optional[int], kwh: Optional[float]) -> str:
+    return f"{_gbp(int(pence or 0))} over {_kwh(float(kwh or 0.0))}"
+
+
+async def _split_stats(
+    session: AsyncSession, *, user_id: int, label: str,
+    lo: Optional[date], hi: Optional[date],
+) -> SplitStats:
+    def _scoped(stmt):
+        stmt = stmt.where(*_base_filter(user_id))
+        if lo is not None:
+            stmt = stmt.where(ChargingSession.date >= lo, ChargingSession.date <= hi)
+        return stmt
+
+    # home = ac, public = dc
+    type_stmt = _scoped(
+        select(
+            ChargingSession.charging_type,
+            func.coalesce(func.sum(ChargingSession.cost_pence), 0),
+            func.coalesce(func.sum(ChargingSession.kwh_added), 0.0),
+        ).group_by(ChargingSession.charging_type)
+    )
+    home_p = home_k = pub_p = pub_k = 0
+    for ctype, cost, kwh in (await session.execute(type_stmt)).all():
+        if ctype == "ac":
+            home_p, home_k = int(cost or 0), float(kwh or 0.0)
+        elif ctype == "dc":
+            pub_p, pub_k = int(cost or 0), float(kwh or 0.0)
+
+    net_stmt = _scoped(
+        select(
+            ChargingSession.charge_network,
+            func.coalesce(func.sum(ChargingSession.cost_pence), 0),
+            func.coalesce(func.sum(ChargingSession.kwh_added), 0.0),
+        )
+        .where(ChargingSession.charging_type == "dc",
+               ChargingSession.charge_network.isnot(None))
+        .group_by(ChargingSession.charge_network)
+    )
+    by_network: dict[str, str] = {}
+    for net, cost, kwh in (await session.execute(net_stmt)).all():
+        by_network[str(net)] = _over(cost, kwh)
+
+    return SplitStats(
+        label=label,
+        home=_over(home_p, home_k),
+        public=_over(pub_p, pub_k),
+        by_network=by_network,
+    )
+
+
 async def build_usage_snapshot(
     session: AsyncSession, *, user_id: int, today: date, distance_unit: str
 ) -> UsageSnapshot:
@@ -127,5 +178,11 @@ async def build_usage_snapshot(
     for label, lo, hi in _window_bounds(today):
         snap.windows.append(
             await _window_stats(session, user_id=user_id, label=label, lo=lo, hi=hi)
+        )
+    bounds = {label: (lo, hi) for label, lo, hi in _window_bounds(today)}
+    for label in ("this month", "lifetime"):
+        lo, hi = bounds[label]
+        snap.splits.append(
+            await _split_stats(session, user_id=user_id, label=label, lo=lo, hi=hi)
         )
     return snap
