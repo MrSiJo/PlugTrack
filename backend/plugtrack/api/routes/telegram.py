@@ -32,7 +32,11 @@ async def telegram_test(request: Request) -> dict:
     mgr = getattr(request.app.state, "telegram_manager", None)
     if mgr is None:
         raise HTTPException(status_code=503, detail="bot manager not available")
-    report = await mgr.health(requesting_user_id=request.state.user_id)
+    # A web caller has no Telegram identity — its PlugTrack user id is NOT a
+    # Telegram user id, so we don't run an allowlist *membership* check here
+    # (that would be a guaranteed false negative). The in-chat /test command
+    # passes the real Telegram from_id for a true membership check.
+    report = await mgr.health(requesting_user_id=None)
     return {
         "all_ok": report.all_ok,
         "checks": [asdict(c) for c in report.checks],

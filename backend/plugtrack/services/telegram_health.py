@@ -54,11 +54,19 @@ async def _month_usage(sessionmaker, *, now: datetime, config: Optional[BotConfi
     return UsageSummary(input_tokens=it, output_tokens=ot, reasoning_tokens=rt, cost_pence=cost)
 
 
+# Config-problem reasons already covered by the dedicated Telegram/OpenAI
+# checks below — don't duplicate them as generic "Config" ✗ lines.
+_COVERED_REASONS = {"telegram_bot_token not set", "openai_api_key not set"}
+
+
 async def build_health_report(
     *,
-    config_or_problem,
-    telegram,
+    token: Optional[str],
+    openai_key: Optional[str],
+    model: Optional[str],
+    make_telegram_client: Callable[[str], Any],
     openai_validate: Callable[[str], Awaitable[tuple[bool, str]]],
+    config_or_problem,
     sessionmaker,
     is_running: bool,
     requesting_user_id: Optional[int] = None,
@@ -67,30 +75,50 @@ async def build_health_report(
     checks: list[Check] = []
     config = config_or_problem if isinstance(config_or_problem, BotConfig) else None
 
-    # Telegram
-    try:
-        me = await telegram.get_me()
-        uname = me.get("username")
-        checks.append(Check("Telegram", True, f"connected as @{uname}" if uname else "connected"))
-    except Exception as exc:  # noqa: BLE001
-        checks.append(Check("Telegram", False, f"failed: {exc}"))
-
-    # OpenAI
-    if config:
-        ok, detail = await openai_validate(config.openai_key)
-        checks.append(Check("OpenAI", ok, f"{detail} ({config.model})" if ok else detail))
+    # Telegram — validate the configured token directly via getMe, regardless
+    # of whether the long-poll bot is currently running. This makes Test a
+    # real diagnostic *during setup* (before the bot can start).
+    if token:
+        client = make_telegram_client(token)
+        try:
+            me = await client.get_me()
+            uname = me.get("username")
+            checks.append(Check("Telegram", True, f"connected as @{uname}" if uname else "connected"))
+        except Exception as exc:  # noqa: BLE001
+            checks.append(Check("Telegram", False, f"token check failed: {exc}"))
+        finally:
+            aclose = getattr(client, "aclose", None)
+            if aclose is not None:
+                try:
+                    await aclose()
+                except Exception:  # noqa: BLE001
+                    pass
     else:
-        checks.append(Check("OpenAI", False, "key not configured"))
+        checks.append(Check("Telegram", False, "bot token not set"))
 
-    # Config-derived checks
+    # OpenAI — validate the configured key directly, independent of whether
+    # the rest of the config assembled.
+    if openai_key:
+        ok, detail = await openai_validate(openai_key)
+        checks.append(Check("OpenAI", ok, f"{detail} ({model})" if (ok and model) else detail))
+    else:
+        checks.append(Check("OpenAI", False, "API key not set"))
+
+    # Default car + allowlist (only meaningful once the full config assembled).
     if config:
         checks.append(Check("Default car", True, f"car id {config.car_id}"))
+        # A web/UI caller has no Telegram identity, so requesting_user_id is
+        # None there and we only confirm the allowlist is configured. The
+        # in-chat /test command passes the real Telegram from_id for a true
+        # membership check.
         allow_ok = requesting_user_id is None or requesting_user_id in config.allowed
         detail = "configured" if requesting_user_id is None else (
             "you are on the allowlist" if allow_ok else "you are NOT on the allowlist")
         checks.append(Check("Allowlist", allow_ok, detail))
     else:
         for reason in config_or_problem.reasons:
+            if reason in _COVERED_REASONS:
+                continue
             checks.append(Check("Config", False, reason))
 
     checks.append(Check("Bot running", is_running, "yes" if is_running else "no"))

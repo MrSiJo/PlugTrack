@@ -15,7 +15,7 @@ from typing import Optional
 from .openai_admin import validate_key
 from .telegram_health import HealthReport, build_health_report
 from .telegram_ingest import (
-    BotConfig, build_ingest_context, load_bot_config, run_bot,
+    BotConfig, build_ingest_context, load_bot_config, read_raw_credentials, run_bot,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,16 +77,18 @@ class TelegramBotManager:
             await self._stop_locked()
 
     async def health(self, requesting_user_id: Optional[int] = None) -> HealthReport:
+        from .telegram_client import TelegramClient
+
         cfg = await load_bot_config(self._sessionmaker)
-        telegram = self._ctx.telegram if self._ctx is not None else _StubTg()
+        # Read the raw token/key/model from settings so the health report can
+        # validate them DIRECTLY — even when the full config doesn't assemble
+        # or the bot isn't running (the common case during setup).
+        token, openai_key, model = await read_raw_credentials(self._sessionmaker)
         return await build_health_report(
-            config_or_problem=cfg, telegram=telegram, openai_validate=validate_key,
-            sessionmaker=self._sessionmaker, is_running=self.is_running,
-            requesting_user_id=requesting_user_id, now=datetime.now(timezone.utc),
+            token=token, openai_key=openai_key, model=model,
+            make_telegram_client=lambda t: TelegramClient(token=t),
+            openai_validate=validate_key,
+            config_or_problem=cfg, sessionmaker=self._sessionmaker,
+            is_running=self.is_running, requesting_user_id=requesting_user_id,
+            now=datetime.now(timezone.utc),
         )
-
-
-class _StubTg:
-    """Used for health when the bot isn't running — getMe via a throwaway client."""
-    async def get_me(self):
-        raise RuntimeError("bot not running")
