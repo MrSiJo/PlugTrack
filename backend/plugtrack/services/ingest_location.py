@@ -25,6 +25,17 @@ logger = logging.getLogger(__name__)
 
 _FILLER = {"nt", "car", "park", "the", "uk"}
 
+# UK postcode (e.g. "PL16 0AA", "TR15 3GF"); used as a geocode fallback because
+# Nominatim often misses a full address but resolves the bare postcode.
+_UK_POSTCODE_RE = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b", re.IGNORECASE)
+
+
+def _extract_uk_postcode(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return None
+    m = _UK_POSTCODE_RE.search(text)
+    return m.group(1).upper() if m else None
+
 
 def _normalise_network(network: Optional[str]) -> Optional[str]:
     if not network:
@@ -145,10 +156,22 @@ async def resolve_ingested_location(
 ) -> Optional[int]:
     if provider is None:
         provider = get_provider(await _geocoding_settings(session))
-    query = (address or raw_label or "").strip()
-    if not query:
-        return None
-    result = await provider.forward(query)
+    # Try the full address first, then a UK postcode pulled from it (Nominatim
+    # often misses an address with ", United Kingdom," embedded but nails the
+    # bare postcode), then the raw place label. First hit wins.
+    candidates: list[str] = []
+    if address and address.strip():
+        candidates.append(address.strip())
+    postcode = _extract_uk_postcode(address) or _extract_uk_postcode(raw_label)
+    if postcode:
+        candidates.append(postcode)
+    if raw_label and raw_label.strip():
+        candidates.append(raw_label.strip())
+    result = None
+    for query in dict.fromkeys(candidates):  # dedupe, preserve order
+        result = await provider.forward(query)
+        if result is not None:
+            break
     if result is None:
         return None
     loc, created = await find_or_create_location(

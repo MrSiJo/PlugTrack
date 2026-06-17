@@ -19,11 +19,52 @@ class FakeProvider:
         return None
 
 
+class MapProvider:
+    """Geocoder fake that maps specific query strings to results (else None)."""
+    def __init__(self, mapping):
+        self.mapping = mapping
+        self.queries = []
+    async def forward(self, query):
+        self.queries.append(query)
+        return self.mapping.get(query)
+    async def reverse(self, lat, lng):
+        return None
+
+
 def test_compose_name_normalises_network_and_place():
     assert compose_location_name("Tesla Supercharging", "Camborne, UK") == "Tesla Camborne"
     assert compose_location_name("Supercharging", "Lifton") == "Tesla Lifton"
     assert compose_location_name("RAW Charging", "RAW NT TRENGWAINTON 2") == "RAW Trengwainton"
     assert compose_location_name(None, "Lands End") == "Lands End"
+
+
+def test_extract_uk_postcode():
+    from plugtrack.services.ingest_location import _extract_uk_postcode
+    assert _extract_uk_postcode("1 Fore Street, Lifton, United Kingdom, PL16 0AA") == "PL16 0AA"
+    assert _extract_uk_postcode("Trevenson Lane, Redruth, TR15 3GF") == "TR15 3GF"
+    assert _extract_uk_postcode("no postcode here") is None
+    assert _extract_uk_postcode(None) is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_falls_back_to_postcode_when_address_misses(test_sessionmaker, seeded_user_car):
+    # Full address with embedded ", United Kingdom," misses Nominatim, but the
+    # postcode hits — and should still resolve a Location.
+    user_id, _ = seeded_user_car
+    prov = MapProvider({"PL16 0AA": GeocodeResult(address="Lifton", provider="fake",
+                                                  lat=50.6434, lng=-4.2841)})
+    async with test_sessionmaker() as s:
+        loc_id = await resolve_ingested_location(
+            s, user_id=user_id, place_name="Tesla Lifton", raw_label="Lifton",
+            address="1 Fore Street, Lifton, United Kingdom, PL16 0AA", network="Tesla",
+            provider=prov)
+        await s.commit()
+        assert loc_id is not None
+        loc = await s.get(Location, loc_id)
+        assert loc.name == "Tesla Lifton"
+    # tried the full address first (miss), then fell back to the postcode (hit)
+    assert prov.queries[0] == "1 Fore Street, Lifton, United Kingdom, PL16 0AA"
+    assert "PL16 0AA" in prov.queries
 
 
 @pytest.mark.asyncio
