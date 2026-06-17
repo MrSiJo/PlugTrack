@@ -44,3 +44,19 @@ def test_unrelated_singleton_not_absorbed():
     tesla = _load("tesla.json")
     merged = correlate([osprey, tesla])
     assert len(merged) == 2
+
+
+def test_merge_carries_odometer():
+    from plugtrack.services.screenshot_extraction import Extraction
+    from plugtrack.services.screenshot_correlation import correlate_batch
+    e = Extraction(
+        source="text", has_cost=False, energy_kwh=9.3, cost_total_pence=None,
+        cost_per_kwh_pence=None, start_at="2026-06-15T19:27:00+00:00",
+        end_at="2026-06-16T06:59:00+00:00", soc_start=None, soc_end=None,
+        location_name="home", location_address=None, network=None, peak_kw=None,
+        confidence=0.9, odometer=12345, odometer_unit="mi",
+    )
+    sessions, _ = correlate_batch([e])
+    assert len(sessions) == 1
+    assert sessions[0].odometer == 12345
+    assert sessions[0].odometer_unit == "mi"
