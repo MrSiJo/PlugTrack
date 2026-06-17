@@ -32,7 +32,7 @@ async def test_commit_creates_session_with_override_total(test_sessionmaker, see
     assert cs.cost_pence == 851
     assert cs.start_soc == 56 and cs.end_soc == 70
     assert cs.charge_network == "Osprey"
-    assert cs.source == "import"
+    assert cs.source == "telegram"
 
 
 @pytest.mark.asyncio

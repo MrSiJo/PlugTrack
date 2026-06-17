@@ -36,13 +36,15 @@ import {
 import { useSyncStore } from '@/stores/syncStore'
 import { formatCurrency } from '@/utils/currency'
 
-const SOURCE_TONE: Record<string, 'cyan' | 'amber' | 'purple'> = {
+const SOURCE_TONE: Record<string, 'cyan' | 'amber' | 'purple' | 'green'> = {
+  telegram: 'green',
   manual: 'amber',
   synthesis: 'cyan',
   cariad: 'purple',
 }
 
 const SOURCE_LABEL: Record<string, string> = {
+  telegram: 'Telegram',
   manual: 'Manual',
   synthesis: 'Cupra',
   cariad: 'Cariad',
