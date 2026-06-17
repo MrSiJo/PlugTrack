@@ -174,6 +174,32 @@ export interface ClearTokensResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Telegram health + OpenAI models
+// ---------------------------------------------------------------------------
+
+export interface HealthCheck {
+  name: string
+  ok: boolean
+  detail: string
+}
+
+export interface HealthReport {
+  all_ok: boolean
+  checks: HealthCheck[]
+  usage_this_month: {
+    input_tokens: number
+    output_tokens: number
+    reasoning_tokens: number
+    cost_pence: number | null
+  } | null
+}
+
+export interface OpenAiModelsResponse {
+  models: { id: string; recommended: boolean }[]
+  current: string | null
+}
+
+// ---------------------------------------------------------------------------
 // Cars
 // ---------------------------------------------------------------------------
 
@@ -472,6 +498,12 @@ export const api = {
     fetchJSON<ClearTokensResponse>('/api/settings/clear-pycupra-tokens', {
       method: 'POST',
     }),
+
+  testTelegram: (): Promise<HealthReport> =>
+    fetchJSON<HealthReport>('/api/telegram/test', { method: 'POST' }),
+
+  getOpenAiModels: (): Promise<OpenAiModelsResponse> =>
+    fetchJSON<OpenAiModelsResponse>('/api/openai/models'),
 
   // ----- Cars -----
 
