@@ -36,6 +36,7 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
             "soc_end": {"type": ["integer", "null"]},
             "location_name": {"type": ["string", "null"]},
             "location_address": {"type": ["string", "null"]},
+            "location_short_name": {"type": ["string", "null"]},
             "network": {"type": ["string", "null"]},
             "peak_kw": {"type": ["number", "null"]},
             "odometer": {"type": ["number", "null"]},
@@ -45,7 +46,7 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
         "required": [
             "source", "has_cost", "energy_kwh", "cost_total_pence",
             "cost_per_kwh_pence", "start_at", "end_at", "soc_start", "soc_end",
-            "location_name", "location_address", "network", "peak_kw",
+            "location_name", "location_address", "location_short_name", "network",
             "odometer", "odometer_unit", "confidence",
         ],
     },
@@ -66,6 +67,11 @@ SYSTEM_PROMPT = (
     "If an odometer / mileage reading is visible (e.g. a MyCupra vehicle status "
     "screen), put the number in odometer and its unit ('mi' or 'km') in odometer_unit "
     "if shown; otherwise null both. "
+    "Also produce location_short_name: a concise '<Network> <Place>' label for this "
+    "charge, e.g. 'Tesla Lifton', 'Osprey Land's End', 'MFG Morrisons Yeovil'. Normalise "
+    "the network ('Supercharging'/'Tesla Supercharging' -> 'Tesla'), and drop site noise "
+    "('Car Park', bay numbers, ', UK'). Null it if this is not a recognisable public "
+    "charging site. "
 )
 
 TEXT_SYSTEM_PROMPT = (
@@ -83,6 +89,7 @@ TEXT_SYSTEM_PROMPT = (
     "odometer when such a suffix or word is present, so you never mistake the energy value "
     "(e.g. the 9.3 of '9.3kwh') for mileage. If an odometer number has no unit suffix, set "
     "odometer and leave odometer_unit null. "
+    "Set location_short_name null (free-text home notes have no public-site name). "
 )
 
 
@@ -104,6 +111,7 @@ class Extraction:
     confidence: float
     odometer: Optional[float] = None
     odometer_unit: Optional[str] = None
+    location_short_name: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -163,6 +171,7 @@ def parse_extraction(raw: dict[str, Any]) -> Extraction:
         confidence=float(raw.get("confidence") or 0.0),
         odometer=raw.get("odometer"),
         odometer_unit=raw.get("odometer_unit"),
+        location_short_name=raw.get("location_short_name"),
     )
 
 
