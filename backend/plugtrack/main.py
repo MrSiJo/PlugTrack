@@ -100,6 +100,10 @@ async def _apply_additive_migrations(conn) -> None:
         ("car_state", "last_max_charge_current", "VARCHAR(16)"),
         ("car_state", "last_charging_estimated_end_at", "DATETIME"),
         ("car_state", "last_odometer_km", "INTEGER"),
+        # screenshot_import usage columns (token/cost tracking)
+        ("screenshot_import", "input_tokens", "INTEGER"),
+        ("screenshot_import", "output_tokens", "INTEGER"),
+        ("screenshot_import", "reasoning_tokens", "INTEGER"),
     )
     for table, column, ddl in additions:
         cols = (await conn.execute(_text(f"PRAGMA table_info({table})"))).all()
@@ -316,15 +320,12 @@ async def _lifespan(app: FastAPI):
                 except Exception:  # noqa: BLE001
                     pass
 
-    # Telegram screenshot-ingestion bot (independent of pycupra).
-    app.state._telegram_stop = None
-    app.state._telegram_task = None
-    from .services.telegram_ingest import build_context, run_bot
-    _tg_ctx = await build_context(db_module.SessionLocal)
-    if _tg_ctx is not None:
-        stop = _asyncio.Event()
-        app.state._telegram_stop = stop
-        app.state._telegram_task = _asyncio.create_task(run_bot(_tg_ctx, stop=stop))
+    # Telegram screenshot-ingestion bot (independent of pycupra). The manager
+    # owns the long-poll task and reconciles it against DB settings; it stays
+    # off until `telegram_bot_enabled` is true (default off).
+    from .services.telegram_manager import TelegramBotManager
+    app.state.telegram_manager = TelegramBotManager(db_module.SessionLocal)
+    await app.state.telegram_manager.reconcile()
 
     try:
         yield
@@ -332,16 +333,9 @@ async def _lifespan(app: FastAPI):
         scheduler = getattr(app.state, "sync_scheduler", None)
         if scheduler is not None:
             scheduler.stop()
-        stop = getattr(app.state, "_telegram_stop", None)
-        task = getattr(app.state, "_telegram_task", None)
-        if stop is not None:
-            stop.set()
-        if task is not None:
-            task.cancel()
-            try:
-                await task
-            except (Exception, _asyncio.CancelledError):  # noqa: BLE001
-                pass
+        mgr = getattr(app.state, "telegram_manager", None)
+        if mgr is not None:
+            await mgr.stop()
 
 
 def create_app() -> FastAPI:
@@ -369,6 +363,7 @@ def create_app() -> FastAPI:
     from .api.routes import settings as settings_routes
     from .api.routes import setup as setup_routes
     from .api.routes import sync as sync_routes
+    from .api.routes import telegram as telegram_routes
 
     app.include_router(health_routes.router)
     app.include_router(setup_routes.router)
@@ -380,5 +375,6 @@ def create_app() -> FastAPI:
     app.include_router(sync_routes.router)
     app.include_router(dashboard_routes.router)
     app.include_router(charge_plan_routes.router)
+    app.include_router(telegram_routes.router)
 
     return app
