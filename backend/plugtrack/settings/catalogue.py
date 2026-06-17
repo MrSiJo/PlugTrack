@@ -165,6 +165,18 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         description="Display unit for distances. Stored as km internally; converted at render. Default 'mi'.",
         default_value="mi",
     ),
+    CatalogueEntry(
+        key="public_base_url",
+        value_type="string",
+        group_name="display",
+        label="Public base URL",
+        description=(
+            "Externally reachable base URL of the PlugTrack UI, e.g. "
+            "http://host:9279. Used to deep-link imported sessions from "
+            "Telegram. Leave blank to omit the link."
+        ),
+        default_value=None,
+    ),
     # Locations / geocoding — wired in Phase 5 but seeded in Phase 1
     # so the catalogue is stable from first deploy.
     CatalogueEntry(
@@ -341,5 +353,21 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         label="OpenAI vision model",
         description="Vision-capable model for screenshot extraction.",
         default_value="gpt-5.5",
+    ),
+    CatalogueEntry(
+        key="openai_input_price_per_1k_pence",
+        value_type="float",
+        group_name="openai",
+        label="OpenAI input price (pence / 1k tokens)",
+        description="Optional. Used to show £ cost per extraction. Leave blank to show tokens only.",
+        default_value=None,
+    ),
+    CatalogueEntry(
+        key="openai_output_price_per_1k_pence",
+        value_type="float",
+        group_name="openai",
+        label="OpenAI output price (pence / 1k tokens)",
+        description="Optional. Output tokens include reasoning tokens (≈0 here). Leave blank to show tokens only.",
+        default_value=None,
     ),
 )
