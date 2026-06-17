@@ -17,7 +17,7 @@ from typing import Any, Awaitable, Callable, Optional
 from sqlalchemy import select
 
 from ..models import ScreenshotImport
-from .screenshot_correlation import MergedSession, correlate
+from .screenshot_correlation import MergedSession, correlate_batch
 from .screenshot_commit import commit_merged_session
 from .screenshot_extraction import Extraction, parse_extraction
 
@@ -181,9 +181,15 @@ async def _stage_and_card(
             await s.commit()
 
         staged = await _staged_rows(s, user_id)
-    merged = correlate([parse_extraction(r.extracted) for r in staged])
-    await ctx.telegram.send_message(
-        chat_id=chat_id, text=prefix + _summarise(merged), reply_markup=_kb())
+    merged, unplaceable = correlate_batch([parse_extraction(r.extracted) for r in staged])
+    text = prefix + _summarise(merged)
+    if unplaceable:
+        text += (
+            f"\n⚠️ {len(unplaceable)} reading(s) have no date — send the app "
+            "screenshot (MyCupra/network) for that charge, or include a date, "
+            "so I can place them."
+        )
+    await ctx.telegram.send_message(chat_id=chat_id, text=text, reply_markup=_kb())
 
 
 async def handle_photo(
@@ -234,14 +240,22 @@ async def handle_callback(
             return
 
         # data == "save"
-        merged = correlate([parse_extraction(r.extracted) for r in staged])
+        exts = [parse_extraction(r.extracted) for r in staged]
+        merged, unplaceable = correlate_batch(exts)
+        unplaceable_ids = {id(e) for e in unplaceable}
         created: list[tuple[int, Optional[int], Optional[str]]] = []  # (id, cost_pence, cost_basis)
         for m in merged:
             cs = await commit_merged_session(s, user_id=user_id, car_id=car_id, merged=m)
             if cs is not None:
                 created.append((cs.id, cs.cost_pence, cs.cost_basis))
-        for r in staged:
-            r.status = "committed"
+        # Mark only the placeable rows committed; keep undated readings staged so
+        # their app-screenshot companion can still arrive and place them.
+        kept = 0
+        for row, ext in zip(staged, exts):
+            if id(ext) in unplaceable_ids:
+                kept += 1
+                continue
+            row.status = "committed"
         await s.commit()
 
     await ctx.telegram.answer_callback(callback_id, "Saved")
@@ -253,6 +267,11 @@ async def handle_callback(
         if base:
             line += f" — {base}/sessions/{sid}"
         lines.append(line)
+    if kept:
+        lines.append(
+            f"⚠️ Kept {kept} undated reading(s) staged — send the app screenshot "
+            "for that charge to place them."
+        )
     await ctx.telegram.send_message(chat_id=chat_id, text="\n".join(lines))
 
 
