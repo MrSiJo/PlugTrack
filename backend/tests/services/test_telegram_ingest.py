@@ -264,6 +264,33 @@ async def test_usage_answerer_error_is_graceful():
     assert any("couldn't answer" in s.lower() for s in sent)
 
 
+@pytest.mark.asyncio
+async def test_charge_parse_failure_falls_through_to_usage():
+    # A charge-parse (extractor_text) exception must NOT black-hole the message:
+    # it should fall through to the usage answerer. Regression: an OpenAI 400 on
+    # the unguarded charge-parse call left the user with no reply at all.
+    import plugtrack.services.telegram_ingest as ti
+    sent = []
+
+    class FakeTg:
+        async def send_message(self, *, chat_id, text, reply_markup=None):
+            sent.append(text); return 1
+
+    async def boom_extractor(text):
+        raise RuntimeError("openai 400 invalid schema")
+
+    async def fake_answerer(question):
+        return (f"answer: {question}", object())
+
+    ctx = ti.IngestContext(
+        telegram=FakeTg(), sessionmaker=None, extractor=None,
+        resolve_target=lambda: (1, 1), allowed_user_ids={42},
+        extractor_text=boom_extractor, usage_answerer=fake_answerer,
+    )
+    await ti.handle_text(ctx, from_id=42, chat_id=99, text="how many miles this month?")
+    assert any("answer: how many miles this month?" in s for s in sent)
+
+
 def test_summarise_renders_odometer_and_warning():
     import datetime as dt
     from plugtrack.services.screenshot_correlation import MergedSession

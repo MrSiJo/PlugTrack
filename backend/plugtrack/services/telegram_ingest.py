@@ -379,11 +379,17 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
         report = await ctx.health_check(from_id)
         await ctx.telegram.send_message(chat_id=chat_id, text=format_health_text(report))
         return
-    # Try to parse a free-text charge note.
+    # Try to parse a free-text charge note. A failure here (e.g. an OpenAI
+    # error) must NOT black-hole the message — log and fall through to the
+    # usage Q&A / help line so the user always gets a reply.
     if ctx.extractor_text is not None and text and text.strip():
-        result = await ctx.extractor_text(text)
-        e = result.extraction
-        usable = e.confidence > 0 and (
+        try:
+            result = await ctx.extractor_text(text)
+        except Exception:  # noqa: BLE001
+            logger.exception("charge-note extraction failed; falling through")
+            result = None
+        e = result.extraction if result is not None else None
+        usable = e is not None and e.confidence > 0 and (
             e.energy_kwh is not None or e.soc_start is not None
             or e.soc_end is not None or e.cost_total_pence is not None)
         if usable:

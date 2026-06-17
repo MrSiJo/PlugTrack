@@ -96,6 +96,16 @@ async def test_call_openai_raises_on_incomplete():
             await call_openai(b"img", api_key="sk-x", model="gpt-5-mini", client=c)
 
 
+def test_schema_required_covers_all_properties():
+    """Strict json_schema demands every property also appear in `required`;
+    OpenAI 400s otherwise. Tests mock the API, so this guards the invariant
+    that mocking can't (regression: 'peak_kw' was dropped from required)."""
+    from plugtrack.services.screenshot_extraction import EXTRACTION_SCHEMA
+    schema = EXTRACTION_SCHEMA["schema"]
+    assert EXTRACTION_SCHEMA["strict"] is True
+    assert set(schema["required"]) == set(schema["properties"])
+
+
 def test_schema_has_odometer_fields():
     from plugtrack.services.screenshot_extraction import EXTRACTION_SCHEMA
     props = EXTRACTION_SCHEMA["schema"]["properties"]
