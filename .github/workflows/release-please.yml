@@ -7,8 +7,11 @@
 #   2. When you merge that Release PR, release-please cuts a git tag
 #      (`vX.Y.Z`), publishes a GitHub Release with auto-generated
 #      changelog, and writes both into the manifest file.
-#   3. The new tag triggers `build-images.yml`, which publishes the
-#      versioned multi-arch images to GHCR (:vX.Y.Z, :X.Y, :X, :latest).
+#   3. This workflow then dispatches `build-images.yml` against the new
+#      tag, which publishes the versioned multi-arch images to GHCR
+#      (:X.Y.Z, :X.Y, :X, :latest). NOTE: we dispatch explicitly because a
+#      tag created by the default GITHUB_TOKEN cannot itself trigger another
+#      workflow (GitHub's anti-recursion rule).
 #
 # Conventional commit → version bump:
 #   feat:      → minor
@@ -29,6 +32,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write # needed to dispatch build-images.yml after a release is cut
 
 concurrency:
   group: release-${{ github.ref }}
@@ -39,7 +43,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Run release-please
+        id: release
         uses: googleapis/release-please-action@v5
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # release-please cut the tag with the default GITHUB_TOKEN, and GitHub's
+      # anti-recursion rule blocks that tag push from triggering build-images.yml.
+      # Dispatch it explicitly so the versioned GHCR images publish hands-off.
+      # (A workflow_dispatch started via GITHUB_TOKEN IS allowed to launch a run.)
+      - name: Publish versioned images for the new release
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run build-images.yml --ref "${{ steps.release.outputs.tag_name }}" -R "${{ github.repository }}"
