@@ -204,6 +204,28 @@ async def test_handle_text_non_charge_falls_back_to_help(test_sessionmaker, seed
     assert "screenshot" in tg.sent[-1]["text"].lower()
 
 
+def test_summarise_renders_odometer_and_warning():
+    import datetime as dt
+    from plugtrack.services.screenshot_correlation import MergedSession
+    from plugtrack.services.telegram_ingest import _summarise
+    m = MergedSession(
+        start_at=dt.datetime(2026, 6, 15, 19, 27, tzinfo=dt.timezone.utc),
+        end_at=None, energy_kwh=9.3, cost_total_pence=None, cost_per_kwh_pence=None,
+        soc_start=None, soc_end=None, location_name="home", location_address=None,
+        network=None, peak_kw=None, confidence=0.9,
+    )
+    # normal reading
+    text = _summarise([m], projected=[{"kwh_added": 9.3, "cost_pence": 179,
+                       "cost_basis": "home_rate", "odometer_km": 12345 * 1.609344}], unit="mi")
+    assert "🛞 12,345 mi" in text
+    # regressing reading
+    warn = _summarise([m], projected=[{"kwh_added": 9.3, "cost_pence": 179,
+                       "cost_basis": "home_rate", "odometer_km": 10000 * 1.609344,
+                       "odometer_regressed": True, "existing_max_km": 12000 * 1.609344}], unit="mi")
+    assert "🛞 10,000 mi" in warn
+    assert "⚠" in warn and "12,000 mi" in warn
+
+
 @pytest.mark.asyncio
 async def test_save_reply_includes_committed_cost(test_sessionmaker, seeded_user_car):
     from sqlalchemy import select
