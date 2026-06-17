@@ -15,9 +15,10 @@ from typing import Optional
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Car, ChargingSession
+from ..models import Car, ChargingSession, Setting
 from . import mileage_tracking
 from .mileage_tracking import KM_PER_MILE
+from .session_metrics import compute_savings_for_sessions, petrol_pence_per_mile
 
 
 def _gbp(pence: Optional[int]) -> str:
@@ -38,6 +39,17 @@ def _pkwh(pence_total: Optional[int], kwh_costed: Optional[float]) -> Optional[s
     return f"{(pence_total or 0) / kwh_costed:,.1f} p/kWh"
 
 
+def _vs_petrol(pence: Optional[int]) -> Optional[str]:
+    """Render a window's net saving vs an equivalent petrol trip."""
+    if pence is None:
+        return None
+    if pence > 0:
+        return f"saved {_gbp(pence)} vs petrol"
+    if pence < 0:
+        return f"{_gbp(-pence)} more than petrol"
+    return "about the same as petrol"
+
+
 @dataclass
 class WindowStats:
     label: str
@@ -45,6 +57,12 @@ class WindowStats:
     energy: str
     sessions: int
     avg_p_per_kwh: Optional[str]
+    # Actual distance driven in the window, from odometer deltas. None when
+    # there isn't enough odometer coverage to bound the window.
+    miles_driven: Optional[str] = None
+    # Net cost vs an equivalent petrol trip across the window (energy-based,
+    # same basis as the per-session UI figure). None when no comparison data.
+    vs_petrol: Optional[str] = None
 
 
 @dataclass
@@ -68,6 +86,8 @@ class MileageStats:
 class UsageSnapshot:
     today: str
     distance_unit: str
+    # Petrol baseline (e.g. "13.5 p/mile") for the vs-petrol comparisons.
+    petrol_p_per_mile: Optional[str] = None
     windows: list[WindowStats] = field(default_factory=list)
     splits: list[SplitStats] = field(default_factory=list)
     mileage: list[MileageStats] = field(default_factory=list)
@@ -84,6 +104,8 @@ def _window_bounds(today: date) -> list[tuple[str, Optional[date], Optional[date
         ("this month", first_this, today),
         ("last month", last_prev_start, last_prev_end),
         ("last 30 days", today - timedelta(days=29), today),
+        ("last 60 days", today - timedelta(days=59), today),
+        ("last 90 days", today - timedelta(days=89), today),
         ("year to date", today.replace(month=1, day=1), today),
         ("lifetime", None, None),
     ]
@@ -96,9 +118,95 @@ def _base_filter(user_id: int):
     )
 
 
+async def _float_setting(session: AsyncSession, key: str) -> Optional[float]:
+    row = (await session.execute(select(Setting.value).where(Setting.key == key))).scalar_one_or_none()
+    if row is None or row == "":
+        return None
+    try:
+        return float(row)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _petrol_ppm(session: AsyncSession) -> Optional[float]:
+    """Petrol pence-per-mile from settings, or None when unset."""
+    p = await _float_setting(session, "petrol_price_p_per_litre")
+    mpg = await _float_setting(session, "petrol_mpg")
+    if p is None or mpg is None:
+        return None
+    return petrol_pence_per_mile(p, mpg)
+
+
+async def _miles_driven_km(
+    session: AsyncSession, *, user_id: int, lo: Optional[date], hi: Optional[date]
+) -> Optional[float]:
+    """Distance driven in [lo, hi], summed across cars, from odometer deltas:
+    max(odo <= hi) - max(odo <= lo-1day). Lifetime (lo is None) = max - min.
+    Returns None when no car has a computable (bounded) delta."""
+    car_ids = (
+        await session.execute(
+            select(ChargingSession.car_id)
+            .where(*_base_filter(user_id), ChargingSession.odometer_at_session_km.isnot(None))
+            .distinct()
+        )
+    ).scalars().all()
+    total = 0.0
+    any_data = False
+    for car_id in car_ids:
+        end_stmt = select(func.max(ChargingSession.odometer_at_session_km)).where(
+            *_base_filter(user_id),
+            ChargingSession.car_id == car_id,
+            ChargingSession.odometer_at_session_km.isnot(None),
+        )
+        if hi is not None:
+            end_stmt = end_stmt.where(ChargingSession.date <= hi)
+        end = (await session.execute(end_stmt)).scalar_one_or_none()
+        if end is None:
+            continue
+        if lo is None:
+            start_stmt = select(func.min(ChargingSession.odometer_at_session_km)).where(
+                *_base_filter(user_id),
+                ChargingSession.car_id == car_id,
+                ChargingSession.odometer_at_session_km.isnot(None),
+            )
+        else:
+            start_stmt = select(func.max(ChargingSession.odometer_at_session_km)).where(
+                *_base_filter(user_id),
+                ChargingSession.car_id == car_id,
+                ChargingSession.odometer_at_session_km.isnot(None),
+                ChargingSession.date <= lo - timedelta(days=1),
+            )
+        start = (await session.execute(start_stmt)).scalar_one_or_none()
+        if start is None:
+            continue  # no reference reading before the window — can't attribute
+        delta = float(end) - float(start)
+        if delta >= 0:
+            total += delta
+            any_data = True
+    return total if any_data else None
+
+
+async def _petrol_saving_pence(
+    session: AsyncSession, *, user_id: int, lo: Optional[date], hi: Optional[date]
+) -> Optional[int]:
+    """Net saving vs petrol across the window, summing the per-session
+    energy-based savings (reuses session_metrics so the figure matches the UI)."""
+    stmt = select(ChargingSession).where(*_base_filter(user_id))
+    if lo is not None:
+        stmt = stmt.where(ChargingSession.date >= lo, ChargingSession.date <= hi)
+    rows = list((await session.execute(stmt)).scalars().all())
+    if not rows:
+        return None
+    saved = await compute_savings_for_sessions(session, rows)
+    vals = [s for (s, _basis, _be) in saved.values() if s is not None]
+    if not vals:
+        return None
+    return int(sum(vals))
+
+
 async def _window_stats(
     session: AsyncSession, *, user_id: int, label: str,
-    lo: Optional[date], hi: Optional[date],
+    lo: Optional[date], hi: Optional[date], unit: str,
 ) -> WindowStats:
     costed_kwh = func.sum(
         case((ChargingSession.cost_pence.isnot(None), ChargingSession.kwh_added), else_=0.0)
@@ -112,12 +220,17 @@ async def _window_stats(
     if lo is not None:
         stmt = stmt.where(ChargingSession.date >= lo, ChargingSession.date <= hi)
     cost, kwh, n, kwh_costed = (await session.execute(stmt)).one()
+
+    driven_km = await _miles_driven_km(session, user_id=user_id, lo=lo, hi=hi)
+    saving = await _petrol_saving_pence(session, user_id=user_id, lo=lo, hi=hi)
     return WindowStats(
         label=label,
         spend=_gbp(int(cost or 0)),
         energy=_kwh(float(kwh or 0.0)),
         sessions=int(n or 0),
         avg_p_per_kwh=_pkwh(int(cost or 0), float(kwh_costed or 0.0)),
+        miles_driven=_dist(driven_km, unit) if driven_km is not None else None,
+        vs_petrol=_vs_petrol(saving),
     )
 
 
@@ -211,9 +324,13 @@ async def build_usage_snapshot(
     session: AsyncSession, *, user_id: int, today: date, distance_unit: str
 ) -> UsageSnapshot:
     snap = UsageSnapshot(today=today.isoformat(), distance_unit=distance_unit)
+    ppm = await _petrol_ppm(session)
+    snap.petrol_p_per_mile = f"{ppm:,.1f} p/mile" if ppm is not None else None
     for label, lo, hi in _window_bounds(today):
         snap.windows.append(
-            await _window_stats(session, user_id=user_id, label=label, lo=lo, hi=hi)
+            await _window_stats(
+                session, user_id=user_id, label=label, lo=lo, hi=hi, unit=distance_unit
+            )
         )
     bounds = {label: (lo, hi) for label, lo, hi in _window_bounds(today)}
     for label in ("this month", "lifetime"):
