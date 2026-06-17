@@ -88,3 +88,33 @@ async def test_home_public_and_network_split(test_sessionmaker, seeded_user_car)
     assert "Osprey" in tm.by_network and "£10.00" in tm.by_network["Osprey"]
     # lifetime split also present
     assert any(sp.label == "lifetime" for sp in snap.splits)
+
+
+@pytest.mark.asyncio
+async def test_mileage_pace(test_sessionmaker, seeded_user_car):
+    from plugtrack.services import mileage_tracking as mt
+    user_id, car_id = seeded_user_car
+    today = dt.date(2026, 6, 17)
+    start = dt.date(2026, 1, 1)   # ~167 days elapsed
+    async with test_sessionmaker() as s:
+        await mt.set_tracking(s, user_id=user_id, car_id=car_id, start_date=start,
+                              opening_miles=10000, annual_mileage_target_miles=10000, today=today)
+        await s.commit()
+    # a charge carrying an odometer reading 12,000 mi -> 2,000 mi this year
+    await _mk(test_sessionmaker, user_id=user_id, car_id=car_id, when=dt.date(2026, 6, 1), kwh=10.0, cost_pence=200)
+    async with test_sessionmaker() as s:
+        from plugtrack.models import ChargingSession as CS
+        from sqlalchemy import select as _sel
+        row = (await s.execute(_sel(CS).where(CS.user_id == user_id))).scalars().first()
+        row.odometer_at_session_km = 12000 * 1.609344
+        await s.commit()
+
+    async with test_sessionmaker() as s:
+        snap = await build_usage_snapshot(s, user_id=user_id, today=today, distance_unit="mi")
+
+    assert len(snap.mileage) == 1
+    m = snap.mileage[0]
+    assert m.current == "12,000 mi"
+    assert "2,000 mi" in m.this_year
+    assert m.target == "10,000 mi/yr target"
+    assert m.pace is not None and "mi" in m.pace   # linear extrapolation rendered
