@@ -128,3 +128,37 @@ async def test_commit_no_odometer_leaves_field_unset(test_sessionmaker, seeded_u
             s, user_id=user_id, car_id=car_id, merged=_merged())
         await s.commit(); await s.refresh(cs)
     assert cs.odometer_at_session_km is None
+
+
+@pytest.mark.asyncio
+async def test_committed_odometer_drives_current_mileage(test_sessionmaker, seeded_user_car):
+    import datetime as dt
+    from plugtrack.services import mileage_tracking as mt
+    user_id, car_id = seeded_user_car
+    await _set_home_rate(test_sessionmaker)
+    start = dt.date(2026, 1, 1)
+    async with test_sessionmaker() as s:
+        await mt.set_tracking(s, user_id=user_id, car_id=car_id, start_date=start,
+                              opening_miles=10000, annual_mileage_target_miles=None,
+                              today=dt.date(2026, 6, 17))
+        await s.commit()
+    # Commit a charge carrying a 12,345 mi odometer.
+    async with test_sessionmaker() as s:
+        await commit_merged_session(
+            s, user_id=user_id, car_id=car_id,
+            merged=_merged(energy_kwh=9.3, location_name="home", odometer=12345, odometer_unit="mi"))
+        await s.commit()
+    async with test_sessionmaker() as s:
+        status = await mt.get_status(s, user_id=user_id, car_id=car_id, today=dt.date(2026, 6, 17))
+    assert status.current_period is not None
+    assert status.current_period.current_odometer_km == pytest.approx(12345 * 1.609344)
+    # A later, lower reading must NOT regress current mileage (max() protects it).
+    async with test_sessionmaker() as s:
+        await commit_merged_session(
+            s, user_id=user_id, car_id=car_id,
+            merged=_merged(start_at=dt.datetime(2026, 6, 16, 9, 0, tzinfo=dt.timezone.utc),
+                           energy_kwh=5.0, location_name="home", odometer=11000, odometer_unit="mi"))
+        await s.commit()
+    async with test_sessionmaker() as s:
+        status2 = await mt.get_status(s, user_id=user_id, car_id=car_id, today=dt.date(2026, 6, 17))
+    assert status2.current_period.current_odometer_km == pytest.approx(12345 * 1.609344)
