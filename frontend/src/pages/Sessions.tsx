@@ -36,7 +36,7 @@ import { useSyncStore } from '@/stores/syncStore'
 import { formatCurrency } from '@/utils/currency'
 import { useSetting } from '@/stores/settingsStore'
 
-type SourceFilter = 'all' | 'manual' | 'synthesis' | 'cariad' | 'unconfirmed'
+type SourceFilter = 'all' | 'telegram' | 'manual' | 'synthesis' | 'cariad' | 'unconfirmed'
 
 type DateRange =
   | 'this_month'
@@ -59,6 +59,7 @@ const DATE_LABEL: Record<DateRange, string> = {
 }
 
 const SOURCE_TONE: Record<string, PillTone> = {
+  telegram: 'green',
   manual: 'amber',
   synthesis: 'cyan',
   cariad: 'purple',
@@ -66,6 +67,7 @@ const SOURCE_TONE: Record<string, PillTone> = {
 }
 
 const SOURCE_LABEL: Record<string, string> = {
+  telegram: 'Telegram',
   manual: 'Manual',
   synthesis: 'Cupra',
   cariad: 'Cariad',
@@ -764,7 +766,7 @@ export default function Sessions() {
       )}
 
       <div className="mb-4 flex flex-wrap gap-2" data-testid="source-tabs">
-        {(['all', 'manual', 'synthesis', 'cariad', 'unconfirmed'] as SourceFilter[]).map(
+        {(['all', 'telegram', 'manual', 'synthesis', 'cariad', 'unconfirmed'] as SourceFilter[]).map(
           (f) => (
             <button
               key={f}
