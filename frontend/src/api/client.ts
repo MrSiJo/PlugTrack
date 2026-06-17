@@ -766,9 +766,15 @@ export interface DashboardLocationStat {
   total_cost_pence: number
 }
 
+export interface DashboardCostPerMile {
+  lifetime_pence: number | null
+  rolling_30d_pence: number | null
+}
+
 export interface DashboardSummary {
   cars: DashboardCarPanel[]
   recent_sessions: DashboardSessionRow[]
   lifetime_totals: DashboardLifetimeTotals
   top_locations: DashboardLocationStat[]
+  cost_per_mile: DashboardCostPerMile
 }

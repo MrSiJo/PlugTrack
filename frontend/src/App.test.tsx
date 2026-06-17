@@ -75,6 +75,7 @@ describe('App bootstrap routing', () => {
       recent_sessions: [],
       lifetime_totals: { kwh: 0, cost_pence: 0, distance_km: 0, sessions_count: 0 },
       top_locations: [],
+      cost_per_mile: { lifetime_pence: null, rolling_30d_pence: null },
     })
 
     render(<App />)

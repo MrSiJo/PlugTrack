@@ -35,6 +35,7 @@ import {
 } from '@/stores/settingsStore'
 import { useSyncStore } from '@/stores/syncStore'
 import { formatCurrency } from '@/utils/currency'
+import { kmToMi } from '@/utils/distance'
 
 const SOURCE_TONE: Record<string, 'cyan' | 'amber' | 'purple' | 'green'> = {
   telegram: 'green',
@@ -208,6 +209,21 @@ export default function Dashboard() {
         summary.lifetime_totals.kwh
       : null
 
+  // Cost per mile arrives from the API in pence-per-mile. Convert to p/km
+  // for km users (kmToMi divides by KM_PER_MILE, which is exactly p/mi → p/km).
+  const formatCostPerDistance = (pencePerMile: number | null): string | null => {
+    if (pencePerMile === null) return null
+    const value =
+      distance.unit === 'km' ? kmToMi(pencePerMile) : pencePerMile
+    return `${value.toFixed(1)} p/${distance.unit}`
+  }
+  const costPerMileMain = formatCostPerDistance(
+    summary.cost_per_mile.lifetime_pence,
+  )
+  const costPerMile30d = formatCostPerDistance(
+    summary.cost_per_mile.rolling_30d_pence,
+  )
+
   return (
     <main className="mx-auto max-w-7xl px-6 py-8" data-testid="dashboard-root">
       <PageHeader title="Dashboard" />
@@ -233,7 +249,7 @@ export default function Dashboard() {
 
       {/* KPI strip */}
       <section
-        className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+        className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
         data-testid="panel-lifetime"
       >
         <StatTile
@@ -266,6 +282,12 @@ export default function Dashboard() {
               : undefined
           }
           data-testid="lifetime-count"
+        />
+        <StatTile
+          label={`Cost / ${distance.unit === 'km' ? 'km' : 'mile'}`}
+          value={costPerMileMain ?? '—'}
+          sub={costPerMile30d !== null ? `30d ${costPerMile30d}` : undefined}
+          data-testid="lifetime-cost-per-mile"
         />
       </section>
 

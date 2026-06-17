@@ -14,6 +14,7 @@ import pytest
 
 from plugtrack.models import Car, ChargingSession, Location, User
 from plugtrack.services.dashboard_service import dashboard_summary
+from plugtrack.services.mileage_tracking import KM_PER_MILE
 from plugtrack.services.sync_orchestrator import CarSyncState, SyncOrchestrator
 
 
@@ -125,6 +126,72 @@ async def test_dashboard_summary_empty(test_sessionmaker):
     assert totals.cost_pence == 0
     assert totals.distance_km == 0
     assert totals.sessions_count == 0
+    # No sessions → no odometer coverage → cost-per-mile is unknown.
+    assert summary.cost_per_mile.lifetime_pence is None
+    assert summary.cost_per_mile.rolling_30d_pence is None
+
+
+@pytest.mark.asyncio
+async def test_dashboard_cost_per_mile_lifetime_and_30d(test_sessionmaker):
+    """Cost-per-mile is cost ÷ miles for two windows: lifetime and rolling 30d.
+
+    Miles come from odometer deltas; the 30d window needs a reference reading
+    *before* the window to attribute distance. Cost numerators exclude
+    unconfirmed rows (same policy as lifetime totals).
+    """
+    user = await _make_user(test_sessionmaker)
+    car = await _make_car(test_sessionmaker, user.id)
+    today = date(2026, 5, 1)
+
+    # 90 days ago — earliest reading (sets lifetime min odometer).
+    await _make_session(
+        test_sessionmaker, user_id=user.id, car_id=car.id,
+        when=date(2026, 2, 1), kwh=10.0, cost_pence=100, odometer_km=10_000,
+    )
+    # Just before the 30d window — the reference reading the window leans on.
+    await _make_session(
+        test_sessionmaker, user_id=user.id, car_id=car.id,
+        when=date(2026, 3, 25), kwh=10.0, cost_pence=200, odometer_km=10_700,
+    )
+    # Inside the 30d window.
+    await _make_session(
+        test_sessionmaker, user_id=user.id, car_id=car.id,
+        when=date(2026, 4, 10), kwh=10.0, cost_pence=300, odometer_km=11_000,
+    )
+    # Today (inside the window; sets lifetime max odometer).
+    await _make_session(
+        test_sessionmaker, user_id=user.id, car_id=car.id,
+        when=today, kwh=10.0, cost_pence=150, odometer_km=11_200,
+    )
+
+    async with test_sessionmaker() as session:
+        summary = await dashboard_summary(session, user.id, today=today)
+
+    # Lifetime: cost 100+200+300+150 = 750p over (11_200-10_000)=1200 km.
+    lifetime_miles = 1200 / KM_PER_MILE
+    assert summary.cost_per_mile.lifetime_pence == pytest.approx(750 / lifetime_miles)
+
+    # 30d window [2026-04-02 .. 2026-05-01]: cost 300+150 = 450p over the
+    # odometer delta from the pre-window reference (10_700) to today (11_200) = 500 km.
+    window_miles = 500 / KM_PER_MILE
+    assert summary.cost_per_mile.rolling_30d_pence == pytest.approx(450 / window_miles)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_cost_per_mile_none_without_odometer(test_sessionmaker):
+    """With no odometer readings there's no distance, so cost-per-mile is None."""
+    user = await _make_user(test_sessionmaker)
+    car = await _make_car(test_sessionmaker, user.id)
+    await _make_session(
+        test_sessionmaker, user_id=user.id, car_id=car.id,
+        when=date(2026, 5, 1), kwh=10.0, cost_pence=150, odometer_km=None,
+    )
+
+    async with test_sessionmaker() as session:
+        summary = await dashboard_summary(session, user.id, today=date(2026, 5, 1))
+
+    assert summary.cost_per_mile.lifetime_pence is None
+    assert summary.cost_per_mile.rolling_30d_pence is None
 
 
 @pytest.mark.asyncio

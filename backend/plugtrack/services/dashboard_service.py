@@ -20,7 +20,7 @@ has fewer than 2 odometer readings the contribution is 0.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import date as date_cls, datetime
+from datetime import date as date_cls, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import func, select
@@ -28,6 +28,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Car, ChargingSession, Location
 from . import mileage_tracking
+from .mileage_tracking import KM_PER_MILE
+from .usage_stats import _miles_driven_km
 
 
 @dataclass
@@ -105,6 +107,15 @@ class LocationStat:
 
 
 @dataclass
+class CostPerMile:
+    # Cost ÷ miles driven, in pence per mile. Null when there isn't enough
+    # odometer coverage to bound the window's distance. Cost numerators exclude
+    # unconfirmed rows (same policy as `LifetimeTotals`).
+    lifetime_pence: Optional[float] = None
+    rolling_30d_pence: Optional[float] = None
+
+
+@dataclass
 class DashboardSummary:
     cars: list[CarPanel] = field(default_factory=list)
     recent_sessions: list[SessionRow] = field(default_factory=list)
@@ -114,6 +125,7 @@ class DashboardSummary:
         )
     )
     top_locations: list[LocationStat] = field(default_factory=list)
+    cost_per_mile: CostPerMile = field(default_factory=CostPerMile)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -123,6 +135,7 @@ async def dashboard_summary(
     session: AsyncSession,
     user_id: int,
     orchestrator: Any | None = None,
+    today: Optional[date_cls] = None,
 ) -> DashboardSummary:
     """Build a DashboardSummary for the given user.
 
@@ -130,7 +143,12 @@ async def dashboard_summary(
     `get_state(car_id)` returns the in-memory `CarSyncState`. We merge
     its live fields into each car panel; otherwise we fall back to the
     most-recent session's `end_soc`.
+
+    `today` anchors the rolling 30-day cost-per-mile window; it defaults to
+    the current UTC date and is injectable for deterministic tests.
     """
+    if today is None:
+        today = datetime.now(timezone.utc).date()
     summary = DashboardSummary()
 
     # ---- Cars (active only) ----
@@ -331,6 +349,37 @@ async def dashboard_summary(
         cost_pence=int(cost_sum or 0),
         distance_km=int(round(distance_km_total)),
         sessions_count=int(sessions_count or 0),
+    )
+
+    # ---- Cost per mile (lifetime + rolling 30 days) ----
+    # Numerators reuse the unconfirmed-excluding cost sums; denominators come
+    # from `_miles_driven_km` (the single source of truth for windowed odometer
+    # deltas), so numerator and denominator share the same exclusion policy.
+    def _ppm(cost_pence: int, miles_km: Optional[float]) -> Optional[float]:
+        if not miles_km or miles_km <= 0:
+            return None
+        return float(cost_pence) / (miles_km / KM_PER_MILE)
+
+    lo_30d = today - timedelta(days=29)
+    cost_30d = (
+        await session.execute(
+            select(func.coalesce(func.sum(ChargingSession.cost_pence), 0)).where(
+                ChargingSession.user_id == user_id,
+                ChargingSession.source != "unconfirmed",
+                ChargingSession.date >= lo_30d,
+                ChargingSession.date <= today,
+            )
+        )
+    ).scalar_one()
+    lifetime_miles_km = await _miles_driven_km(
+        session, user_id=user_id, lo=None, hi=None
+    )
+    rolling_miles_km = await _miles_driven_km(
+        session, user_id=user_id, lo=lo_30d, hi=today
+    )
+    summary.cost_per_mile = CostPerMile(
+        lifetime_pence=_ppm(int(cost_sum or 0), lifetime_miles_km),
+        rolling_30d_pence=_ppm(int(cost_30d or 0), rolling_miles_km),
     )
 
     # ---- Top 5 locations (by number of charging sessions) ----
