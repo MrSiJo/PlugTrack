@@ -116,3 +116,21 @@ def test_parse_extraction_odometer_defaults_none():
     from plugtrack.services.screenshot_extraction import parse_extraction
     e = parse_extraction({"source": "text"})
     assert e.odometer is None and e.odometer_unit is None
+
+
+def test_schema_has_location_short_name():
+    from plugtrack.services.screenshot_extraction import EXTRACTION_SCHEMA
+    props = EXTRACTION_SCHEMA["schema"]["properties"]
+    assert props["location_short_name"] == {"type": ["string", "null"]}
+    assert "location_short_name" in EXTRACTION_SCHEMA["schema"]["required"]
+
+
+def test_parse_extraction_reads_location_short_name():
+    from plugtrack.services.screenshot_extraction import parse_extraction
+    e = parse_extraction({"source": "osprey", "location_short_name": "Osprey Land's End"})
+    assert e.location_short_name == "Osprey Land's End"
+
+
+def test_parse_extraction_short_name_defaults_none():
+    from plugtrack.services.screenshot_extraction import parse_extraction
+    assert parse_extraction({"source": "text"}).location_short_name is None
