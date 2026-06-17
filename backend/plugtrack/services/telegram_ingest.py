@@ -37,6 +37,10 @@ class IngestContext:
     output_price_p: Optional[float] = None
     health_check: Optional[Callable[[int], Awaitable[Any]]] = None
     extractor_text: Optional[Callable[[str], Awaitable[Any]]] = None
+    # chat_id -> message_id of the current batch's confirm card, so we EDIT it
+    # in place as more screenshots merge in (instead of spamming new cards).
+    # Scoped to the bot instance (reset on reconcile); cleared on Save/Discard.
+    card_ids: dict[int, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -158,6 +162,23 @@ async def _staged_rows(s, user_id):
     ).scalars().all()
 
 
+async def _send_or_edit_card(ctx: IngestContext, *, chat_id: int, text: str) -> None:
+    """Show the batch's confirm card. If one is already showing for this chat,
+    EDIT it in place (so it updates 7.67->10.74 as screenshots merge) instead
+    of sending a new one. Falls back to a fresh card if the edit fails."""
+    mid = ctx.card_ids.get(chat_id)
+    edit = getattr(ctx.telegram, "edit_message_text", None)
+    if mid is not None and edit is not None:
+        try:
+            await edit(chat_id=chat_id, message_id=mid, text=text, reply_markup=_kb())
+            return
+        except Exception:  # noqa: BLE001 — message too old / not modified / deleted
+            pass
+    new_mid = await ctx.telegram.send_message(chat_id=chat_id, text=text, reply_markup=_kb())
+    if new_mid is not None:
+        ctx.card_ids[chat_id] = new_mid
+
+
 async def _stage_and_card(
     ctx: IngestContext, *, user_id, chat_id, extraction, usage,
     telegram_file_id, message_id, sha,
@@ -230,7 +251,7 @@ async def _stage_and_card(
             "screenshot (MyCupra/network) for that charge, or include a date, "
             "so I can place them."
         )
-    await ctx.telegram.send_message(chat_id=chat_id, text=text, reply_markup=_kb())
+    await _send_or_edit_card(ctx, chat_id=chat_id, text=text)
 
 
 async def handle_photo(
@@ -276,6 +297,7 @@ async def handle_callback(
             for r in staged:
                 r.status = "discarded"
             await s.commit()
+            ctx.card_ids.pop(chat_id, None)  # batch closed -> next charge gets a fresh card
             await ctx.telegram.answer_callback(callback_id, "Discarded")
             await ctx.telegram.send_message(chat_id=chat_id, text="Discarded staged screenshots.")
             return
@@ -298,6 +320,7 @@ async def handle_callback(
                 continue
             row.status = "committed"
         await s.commit()
+        ctx.card_ids.pop(chat_id, None)  # batch saved -> next charge gets a fresh card
 
     await ctx.telegram.answer_callback(callback_id, "Saved")
     lines = [f"Saved {len(created)} session(s)."]

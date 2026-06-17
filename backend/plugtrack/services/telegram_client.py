@@ -44,11 +44,22 @@ class TelegramClient:
 
     async def send_message(
         self, *, chat_id: int, text: str, reply_markup: Optional[dict[str, Any]] = None
-    ) -> None:
+    ) -> Optional[int]:
         body: dict[str, Any] = {"chat_id": chat_id, "text": text}
         if reply_markup is not None:
             body["reply_markup"] = reply_markup
         resp = await self._http.post(self._url("sendMessage"), json=body)
+        resp.raise_for_status()
+        return (resp.json().get("result") or {}).get("message_id")
+
+    async def edit_message_text(
+        self, *, chat_id: int, message_id: int, text: str,
+        reply_markup: Optional[dict[str, Any]] = None,
+    ) -> None:
+        body: dict[str, Any] = {"chat_id": chat_id, "message_id": message_id, "text": text}
+        if reply_markup is not None:
+            body["reply_markup"] = reply_markup
+        resp = await self._http.post(self._url("editMessageText"), json=body)
         resp.raise_for_status()
 
     async def get_me(self) -> dict[str, Any]:
