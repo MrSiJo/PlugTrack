@@ -80,6 +80,27 @@ async def test_home_with_granny_uses_delivered_and_matches_location(test_session
 
 
 @pytest.mark.asyncio
+async def test_home_caption_matches_is_home_location_by_flag(test_sessionmaker, seeded_user_car):
+    # The home location is NOT named "Home" (it's geocoded to an address), but
+    # carries is_home=True. A "home" caption must still link it.
+    from plugtrack.models import Location
+    user_id, car_id = seeded_user_car
+    await _set_home_rate(test_sessionmaker)
+    async with test_sessionmaker() as s:
+        s.add(Location(user_id=user_id, name="5 Acacia Avenue", is_home=True, is_free=False,
+                       default_cost_per_kwh_p=19.26, centroid_lat=50.7, centroid_lng=-3.5,
+                       radius_m=50))
+        await s.commit()
+    async with test_sessionmaker() as s:
+        cs = await commit_merged_session(
+            s, user_id=user_id, car_id=car_id,
+            merged=_merged(energy_kwh=9.3, location_name="home", source_kinds=["mycupra", "granny"]))
+        await s.commit(); await s.refresh(cs)
+    assert cs.location_id is not None          # linked via is_home, not by name
+    assert cs.cost_basis == "location_rate"
+
+
+@pytest.mark.asyncio
 async def test_network_charge_is_dc(test_sessionmaker, seeded_user_car):
     user_id, car_id = seeded_user_car
     async with test_sessionmaker() as s:

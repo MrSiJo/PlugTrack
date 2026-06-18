@@ -15,6 +15,7 @@ from plugtrack.services.screenshot_extraction import (
 from plugtrack.services.telegram_ingest import (
     IngestContext,
     MergedSession,
+    _parse_caption,
     _summarise,
     handle_callback,
     handle_photo,
@@ -86,6 +87,97 @@ async def test_two_photos_one_session_staged_and_committed(test_sessionmaker, se
     assert len(rows) == 1
     assert rows[0].total_cost_pence_override == 851
     assert rows[0].start_soc == 56
+
+
+# ---- caption parsing (photo path) -------------------------------------------
+
+def test_parse_caption_home_and_mileage():
+    assert _parse_caption("Home 11001mi") == ("Home", 11001.0, "mi")
+
+
+def test_parse_caption_mileage_only_with_unit():
+    assert _parse_caption("11056mi") == (None, 11056.0, "mi")
+
+
+def test_parse_caption_bare_number_defaults_to_setting():
+    # No unit -> leave unit None so commit applies the distance_unit setting (mi).
+    assert _parse_caption("11056") == (None, 11056.0, None)
+
+
+def test_parse_caption_explicit_km():
+    assert _parse_caption("home 20000km") == ("home", 20000.0, "km")
+
+
+def test_parse_caption_location_word_only():
+    assert _parse_caption("home") == ("home", None, None)
+
+
+def test_parse_caption_handles_thousands_separator_and_miles_word():
+    assert _parse_caption("Home 11,001 miles") == ("Home", 11001.0, "mi")
+
+
+def test_parse_caption_empty():
+    assert _parse_caption("") == (None, None, None)
+
+
+def _stub_ctx(tg, test_sessionmaker, car_id, user_id, extraction):
+    async def extractor(image_bytes: bytes):
+        return ExtractionResult(extraction=extraction, usage=Usage(None, None, None))
+
+    return IngestContext(
+        telegram=tg, sessionmaker=test_sessionmaker, extractor=extractor,
+        resolve_target=lambda: (user_id, car_id), allowed_user_ids={111})
+
+
+def _ex_photo(**kw):
+    base = dict(source="mycupra", has_cost=False, energy_kwh=None, cost_total_pence=None,
+                cost_per_kwh_pence=None, start_at="2026-06-17T16:36:00", end_at="2026-06-18T07:06:00",
+                soc_start=75, soc_end=79, location_name=None, location_address=None,
+                network=None, peak_kw=2.0, confidence=0.89)
+    base.update(kw)
+    return Extraction(**base)
+
+
+async def _staged_extracted(test_sessionmaker, user_id):
+    from sqlalchemy import select
+    from plugtrack.models import ScreenshotImport
+    async with test_sessionmaker() as s:
+        rows = (await s.execute(select(ScreenshotImport).where(
+            ScreenshotImport.user_id == user_id,
+            ScreenshotImport.status == "staged"))).scalars().all()
+    return [r.extracted for r in rows]
+
+
+@pytest.mark.asyncio
+async def test_photo_caption_fills_home_and_mileage(test_sessionmaker, seeded_user_car):
+    # MyCupra-style photo (no location), caption "Home 11001mi" -> location_name
+    # "Home" + odometer 11001 mi on the staged extraction.
+    user_id, car_id = seeded_user_car
+    tg = FakeTelegram({"x": b"x"})
+    ctx = _stub_ctx(tg, test_sessionmaker, car_id, user_id, _ex_photo())
+    await handle_photo(ctx, from_id=111, chat_id=9, message_id=1, file_id="x",
+                       caption="Home 11001mi")
+    ext = (await _staged_extracted(test_sessionmaker, user_id))[0]
+    assert ext["location_name"] == "Home"
+    assert ext["odometer"] == 11001.0
+    assert ext["odometer_unit"] == "mi"
+
+
+@pytest.mark.asyncio
+async def test_photo_caption_mileage_does_not_clobber_found_location(test_sessionmaker, seeded_user_car):
+    # Tesla-style photo (has a location), caption "11056mi" -> keep the found
+    # location, still capture the odometer.
+    user_id, car_id = seeded_user_car
+    tg = FakeTelegram({"x": b"x"})
+    ext_in = _ex_photo(source="tesla", has_cost=True, cost_total_pence=972,
+                       location_name="Dart Farm Village, Exeter", soc_start=None, soc_end=None,
+                       network="Tesla")
+    ctx = _stub_ctx(tg, test_sessionmaker, car_id, user_id, ext_in)
+    await handle_photo(ctx, from_id=111, chat_id=9, message_id=1, file_id="x", caption="11056mi")
+    ext = (await _staged_extracted(test_sessionmaker, user_id))[0]
+    assert ext["location_name"] == "Dart Farm Village, Exeter"
+    assert ext["odometer"] == 11056.0
+    assert ext["odometer_unit"] == "mi"
 
 
 @pytest.mark.asyncio

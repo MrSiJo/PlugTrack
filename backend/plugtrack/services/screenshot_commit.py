@@ -60,15 +60,28 @@ async def match_location_by_name(
     if not name or not name.strip():
         return None
     from ..models import Location
+    norm = name.strip().lower()
     row = (
         await session.execute(
             select(Location.id).where(
                 Location.user_id == user_id,
-                func.lower(Location.name) == name.strip().lower(),
+                func.lower(Location.name) == norm,
             )
         )
     ).scalar_one_or_none()
-    return row
+    if row is not None:
+        return row
+    # "home" caption -> the user's designated home location, whatever it's
+    # named (it may be a geocoded address). is_home is the analytics flag.
+    if norm == "home":
+        return (
+            await session.execute(
+                select(Location.id).where(
+                    Location.user_id == user_id, Location.is_home.is_(True)
+                )
+            )
+        ).scalar_one_or_none()
+    return None
 
 
 async def _build_session(

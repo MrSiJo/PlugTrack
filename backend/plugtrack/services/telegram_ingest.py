@@ -11,6 +11,7 @@ import asyncio
 import dataclasses
 import hashlib
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
@@ -77,6 +78,40 @@ def _to_float(v: Optional[str]) -> Optional[float]:
         return float(v) if v not in (None, "") else None
     except (TypeError, ValueError):
         return None
+
+
+# A photo caption carries the bits the screenshot can't: a mileage reading and,
+# for home charges, the word "home" (MyCupra screens show neither). Parse out an
+# odometer number (optionally suffixed mi/miles/km) and treat whatever's left as
+# the location word. A bare number leaves the unit None so commit applies the
+# distance_unit setting (default mi); "km" is the only thing that overrides that.
+_CAPTION_ODO_RE = re.compile(
+    r"(?P<num>\d[\d,]*(?:\.\d+)?)\s*(?P<unit>miles?|mi|kilometres?|kms?|km)?\b",
+    re.IGNORECASE,
+)
+
+
+def _parse_caption(caption: Optional[str]) -> tuple[Optional[str], Optional[float], Optional[str]]:
+    """(location_word, odometer, odometer_unit) from a photo caption.
+
+    Examples: "Home 11001mi" -> ("Home", 11001.0, "mi");
+    "11056" -> (None, 11056.0, None); "home" -> ("home", None, None).
+    """
+    text = (caption or "").strip()
+    if not text:
+        return (None, None, None)
+    odo: Optional[float] = None
+    unit: Optional[str] = None
+    m = _CAPTION_ODO_RE.search(text)
+    if m:
+        odo = float(m.group("num").replace(",", ""))
+        u = (m.group("unit") or "").lower()
+        if u.startswith("k"):
+            unit = "km"
+        elif u:
+            unit = "mi"
+        text = (text[: m.start()] + text[m.end():]).strip()
+    return (text or None, odo, unit)
 
 
 def _kb() -> dict[str, Any]:
@@ -302,8 +337,19 @@ async def handle_photo(
     # discarded -> re-stage, new -> insert), so it's the single source of truth.
     result = await ctx.extractor(image)
     extraction = result.extraction
-    if caption and caption.strip() and not extraction.location_name:
-        extraction = dataclasses.replace(extraction, location_name=caption.strip())
+    # Fold the caption into the extraction, filling only what the image lacks:
+    # the location word (so a found public location isn't clobbered) and the
+    # odometer (screenshots in this flow never carry a caption mileage).
+    loc_word, odo, odo_unit = _parse_caption(caption)
+    repl: dict[str, Any] = {}
+    if loc_word and not extraction.location_name:
+        repl["location_name"] = loc_word
+    if odo is not None and extraction.odometer is None:
+        repl["odometer"] = odo
+        if odo_unit is not None:
+            repl["odometer_unit"] = odo_unit
+    if repl:
+        extraction = dataclasses.replace(extraction, **repl)
     await _stage_and_card(
         ctx, user_id=user_id, chat_id=chat_id, extraction=extraction,
         usage=result.usage, telegram_file_id=file_id, message_id=message_id, sha=sha,
