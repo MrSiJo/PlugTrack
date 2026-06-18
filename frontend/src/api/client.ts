@@ -439,6 +439,25 @@ export interface MergeLocationResponse {
   sessions_recomputed_count: number
 }
 
+export interface InsightsLocationRow {
+  location_id: number | null
+  name: string | null
+  is_home: boolean
+  is_free: boolean
+  spend_pence: number
+  kwh: number
+  sessions: number
+  avg_p_per_kwh: number | null
+  first_at: string | null
+  last_at: string | null
+  pct_of_spend: number
+}
+
+export interface InsightsByLocationResponse {
+  rows: InsightsLocationRow[]
+  totals: { spend_pence: number; kwh: number; sessions: number }
+}
+
 // ---------------------------------------------------------------------------
 // Charge Planner
 // ---------------------------------------------------------------------------
@@ -641,6 +660,19 @@ export const api = {
 
   deleteLocation: (id: number): Promise<void> =>
     fetchJSON<void>(`/api/locations/${id}`, { method: 'DELETE' }),
+
+  getInsightsByLocation: (
+    dateFrom?: string,
+    dateTo?: string,
+  ): Promise<InsightsByLocationResponse> => {
+    const params = new URLSearchParams()
+    if (dateFrom) params.set('date_from', dateFrom)
+    if (dateTo) params.set('date_to', dateTo)
+    const qs = params.toString()
+    return fetchJSON<InsightsByLocationResponse>(
+      `/api/insights/by-location${qs ? `?${qs}` : ''}`,
+    )
+  },
 
   // ----- Sync -----
 
