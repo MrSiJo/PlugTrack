@@ -105,7 +105,7 @@ export default function Insights() {
     return () => {
       cancelled = true
     }
-  }, [range, customFrom, customTo, isCustom, invalidCustom])
+  }, [range, customFrom, customTo, invalidCustom])
 
   function handleSort(field: SortField) {
     if (field === sort) {
@@ -289,8 +289,8 @@ export default function Insights() {
                   }
                 />
                 <Bar dataKey="spend_pence" fill="url(#insights-gradient)" radius={[0, 3, 3, 0]}>
-                  {chartData.map((entry, i) => (
-                    <Cell key={i} fillOpacity={entry.isUnassigned ? 0.45 : 1} />
+                  {chartData.map((entry) => (
+                    <Cell key={entry.label} fillOpacity={entry.isUnassigned ? 0.45 : 1} />
                   ))}
                 </Bar>
               </BarChart>
