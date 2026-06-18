@@ -613,3 +613,159 @@ async def test_override_columns_survive_unrelated_updates(authed_client):
     assert body["cost_per_kwh_override_p"] == 50.0
     assert body["total_cost_pence_override"] == 700
     assert body["charge_network"] == "BP Pulse"
+
+
+# ---------------------------------------------------------------------------
+# Cost freezing — session edits re-scale at the frozen tariff (spec 01)
+# ---------------------------------------------------------------------------
+
+
+async def _set_global_home_rate(test_sessionmaker, value: str) -> None:
+    """Mutate the seeded default_home_rate_p_per_kwh setting directly."""
+    from sqlalchemy import select
+
+    from plugtrack.models import Setting
+
+    async with test_sessionmaker() as s:
+        row = (
+            await s.execute(
+                select(Setting).where(Setting.key == "default_home_rate_p_per_kwh")
+            )
+        ).scalar_one()
+        row.value = value
+        await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_global_rate_change_does_not_alter_stored_cost_on_read(
+    authed_client, test_sessionmaker
+):
+    """Invariant guard: changing the global home rate then re-reading an
+    existing session leaves cost_pence untouched (reads never recompute)."""
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    sid = create.json()["id"]
+    pre = create.json()["cost_pence"]
+    assert pre == 75  # 10 * 7.5p seeded default
+
+    await _set_global_home_rate(test_sessionmaker, "30.0")
+
+    got = (await authed_client.get(f"/api/sessions/{sid}")).json()
+    assert got["cost_pence"] == pre
+    assert got["tariff_p_per_kwh"] == 7.5
+
+
+@pytest.mark.asyncio
+async def test_edit_kwh_rescales_at_frozen_tariff_not_current_global_rate(
+    authed_client, test_sessionmaker
+):
+    """A home_rate session edited to a new kWh re-scales at its STORED tariff,
+    never the current global rate."""
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    sid = create.json()["id"]
+    assert create.json()["cost_basis"] == "home_rate"
+    assert create.json()["tariff_p_per_kwh"] == 7.5
+    assert create.json()["cost_pence"] == 75
+
+    # Change the global home rate; the frozen session must ignore it.
+    await _set_global_home_rate(test_sessionmaker, "30.0")
+
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"kwh_added": 20.0},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200
+    body = upd.json()
+    assert body["cost_basis"] == "home_rate"
+    assert body["tariff_p_per_kwh"] == 7.5
+    # Re-scaled at the FROZEN 7.5p (150), NOT the new 30p (600).
+    assert body["cost_pence"] == round(20.0 * 7.5)
+
+
+@pytest.mark.asyncio
+async def test_edit_kwh_on_total_override_keeps_total_updates_display_rate(
+    authed_client,
+):
+    """Editing kWh on a total-override session keeps cost_pence at the override
+    total; only the derived display tariff moves."""
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+            "total_cost_pence_override": 1000,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    sid = create.json()["id"]
+    assert create.json()["cost_basis"] == "override_total"
+    assert create.json()["cost_pence"] == 1000
+    assert create.json()["tariff_p_per_kwh"] == 100.0  # 1000 / 10
+
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"kwh_added": 20.0},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200
+    body = upd.json()
+    assert body["cost_pence"] == 1000  # override total is the truth
+    assert body["cost_basis"] == "override_total"
+    assert body["tariff_p_per_kwh"] == 50.0  # 1000 / 20
+
+
+@pytest.mark.asyncio
+async def test_explicit_override_change_re_derives_from_source(authed_client):
+    """Setting an override on an existing rate-derived session is a deliberate
+    change → derive from source (override wins per precedence)."""
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    sid = create.json()["id"]
+    assert create.json()["cost_basis"] == "home_rate"
+
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"cost_per_kwh_override_p": 40.0},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200
+    body = upd.json()
+    assert body["cost_basis"] == "override_per_kwh"
+    assert body["tariff_p_per_kwh"] == 40.0
+    assert body["cost_pence"] == round(10.0 * 40.0)

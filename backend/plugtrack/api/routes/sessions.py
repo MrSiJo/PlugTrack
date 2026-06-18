@@ -40,6 +40,15 @@ _COST_AFFECTING = frozenset(
     }
 )
 
+# Override fields whose explicit change re-derives cost from source on edit.
+# Any OTHER edit of a rate-derived session re-scales at the frozen tariff.
+_OVERRIDE_FIELDS = frozenset(
+    {
+        "cost_per_kwh_override_p",
+        "total_cost_pence_override",
+    }
+)
+
 # SoC fields that affect kwh_calculated (energy banked in the pack).
 # Distinct from `kwh_added` (the charger's delivered reading) so
 # efficiency_percent in SessionMetrics can mean something.
@@ -283,8 +292,35 @@ async def _home_rate(session: AsyncSession) -> float:
 
 
 async def _apply_cost(
-    session: AsyncSession, cs: ChargingSession, user_id: int
+    session: AsyncSession,
+    cs: ChargingSession,
+    user_id: int,
+    *,
+    first_compute: bool = True,
+    override_changed: bool = False,
 ) -> None:
+    """Resolve cost, honouring the freeze invariant.
+
+    On an EDIT of an existing rate-derived session (`home_rate`,
+    `location_rate`, `location_free`) where no override field changed and a
+    tariff is already stored, re-scale at that frozen tariff — a global /
+    location config change never silently re-rates a stored charge.
+
+    Otherwise (create/confirm; an explicit override change; an override
+    basis; or no stored tariff — the legacy guard) derive from source via
+    the cost-precedence rule. Override bases re-derive from their own frozen
+    override columns, which is correct.
+    """
+    rate_derived = cs.cost_basis in ("home_rate", "location_rate", "location_free")
+    if (
+        not first_compute
+        and not override_changed
+        and rate_derived
+        and cs.tariff_p_per_kwh is not None
+    ):
+        cs.cost_pence = round(cs.kwh_added * cs.tariff_p_per_kwh)
+        return
+
     location = await _get_owned_location(session, cs.location_id, user_id)
     home_rate = await _home_rate(session)
     cost_pence, cost_basis, tariff = compute_session_cost(
@@ -527,13 +563,16 @@ async def update_session(
     data = body.model_dump(exclude_unset=True)
     cost_dirty = bool(_COST_AFFECTING & data.keys())
     soc_dirty = bool(_SOC_AFFECTING & data.keys())
+    override_changed = bool(_OVERRIDE_FIELDS & data.keys())
     for k, v in data.items():
         setattr(cs, k, v)
 
     if soc_dirty:
         await _derive_kwh_calculated(session, cs)
     if cost_dirty:
-        await _apply_cost(session, cs, user_id)
+        await _apply_cost(
+            session, cs, user_id, first_compute=False, override_changed=override_changed
+        )
 
     await session.commit()
     await session.refresh(cs)
