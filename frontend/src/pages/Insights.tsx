@@ -284,9 +284,7 @@ export default function Insights() {
                 />
                 <Tooltip
                   cursor={{ fill: 'rgba(34,211,238,0.05)' }}
-                  formatter={(v) =>
-                    formatCurrency(typeof v === 'number' ? v : null, currency)
-                  }
+                  content={<ChartTooltip currency={currency} />}
                 />
                 <Bar dataKey="spend_pence" fill="url(#insights-gradient)" radius={[0, 3, 3, 0]}>
                   {chartData.map((entry) => (
@@ -361,6 +359,28 @@ export default function Insights() {
           </table>
         </Card>
       )}
+    </div>
+  )
+}
+
+interface ChartTooltipProps {
+  active?: boolean
+  payload?: { payload?: { label: string; spend_pence: number } }[]
+  currency: string
+}
+
+/** Dark-mode-aware chart tooltip (recharts' default is an unreadable white
+ *  box in dark theme). Mirrors the dashboard SpendChart tooltip. */
+function ChartTooltip({ active, payload, currency }: ChartTooltipProps) {
+  const first = payload?.[0]
+  if (!active || !first?.payload) return null
+  const entry = first.payload
+  return (
+    <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900">
+      <p className="font-medium text-slate-900 dark:text-slate-100">{entry.label}</p>
+      <p className="tabular-nums text-cyan-600 dark:text-cyan-300">
+        {formatCurrency(entry.spend_pence, currency)}
+      </p>
     </div>
   )
 }
