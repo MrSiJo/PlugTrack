@@ -360,57 +360,38 @@ async def test_label_location_second_label_refused_409(authed_client, test_sessi
 
 
 @pytest.mark.asyncio
-async def test_label_location_recomputes_only_home_rate_sessions(
-    authed_client, test_sessionmaker
-):
-    """Only sessions with cost_basis='home_rate' get retro-recomputed.
-
-    Override-cost sessions are sacred. Sessions on a different
-    `cost_basis` are left alone.
+async def test_label_location_is_forward_only(authed_client, test_sessionmaker):
+    """First-labelling a location no longer rewrites past costs (freeze
+    invariant). Past home_rate charges keep their frozen cost; only the
+    non-cost network gap-fill still applies. The user presses 'recalculate
+    past costs' to apply the new rate to history.
     """
-    from sqlalchemy import select
-
-    from plugtrack.models import ChargingSession
-
     user_id = await _bootstrap_user_id(test_sessionmaker)
     car_id = await _create_car(authed_client)
     loc_id = await _create_location_for(test_sessionmaker, user_id)
 
-    # Three sessions, all linked to this unlabelled location:
-    # 1. plain (will land on home_rate)
-    # 2. cost_per_kwh_override (override_per_kwh)
-    # 3. total_cost_override (override_total)
-    payloads = [
-        {"kwh_added": 10.0},  # → home_rate
-        {"kwh_added": 10.0, "cost_per_kwh_override_p": 50.0},  # → override_per_kwh
-        {"kwh_added": 10.0, "total_cost_pence_override": 999},  # → override_total
-    ]
-    session_ids = []
-    for extra in payloads:
-        r = await authed_client.post(
-            "/api/sessions",
-            json={
-                "car_id": car_id,
-                "date": date.today().isoformat(),
-                "start_soc": 20,
-                "end_soc": 80,
-                "location_id": loc_id,
-                **extra,
-            },
-            headers=csrf_headers(authed_client),
-        )
-        assert r.status_code == 201, r.text
-        session_ids.append(r.json()["id"])
+    # A plain charge on the unlabelled location lands on home_rate (7.5p),
+    # with no charge_network set yet.
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "location_id": loc_id,
+            "kwh_added": 10.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert create.status_code == 201, create.text
+    sid = create.json()["id"]
+    assert create.json()["cost_basis"] == "home_rate"
+    assert create.json()["tariff_p_per_kwh"] == 7.5
+    assert create.json()["cost_pence"] == 75
+    assert create.json()["charge_network"] is None
 
-    # Snapshot the override-cost session values pre-label.
-    pre_override_per_kwh = (
-        await authed_client.get(f"/api/sessions/{session_ids[1]}")
-    ).json()
-    pre_override_total = (
-        await authed_client.get(f"/api/sessions/{session_ids[2]}")
-    ).json()
-
-    # Label the location with a new per-kWh default.
+    # Label the location with a per-kWh default AND a network.
     label = await authed_client.patch(
         f"/api/locations/{loc_id}/label",
         json={
@@ -418,28 +399,33 @@ async def test_label_location_recomputes_only_home_rate_sessions(
             "is_home": False,
             "is_free": False,
             "default_cost_per_kwh_p": 35.0,
+            "default_charge_network": "BP Pulse",
         },
         headers=csrf_headers(authed_client),
     )
     assert label.status_code == 200, label.text
-    assert label.json()["sessions_recomputed_count"] == 1
+    # Forward-only: no past cost was rewritten.
+    assert label.json()["sessions_recomputed_count"] == 0
 
-    # Session 0 (was home_rate) is now location_rate at 35p.
-    s0 = (await authed_client.get(f"/api/sessions/{session_ids[0]}")).json()
-    assert s0["cost_basis"] == "location_rate"
-    assert s0["tariff_p_per_kwh"] == 35.0
-    assert s0["cost_pence"] == round(10.0 * 35.0)
+    s0 = (await authed_client.get(f"/api/sessions/{sid}")).json()
+    # Cost is FROZEN at the original home_rate — not re-rated to 35p.
+    assert s0["cost_basis"] == "home_rate"
+    assert s0["tariff_p_per_kwh"] == 7.5
+    assert s0["cost_pence"] == 75
+    # Non-cost network gap-fill still applies.
+    assert s0["charge_network"] == "BP Pulse"
 
-    # Session 1 (override_per_kwh) is unchanged.
-    s1 = (await authed_client.get(f"/api/sessions/{session_ids[1]}")).json()
-    assert s1["cost_basis"] == pre_override_per_kwh["cost_basis"]
-    assert s1["cost_pence"] == pre_override_per_kwh["cost_pence"]
-    assert s1["tariff_p_per_kwh"] == pre_override_per_kwh["tariff_p_per_kwh"]
-
-    # Session 2 (override_total) is unchanged.
-    s2 = (await authed_client.get(f"/api/sessions/{session_ids[2]}")).json()
-    assert s2["cost_basis"] == pre_override_total["cost_basis"]
-    assert s2["cost_pence"] == pre_override_total["cost_pence"]
+    # The explicit recalculate button is the way to apply the rate to history.
+    recalc = await authed_client.post(
+        f"/api/locations/{loc_id}/recalculate-past-costs",
+        headers=csrf_headers(authed_client),
+    )
+    assert recalc.status_code == 200
+    assert recalc.json()["sessions_recomputed_count"] == 1
+    s0_after = (await authed_client.get(f"/api/sessions/{sid}")).json()
+    assert s0_after["cost_basis"] == "location_rate"
+    assert s0_after["tariff_p_per_kwh"] == 35.0
+    assert s0_after["cost_pence"] == round(10.0 * 35.0)
 
 
 @pytest.mark.asyncio
