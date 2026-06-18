@@ -137,6 +137,17 @@ async def test_filter_by_invalid_source_400(authed_client):
 
 
 @pytest.mark.asyncio
+async def test_filter_by_telegram_and_import_accepted(authed_client, test_sessionmaker):
+    # Regression: telegram + import are real sources (the standalone pivot), but
+    # the filter allow-list was stale, 400-ing the Sessions page when you
+    # clicked the "Telegram" or "Import" source tab.
+    await _bootstrap(authed_client, test_sessionmaker)
+    for src in ("telegram", "import"):
+        r = await authed_client.get(f"/api/sessions?source={src}")
+        assert r.status_code == 200, (src, r.text)
+
+
+@pytest.mark.asyncio
 async def test_filter_by_date_range(authed_client, test_sessionmaker):
     _, _, _, _, today = await _bootstrap(authed_client, test_sessionmaker)
     df = (today - timedelta(days=15)).isoformat()

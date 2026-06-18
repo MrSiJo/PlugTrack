@@ -301,7 +301,11 @@ async def _apply_cost(
     cs.tariff_p_per_kwh = tariff
 
 
-_VALID_SOURCES = frozenset({"manual", "synthesis", "cariad", "unconfirmed"})
+# Canonical session sources (see ChargingSession.source). 'cariad' is the
+# deprecated legacy synthesis source — dropped from the filter allow-list as it
+# is no longer offered in the UI; 'telegram'/'import' are the standalone-pivot
+# ingest sources.
+_VALID_SOURCES = frozenset({"manual", "synthesis", "telegram", "import", "unconfirmed"})
 _VALID_SORTS = frozenset({"date", "cost", "energy", "saved"})
 _VALID_DIRS = frozenset({"asc", "desc"})
 
