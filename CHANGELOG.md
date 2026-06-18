@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.5.0](https://github.com/MrSiJo/PlugTrack/compare/v2.4.0...v2.5.0) (2026-06-18)
+
+
+### Features
+
+* **dashboard:** add cost-per-mile KPI (lifetime + rolling 30d) ([0be7903](https://github.com/MrSiJo/PlugTrack/commit/0be7903ffdb5c71c4ea713d7210e14d58c41ea65))
+* **sessions:** actual charge time + MyCupra CSV backfill importer ([0b6c37f](https://github.com/MrSiJo/PlugTrack/commit/0b6c37fb4672ca346cc903b3645815b828c03fc8))
+
+
+### Bug Fixes
+
+* **ingest:** parse photo captions for mileage + home location ([3f8f0c9](https://github.com/MrSiJo/PlugTrack/commit/3f8f0c9bfb496a99dd15976bb6d0a4283b09ce9d))
+* **ingest:** restore peak_kw to required; don't black-hole text on charge-parse error ([3643b14](https://github.com/MrSiJo/PlugTrack/commit/3643b14b291047400e10853fbcad838e13e705b6))
+* **metrics:** derive average power from actual charge time, not plug-in window ([84443b2](https://github.com/MrSiJo/PlugTrack/commit/84443b212f43ab6184a6e7544233104ce80279ca))
+* **sessions:** allow telegram + import in the source filter allow-list ([f967b33](https://github.com/MrSiJo/PlugTrack/commit/f967b3361c6b17d1da518c57dfcb80d51ab81109))
+* **usage:** answer in plain text (the bot sends no parse_mode, so markdown showed literally) ([f65f594](https://github.com/MrSiJo/PlugTrack/commit/f65f594ed29d297b4ba9955dbcc4493108bc4bd5))
+
 ## [2.4.0](https://github.com/MrSiJo/PlugTrack/compare/v2.3.0...v2.4.0) (2026-06-17)
 
 
