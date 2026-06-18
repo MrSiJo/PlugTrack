@@ -19,7 +19,7 @@ describe('NavBar', () => {
     expect(logo.className).toMatch(/text-gradient-electric/)
   })
 
-  it('renders all five primary links', () => {
+  it('renders all primary links', () => {
     render(
       <MemoryRouter>
         <NavBar />
@@ -27,6 +27,7 @@ describe('NavBar', () => {
     )
     for (const label of [
       'Dashboard',
+      'Insights',
       'Cars',
       'Sessions',
       'Locations',

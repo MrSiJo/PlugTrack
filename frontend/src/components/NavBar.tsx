@@ -6,6 +6,7 @@ import { useCommandPalette } from '@/components/CommandPalette'
 
 const links = [
   { to: '/dashboard', label: 'Dashboard' },
+  { to: '/insights', label: 'Insights' },
   { to: '/cars', label: 'Cars' },
   { to: '/sessions', label: 'Sessions' },
   { to: '/locations', label: 'Locations' },
