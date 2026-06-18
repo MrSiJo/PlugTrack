@@ -19,6 +19,7 @@ import {
   api,
   type ChargingSessionPayload,
   type CostBasis,
+  type LocationListPayload,
   type SessionConfirmRequest,
   type SessionMetricsPayload,
   type SessionUpdateRequest,
@@ -645,6 +646,25 @@ function SessionEditForm({ session, unit, onSaved }: EditFormProps) {
   )
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [locations, setLocations] = useState<LocationListPayload[]>([])
+  const [locationId, setLocationId] = useState<string>(
+    session.location_id !== null ? String(session.location_id) : '',
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const locs = await api.getLocations()
+        if (!cancelled) setLocations(locs)
+      } catch {
+        // Non-fatal: the selector simply stays empty.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -661,6 +681,7 @@ function SessionEditForm({ session, unit, onSaved }: EditFormProps) {
       const startTrim = startAt.trim()
       const endTrim = endAt.trim()
       const body: SessionUpdateRequest = {
+        location_id: locationId === '' ? null : Number(locationId),
         kwh_added: Number(kwh),
         odometer_at_session_km: odoKm,
         charge_start_at: startTrim === '' ? null : startTrim,
@@ -705,6 +726,22 @@ function SessionEditForm({ session, unit, onSaved }: EditFormProps) {
       className="space-y-3 rounded border border-slate-200 p-3 text-sm dark:border-slate-700"
       data-testid="session-edit-form"
     >
+      <label className="block">
+        <span className="text-xs uppercase text-slate-500">Location</span>
+        <select
+          className={inputCls}
+          value={locationId}
+          onChange={(e) => setLocationId(e.target.value)}
+          data-testid="edit-location-select"
+        >
+          <option value="">No location (home / global rate)</option>
+          {locations.map((l) => (
+            <option key={l.id} value={String(l.id)}>
+              {l.name ?? `Unlabelled #${l.id}`}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="grid grid-cols-2 gap-3">
         <label className="block">
           <span className="text-xs uppercase text-slate-500">Charge start</span>

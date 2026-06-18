@@ -433,6 +433,13 @@ export interface RecalculateLocationResponse {
   sessions_recomputed_count: number
 }
 
+export interface GeocodeResult {
+  address: string
+  lat: number
+  lng: number
+  provider: string
+}
+
 export interface MergeLocationResponse {
   sessions_redirected: number
   plug_ins_redirected: number
@@ -660,6 +667,9 @@ export const api = {
 
   deleteLocation: (id: number): Promise<void> =>
     fetchJSON<void>(`/api/locations/${id}`, { method: 'DELETE' }),
+
+  geocode: (q: string): Promise<GeocodeResult> =>
+    fetchJSON<GeocodeResult>(`/api/geocode?q=${encodeURIComponent(q)}`),
 
   getInsightsByLocation: (
     dateFrom?: string,

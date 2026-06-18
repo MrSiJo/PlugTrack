@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import SessionDetail from './SessionDetail'
 import {
@@ -442,5 +442,57 @@ describe('SessionDetail — unconfirmed session', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('unconfirmed-panel')).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('SessionDetail — assign location via edit form', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    useSettingsStore.setState({ settings: {}, loaded: true })
+  })
+
+  it('lets you assign a location to an unassigned session', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(makeSession({ location_id: null }))
+    vi.spyOn(api, 'getLocations').mockResolvedValue([
+      {
+        id: 9,
+        name: 'Instavolt McDonalds (Yeovil)',
+        centroid_lat: 50.95,
+        centroid_lng: -2.64,
+        radius_m: 100,
+        is_home: false,
+        is_free: false,
+        default_cost_per_kwh_p: 79,
+        default_charge_network: 'InstaVolt',
+        address: null,
+        visit_count: 0,
+        total_kwh: 0,
+        total_cost_pence: 0,
+        last_visited_at: null,
+      },
+    ])
+    const updateSpy = vi
+      .spyOn(api, 'updateSession')
+      .mockResolvedValue(makeSession({ location_id: 9 }))
+
+    renderDetail()
+
+    await waitFor(() => expect(screen.getByTestId('toggle-edit')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('toggle-edit'))
+
+    // The location selector is populated from getLocations.
+    await waitFor(() =>
+      expect(screen.getByTestId('edit-location-select')).toBeInTheDocument(),
+    )
+    fireEvent.change(screen.getByTestId('edit-location-select'), {
+      target: { value: '9' },
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('edit-save'))
+    })
+
+    expect(updateSpy).toHaveBeenCalledTimes(1)
+    expect(updateSpy.mock.calls[0]![1]).toMatchObject({ location_id: 9 })
   })
 })

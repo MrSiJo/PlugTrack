@@ -233,4 +233,40 @@ describe('Locations page', () => {
     expect(payload.centroid_lat).toBeCloseTo(50.2276)
     expect(payload.centroid_lng).toBeCloseTo(-5.2801)
   })
+
+  it('Find by address geocodes and fills the coordinates', async () => {
+    vi.spyOn(api, 'getLocations').mockResolvedValue([])
+    const geoSpy = vi.spyOn(api, 'geocode').mockResolvedValue({
+      address: 'Lysander Rd, Yeovil, BA20 2RP',
+      lat: 50.9512,
+      lng: -2.6431,
+      provider: 'nominatim',
+    })
+
+    render(
+      <MemoryRouter>
+        <Locations />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('add-location-button')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('add-location-button'))
+
+    fireEvent.change(screen.getByTestId('geocode-query-input'), {
+      target: { value: 'Instavolt McDonalds, Lysander Road, Yeovil' },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('geocode-search-button'))
+    })
+
+    expect(geoSpy).toHaveBeenCalledWith('Instavolt McDonalds, Lysander Road, Yeovil')
+    expect(
+      (screen.getByTestId('create-lat-input') as HTMLInputElement).value,
+    ).toBe('50.9512')
+    expect(
+      (screen.getByTestId('create-lng-input') as HTMLInputElement).value,
+    ).toBe('-2.6431')
+  })
 })
