@@ -755,3 +755,65 @@ async def test_explicit_override_change_re_derives_from_source(authed_client):
     assert body["cost_basis"] == "override_per_kwh"
     assert body["tariff_p_per_kwh"] == 40.0
     assert body["cost_pence"] == round(10.0 * 40.0)
+
+
+@pytest.mark.asyncio
+async def test_moving_charge_to_another_location_keeps_frozen_cost(
+    authed_client, test_sessionmaker
+):
+    """Reassigning a charge to a DIFFERENT location does NOT re-rate it
+    (strict freeze, confirmed product decision). Cost stays at the original
+    frozen tariff/basis; only an explicit override edit re-derives. The user
+    presses 'recalculate past costs' if they truly want history re-priced.
+    """
+    from plugtrack.models import Location
+
+    user_id = await _bootstrap_user_id(test_sessionmaker)
+    car_id = await _create_car(authed_client)
+
+    # Two labelled locations with different per-kWh rates.
+    async with test_sessionmaker() as s:
+        loc_a = Location(
+            user_id=user_id, name="A", centroid_lat=50.85, centroid_lng=-0.13,
+            radius_m=100, default_cost_per_kwh_p=20.0,
+        )
+        loc_b = Location(
+            user_id=user_id, name="B", centroid_lat=51.5, centroid_lng=-0.1,
+            radius_m=100, default_cost_per_kwh_p=60.0,
+        )
+        s.add_all([loc_a, loc_b])
+        await s.commit()
+        await s.refresh(loc_a)
+        await s.refresh(loc_b)
+        a_id, b_id = loc_a.id, loc_b.id
+
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+            "location_id": a_id,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert create.status_code == 201, create.text
+    sid = create.json()["id"]
+    assert create.json()["cost_basis"] == "location_rate"
+    assert create.json()["tariff_p_per_kwh"] == 20.0
+    assert create.json()["cost_pence"] == 200  # 10 * 20p
+
+    # Move the charge to location B (60p). Strict freeze: cost is unchanged.
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"location_id": b_id},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200, upd.text
+    body = upd.json()
+    assert body["location_id"] == b_id  # the label moved
+    assert body["cost_basis"] == "location_rate"  # basis frozen
+    assert body["tariff_p_per_kwh"] == 20.0  # still A's frozen rate, NOT 60
+    assert body["cost_pence"] == 200  # unchanged, NOT round(10 * 60)
