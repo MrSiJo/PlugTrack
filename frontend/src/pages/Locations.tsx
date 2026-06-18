@@ -181,6 +181,8 @@ function LocationCreateForm({
   const [isFree, setIsFree] = useState(false)
   const [busy, setBusy] = useState(false)
   const [geoBusy, setGeoBusy] = useState(false)
+  const [addressQuery, setAddressQuery] = useState('')
+  const [searching, setSearching] = useState(false)
 
   const latText = lat === null ? '' : String(lat)
   const lngText = lng === null ? '' : String(lng)
@@ -208,6 +210,32 @@ function LocationCreateForm({
       },
       { enableHighAccuracy: true, timeout: 10_000 },
     )
+  }
+
+  const handleFindByAddress = async () => {
+    if (addressQuery.trim() === '') {
+      onToast({ kind: 'error', message: 'Type an address or place to search.' })
+      return
+    }
+    setSearching(true)
+    try {
+      const r = await api.geocode(addressQuery.trim())
+      handlePick(r.lat, r.lng)
+      if (name.trim() === '') setName(addressQuery.trim())
+      onToast({ kind: 'success', message: `Found: ${r.address}` })
+    } catch (err) {
+      onToast({
+        kind: 'error',
+        message:
+          err instanceof ApiError
+            ? err.status === 404
+              ? 'No match for that address — try adding the town or postcode.'
+              : err.message
+            : 'Address search failed',
+      })
+    } finally {
+      setSearching(false)
+    }
   }
 
   const handleCreate = async () => {
@@ -248,10 +276,40 @@ function LocationCreateForm({
     >
       <h2 className="mb-3 text-sm font-semibold">New location</h2>
       <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
-        Click the map to drop a pin, type coordinates directly, or use your
-        current location. Set a default rate now so charges here are costed
-        correctly instead of falling back to the home rate.
+        Search by address, click the map to drop a pin, type coordinates
+        directly, or use your current location. Set a default rate now so
+        charges here are costed correctly instead of falling back to the home
+        rate.
       </p>
+
+      <div className="mb-3 flex flex-wrap items-end gap-2">
+        <label className="flex flex-1 flex-col gap-1 text-xs">
+          <span className="font-medium">Find by address</span>
+          <input
+            type="text"
+            value={addressQuery}
+            onChange={(e) => setAddressQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                void handleFindByAddress()
+              }
+            }}
+            placeholder="e.g. Instavolt McDonalds, Lysander Road, Yeovil"
+            className="rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-800"
+            data-testid="geocode-query-input"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={handleFindByAddress}
+          disabled={searching}
+          className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          data-testid="geocode-search-button"
+        >
+          {searching ? 'Searching…' : 'Find'}
+        </button>
+      </div>
 
       <div className="mb-3">
         <LocationPickerMap lat={lat} lng={lng} onPick={handlePick} />
