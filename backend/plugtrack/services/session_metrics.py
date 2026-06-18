@@ -379,14 +379,21 @@ async def _attach_charge_mechanics(
                     kwh * float(car.nominal_efficiency_mi_per_kwh), 2
                 )
 
-    # Duration + average power — both need start + end timestamps.
+    # Duration is the plug-in window (start -> end timestamps).
+    window_seconds: Optional[float] = None
     if cs.charge_start_at is not None and cs.charge_end_at is not None:
-        seconds = (cs.charge_end_at - cs.charge_start_at).total_seconds()
-        if seconds > 0:
-            metrics.duration_minutes = int(round(seconds / 60.0))
-            if cs.kwh_added and cs.kwh_added > 0:
-                hours = seconds / 3600.0
-                metrics.average_power_kw = round(cs.kwh_added / hours, 1)
+        window_seconds = (cs.charge_end_at - cs.charge_start_at).total_seconds()
+        if window_seconds > 0:
+            metrics.duration_minutes = int(round(window_seconds / 60.0))
+
+    # Average power must reflect the time actually drawing power. Home charges
+    # plug in for hours but only charge for a fraction of that (scheduled /
+    # battery-care), so dividing by the plug-in window understates the rate
+    # (3.47 kWh / 14h30m reads as 0.2 kW). Prefer actual_charge_seconds; fall
+    # back to the plug-in window when actual time is unknown (e.g. synthesis).
+    power_seconds = cs.actual_charge_seconds or window_seconds
+    if power_seconds and power_seconds > 0 and cs.kwh_added and cs.kwh_added > 0:
+        metrics.average_power_kw = round(cs.kwh_added / (power_seconds / 3600.0), 1)
 
     # Peak power — only present on synthesis sessions where the worker
     # accumulated a power_curve.
