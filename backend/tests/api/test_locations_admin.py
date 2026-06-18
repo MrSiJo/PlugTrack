@@ -534,3 +534,94 @@ async def test_create_location_rejects_out_of_range_coords(authed_client):
         headers=csrf_headers(authed_client),
     )
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/locations/{id} — bake rate into a frozen override (spec 01)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_location_bakes_rate_into_override(
+    authed_client, test_sessionmaker
+):
+    """location_rate + location_free sessions are baked into a frozen
+    cost_per_kwh_override_p before detach, so a later edit can never silently
+    drop them to the home rate."""
+    user_id = await _user_id(test_sessionmaker)
+    car_id = await _create_car(authed_client)
+    paid_id = await _make_location(
+        test_sessionmaker, user_id, name="Public", default_cost_per_kwh_p=42.0
+    )
+    free_id = await _make_location(
+        test_sessionmaker,
+        user_id,
+        name="Free",
+        is_free=True,
+        centroid_lat=52.0,
+        centroid_lng=2.0,
+    )
+
+    rate_s = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+            "location_id": paid_id,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    free_s = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+            "location_id": free_id,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    rate_sid = rate_s.json()["id"]
+    free_sid = free_s.json()["id"]
+    assert rate_s.json()["cost_basis"] == "location_rate"
+    assert rate_s.json()["cost_pence"] == round(10.0 * 42.0)
+    assert free_s.json()["cost_basis"] == "location_free"
+    assert free_s.json()["cost_pence"] == 0
+
+    # Delete the paid location → bake into override.
+    r = await authed_client.delete(
+        f"/api/locations/{paid_id}", headers=csrf_headers(authed_client)
+    )
+    assert r.status_code == 204
+    rate_after = (await authed_client.get(f"/api/sessions/{rate_sid}")).json()
+    assert rate_after["location_id"] is None
+    assert rate_after["cost_basis"] == "override_per_kwh"
+    assert rate_after["cost_per_kwh_override_p"] == 42.0
+    assert rate_after["cost_pence"] == round(10.0 * 42.0)  # unchanged
+
+    # Delete the free location → baked as 0 override, £0 preserved.
+    r2 = await authed_client.delete(
+        f"/api/locations/{free_id}", headers=csrf_headers(authed_client)
+    )
+    assert r2.status_code == 204
+    free_after = (await authed_client.get(f"/api/sessions/{free_sid}")).json()
+    assert free_after["location_id"] is None
+    assert free_after["cost_basis"] == "override_per_kwh"
+    assert free_after["cost_per_kwh_override_p"] == 0.0
+    assert free_after["cost_pence"] == 0
+
+    # The bake is durable: editing kWh now re-scales at the frozen override,
+    # not the home rate.
+    upd = await authed_client.put(
+        f"/api/sessions/{rate_sid}",
+        json={"kwh_added": 20.0},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200
+    assert upd.json()["cost_basis"] == "override_per_kwh"
+    assert upd.json()["cost_pence"] == round(20.0 * 42.0)
