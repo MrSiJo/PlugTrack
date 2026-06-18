@@ -12,6 +12,7 @@ import {
   ApiError,
   api,
   type ChargingSessionPayload,
+  type InsightsLocationRow,
   type LocationListPayload,
 } from '@/api/client'
 import { LocationEditForm } from '@/components/locations/LocationEditForm'
@@ -28,17 +29,13 @@ interface Toast {
   message: string
 }
 
-function avgPPerKwh(loc: LocationListPayload): number | null {
-  if (loc.total_kwh <= 0) return null
-  return loc.total_cost_pence / loc.total_kwh
-}
-
 export default function LocationDetail() {
   const { id } = useParams<{ id: string }>()
   const numericId = Number(id)
   const currency = useSetting<string>('currency') ?? 'GBP'
 
   const [location, setLocation] = useState<LocationListPayload | null>(null)
+  const [insightsRow, setInsightsRow] = useState<InsightsLocationRow | null>(null)
   const [sessions, setSessions] = useState<ChargingSessionPayload[]>([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -53,8 +50,9 @@ export default function LocationDetail() {
     }
     try {
       setLoading(true)
-      const [locs, sess] = await Promise.all([
+      const [locs, insights, sess] = await Promise.all([
         api.getLocations(),
+        api.getInsightsByLocation(),
         api.getSessions(`?location_id=${numericId}`),
       ])
       const match = locs.find((l) => l.id === numericId) ?? null
@@ -62,6 +60,7 @@ export default function LocationDetail() {
         setNotFound(true)
       } else {
         setLocation(match)
+        setInsightsRow(insights.rows.find((r) => r.location_id === numericId) ?? null)
         setSessions(sess)
         setNotFound(false)
       }
@@ -85,15 +84,15 @@ export default function LocationDetail() {
 
   const stats = useMemo(() => {
     if (location === null) return null
-    const avg = avgPPerKwh(location)
+    const row = insightsRow
     return {
-      spend: location.total_cost_pence,
-      kwh: location.total_kwh,
-      sessions: location.visit_count,
-      avg,
-      lastVisited: location.last_visited_at,
+      spend: row?.spend_pence ?? 0,
+      kwh: row?.kwh ?? 0,
+      sessions: row?.sessions ?? 0,
+      avg: row?.avg_p_per_kwh ?? null,
+      lastVisited: row?.last_at ?? null,
     }
-  }, [location])
+  }, [location, insightsRow])
 
   if (loading) {
     return (

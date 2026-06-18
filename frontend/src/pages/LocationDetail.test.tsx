@@ -34,6 +34,14 @@ describe('LocationDetail page', () => {
 
   it('renders the stats header + session list + edit form', async () => {
     vi.spyOn(api, 'getLocations').mockResolvedValue([makeLocation()])
+    vi.spyOn(api, 'getInsightsByLocation').mockResolvedValue({
+      rows: [
+        { location_id: 5, name: 'Home', is_home: true, is_free: false,
+          spend_pence: 1500, kwh: 200, sessions: 10, avg_p_per_kwh: 7.5,
+          first_at: '2026-01-01', last_at: '2026-06-01', pct_of_spend: 100 },
+      ],
+      totals: { spend_pence: 1500, kwh: 200, sessions: 10 },
+    })
     vi.spyOn(api, 'getSessions').mockResolvedValue([])
 
     renderAt('5')
@@ -49,6 +57,14 @@ describe('LocationDetail page', () => {
 
   it('renders a 404 view for an unknown id', async () => {
     vi.spyOn(api, 'getLocations').mockResolvedValue([makeLocation({ id: 5 })])
+    vi.spyOn(api, 'getInsightsByLocation').mockResolvedValue({
+      rows: [
+        { location_id: 5, name: 'Home', is_home: true, is_free: false,
+          spend_pence: 1500, kwh: 200, sessions: 10, avg_p_per_kwh: 7.5,
+          first_at: '2026-01-01', last_at: '2026-06-01', pct_of_spend: 100 },
+      ],
+      totals: { spend_pence: 1500, kwh: 200, sessions: 10 },
+    })
     vi.spyOn(api, 'getSessions').mockResolvedValue([])
 
     renderAt('999')

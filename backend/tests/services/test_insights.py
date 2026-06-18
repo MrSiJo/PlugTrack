@@ -4,7 +4,6 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from sqlalchemy import select
 
 from plugtrack.models import Car, ChargingSession, Location, User
 from plugtrack.services.insights import aggregate_by_location
@@ -164,3 +163,25 @@ async def test_user_isolation(test_sessionmaker):
 
     assert result.rows == []
     assert result.totals == {"spend_pence": 0, "kwh": 0.0, "sessions": 0}
+
+
+@pytest.mark.asyncio
+async def test_labelled_location_with_only_out_of_window_sessions_listed_with_zeros(
+    test_sessionmaker,
+):
+    uid = await _seed_user(test_sessionmaker, "admin")
+    car = await _add_car(test_sessionmaker, uid)
+    loc = await _add_location(test_sessionmaker, uid, name="Home")
+    await _add_session(test_sessionmaker, uid, car, location_id=loc, kwh=10.0, cost_pence=100, d="2026-01-01")
+
+    async with test_sessionmaker() as s:
+        result = await aggregate_by_location(
+            s, user_id=uid, date_from=date(2026, 5, 1), date_to=date(2026, 6, 30)
+        )
+
+    by_id = {r.location_id: r for r in result.rows}
+    assert loc in by_id
+    assert by_id[loc].sessions == 0
+    assert by_id[loc].spend_pence == 0
+    assert by_id[loc].kwh == 0.0
+    assert by_id[loc].avg_p_per_kwh is None
