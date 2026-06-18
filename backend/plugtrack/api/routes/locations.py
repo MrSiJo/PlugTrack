@@ -518,10 +518,13 @@ async def delete_location(
     """Detach all linked sessions + plug-ins (set `location_id=NULL`),
     then delete the location row.
 
-    Sessions auto-fall-back to the global home rate via the cost-precedence
-    rule on the next read — but cost_pence rows are NOT recomputed here
-    by design (that's an explicit user action via the recalculate
-    button). Override-based costs naturally remain sacred.
+    Cost-freezing (spec 01): before detaching, `location_rate` /
+    `location_free` sessions are baked into a frozen
+    `cost_per_kwh_override_p` (0.0 for free) with `cost_basis` →
+    `override_per_kwh`, so their cost is preserved and immune to the
+    home-rate fallback on a later edit. `home_rate` and override-based
+    sessions are left untouched (already global-rate / already sacred).
+    `cost_pence` is never changed here.
     """
     user_id = _user_id(request)
     result = await session.execute(
