@@ -359,6 +359,7 @@ def create_app() -> FastAPI:
     from .api.routes import charge_plan as charge_plan_routes
     from .api.routes import dashboard as dashboard_routes
     from .api.routes import health as health_routes
+    from .api.routes import insights as insights_routes
     from .api.routes import locations as locations_routes
     from .api.routes import sessions as sessions_routes
     from .api.routes import settings as settings_routes
@@ -375,6 +376,7 @@ def create_app() -> FastAPI:
     app.include_router(locations_routes.router)
     app.include_router(sync_routes.router)
     app.include_router(dashboard_routes.router)
+    app.include_router(insights_routes.router)
     app.include_router(charge_plan_routes.router)
     app.include_router(telegram_routes.router)
 
