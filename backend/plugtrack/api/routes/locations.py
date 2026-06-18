@@ -542,6 +542,13 @@ async def delete_location(
         )
     ).scalars().all()
     for cs in sessions:
+        # Bake the location's frozen rate into a sacred per-kWh override so
+        # detaching can never silently drop the charge to the home rate.
+        # location_free carries tariff 0.0 → baked as a 0 override (£0 kept).
+        if cs.cost_basis in ("location_rate", "location_free"):
+            cs.cost_per_kwh_override_p = cs.tariff_p_per_kwh
+            cs.cost_basis = "override_per_kwh"
+            # cost_pence is intentionally left unchanged.
         cs.location_id = None
 
     plug_ins = (
