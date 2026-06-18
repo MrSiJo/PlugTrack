@@ -603,15 +603,15 @@ async def label_location(
     loc.default_cost_per_kwh_p = body.default_cost_per_kwh_p
     loc.default_charge_network = body.default_charge_network
 
-    # Retro-recompute: only sessions on `home_rate` (the global
-    # fallback). Override-based costs are sacred.
-    recomputed = await _recompute_sessions_for_location(
-        session, loc, user_id, bases=("home_rate",)
-    )
+    # Forward-only (cost-freezing invariant, spec 01): first-labelling no
+    # longer rewrites past costs. Past home_rate charges keep their frozen
+    # cost; the user presses "recalculate past costs" to apply the new rate
+    # to history.
+    recomputed = 0
 
-    # Back-fill the network on past sessions that don't have one yet.
-    # Mirrors the cost back-fill: forward and back, but only into NULL
-    # gaps — user-set networks are never overwritten.
+    # Back-fill the network on past sessions that don't have one yet — this
+    # is a non-cost gap fill (NULL-only), so it stays. User-set networks are
+    # never overwritten.
     await _backfill_charge_network(session, loc, user_id)
 
     await session.commit()
