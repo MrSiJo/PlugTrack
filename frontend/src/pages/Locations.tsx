@@ -23,8 +23,8 @@ import {
   api,
   type LocationCreateRequest,
   type LocationListPayload,
-  type LocationUpdateRequest,
 } from '@/api/client'
+import { LocationEditForm } from '@/components/locations/LocationEditForm'
 import { LocationsMap } from '@/components/locations/LocationsMap'
 import { LocationPickerMap } from '@/components/locations/LocationPickerMap'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -389,30 +389,8 @@ interface LocationRowProps {
 }
 
 function LocationRow({ loc, allLocations, onChanged, onToast }: LocationRowProps) {
-  const [name, setName] = useState<string>(loc.name ?? '')
-  const [isHome, setIsHome] = useState<boolean>(loc.is_home)
-  const [isFree, setIsFree] = useState<boolean>(loc.is_free)
-  const [defaultRate, setDefaultRate] = useState<string>(
-    loc.default_cost_per_kwh_p === null ? '' : String(loc.default_cost_per_kwh_p),
-  )
-  const [defaultNetwork, setDefaultNetwork] = useState<string>(
-    loc.default_charge_network ?? '',
-  )
-  const [radiusM, setRadiusM] = useState<string>(String(loc.radius_m))
   const [mergeTargetId, setMergeTargetId] = useState<string>('')
   const [busy, setBusy] = useState(false)
-
-  // Re-sync local state when the parent list refreshes.
-  useEffect(() => {
-    setName(loc.name ?? '')
-    setIsHome(loc.is_home)
-    setIsFree(loc.is_free)
-    setDefaultRate(
-      loc.default_cost_per_kwh_p === null ? '' : String(loc.default_cost_per_kwh_p),
-    )
-    setDefaultNetwork(loc.default_charge_network ?? '')
-    setRadiusM(String(loc.radius_m))
-  }, [loc])
 
   const isUnlabelled = loc.name === null
 
@@ -420,59 +398,6 @@ function LocationRow({ loc, allLocations, onChanged, onToast }: LocationRowProps
     () => allLocations.filter((l) => l.id !== loc.id),
     [allLocations, loc.id],
   )
-
-  const handleSave = async () => {
-    setBusy(true)
-    try {
-      const payload: LocationUpdateRequest = {
-        name: name === '' ? null : name,
-        is_home: isHome,
-        is_free: isFree,
-        default_cost_per_kwh_p:
-          defaultRate === '' ? null : Number(defaultRate),
-        default_charge_network:
-          defaultNetwork.trim() === '' ? null : defaultNetwork.trim(),
-        radius_m: Number(radiusM),
-      }
-      await api.updateLocation(loc.id, payload)
-      onToast({ kind: 'success', message: 'Saved.' })
-      await onChanged()
-    } catch (err) {
-      onToast({
-        kind: 'error',
-        message: err instanceof ApiError ? err.message : 'Save failed',
-      })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const handleRecalculate = async () => {
-    if (
-      !window.confirm(
-        'Re-apply this location\'s tariff to all past non-override sessions linked here?',
-      )
-    ) {
-      return
-    }
-    setBusy(true)
-    try {
-      const result = await api.recalculateLocationPastCosts(loc.id)
-      onToast({
-        kind: 'success',
-        message: `Recomputed ${result.sessions_recomputed_count} session(s).`,
-      })
-      await onChanged()
-    } catch (err) {
-      onToast({
-        kind: 'error',
-        message:
-          err instanceof ApiError ? err.message : 'Recalculate failed',
-      })
-    } finally {
-      setBusy(false)
-    }
-  }
 
   const handleMerge = async () => {
     const targetId = Number(mergeTargetId)
@@ -591,89 +516,14 @@ function LocationRow({ loc, allLocations, onChanged, onToast }: LocationRowProps
         )}
       </dl>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="font-medium">Name</span>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-800"
-            data-testid={`name-input-${loc.id}`}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="font-medium">Default cost (p/kWh)</span>
-          <input
-            type="number"
-            min="0"
-            step="0.1"
-            value={defaultRate}
-            onChange={(e) => setDefaultRate(e.target.value)}
-            className="rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-800"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="font-medium">Default charge network</span>
-          <input
-            type="text"
-            value={defaultNetwork}
-            onChange={(e) => setDefaultNetwork(e.target.value)}
-            placeholder="e.g. Outfox Energy, Tesla, MFG"
-            className="rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-800"
-            data-testid={`default-network-input-${loc.id}`}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="font-medium">Cluster radius (m)</span>
-          <input
-            type="number"
-            min="1"
-            step="1"
-            value={radiusM}
-            onChange={(e) => setRadiusM(e.target.value)}
-            className="rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-800"
-          />
-        </label>
-        <div className="flex items-center gap-3 text-xs">
-          <label className="flex items-center gap-1">
-            <input
-              type="checkbox"
-              checked={isHome}
-              onChange={(e) => setIsHome(e.target.checked)}
-            />
-            <span>Is home</span>
-          </label>
-          <label className="flex items-center gap-1">
-            <input
-              type="checkbox"
-              checked={isFree}
-              onChange={(e) => setIsFree(e.target.checked)}
-            />
-            <span>Is free</span>
-          </label>
-        </div>
-      </div>
+      <LocationEditForm
+        location={loc}
+        showRadius
+        onSaved={onChanged}
+        onToast={onToast}
+      />
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={busy}
-          className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
-          data-testid={`save-button-${loc.id}`}
-        >
-          Save
-        </button>
-        <button
-          type="button"
-          onClick={handleRecalculate}
-          disabled={busy}
-          className="rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200"
-          data-testid={`recalculate-button-${loc.id}`}
-        >
-          Recalculate past costs
-        </button>
         <select
           aria-label="Merge target"
           value={mergeTargetId}
