@@ -187,6 +187,31 @@ async def test_duration_and_average_power(test_sessionmaker):
 
 
 @pytest.mark.asyncio
+async def test_average_power_uses_actual_charge_time(test_sessionmaker):
+    """A home charge plugs in for hours but only draws power briefly. Average
+    power must reflect actual_charge_seconds, not the long plug-in window —
+    otherwise 3.47 kWh over a 14h30m window reads as a nonsense 0.2 kW."""
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s)
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 6, 17),
+            charge_start_at=datetime(2026, 6, 17, 16, 36, tzinfo=timezone.utc),
+            charge_end_at=datetime(2026, 6, 18, 7, 6, tzinfo=timezone.utc),
+            start_soc=75, end_soc=79, kwh_added=3.47,
+            actual_charge_seconds=4980,  # 1h23m actually drawing power
+            cost_basis="home_rate", source="telegram",
+        ))
+        await s.commit()
+        cs = await s.get(ChargingSession, 1)
+        m = await compute_session_metrics(s, cs)
+        # duration stays the plug-in window (14h30m = 870 min)
+        assert m.duration_minutes == 870
+        # avg over ACTUAL charge time: 3.47 / (4980/3600) ≈ 2.5 kW
+        assert m.average_power_kw == pytest.approx(2.5, abs=0.1)
+
+
+@pytest.mark.asyncio
 async def test_duration_none_when_timestamps_missing(test_sessionmaker):
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
