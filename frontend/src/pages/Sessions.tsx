@@ -9,8 +9,7 @@
  * `syncStore.recentlyImportedSessionIds` get `data-highlighted="true"`.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import {
   ApiError,
   api,
@@ -22,9 +21,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { GradientNumber } from '@/components/ui/GradientNumber'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { Pill, type PillTone } from '@/components/ui/Pill'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,6 +32,14 @@ import { cn } from '@/lib/cn'
 import { useSyncStore } from '@/stores/syncStore'
 import { formatCurrency } from '@/utils/currency'
 import { useSetting } from '@/stores/settingsStore'
+import {
+  SessionsTable,
+  SavingsCell,
+  SOURCE_LABEL,
+  formatDayMonth,
+  type SortField,
+  type SortDir,
+} from '@/components/sessions/SessionsTable'
 
 type SourceFilter = 'all' | 'telegram' | 'manual' | 'synthesis' | 'import' | 'unconfirmed'
 
@@ -46,9 +51,6 @@ type DateRange =
   | 'all'
   | 'custom'
 
-type SortField = 'date' | 'cost' | 'energy' | 'saved'
-type SortDir = 'asc' | 'desc'
-
 const DATE_LABEL: Record<DateRange, string> = {
   this_month: 'This month',
   last_30: 'Last 30 days',
@@ -56,49 +58,6 @@ const DATE_LABEL: Record<DateRange, string> = {
   this_year: 'This year',
   all: 'All time',
   custom: 'Custom range',
-}
-
-const SOURCE_TONE: Record<string, PillTone> = {
-  telegram: 'green',
-  manual: 'amber',
-  synthesis: 'cyan',
-  import: 'purple',
-  unconfirmed: 'slate',
-}
-
-const SOURCE_LABEL: Record<string, string> = {
-  telegram: 'Telegram',
-  manual: 'Manual',
-  synthesis: 'Cupra',
-  import: 'Import',
-  unconfirmed: 'Unconfirmed',
-}
-
-const TYPE_LABEL: Record<string, string> = {
-  ac: 'AC',
-  dc: 'DC',
-}
-
-const MONTHS = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-]
-
-/** "27 May" from an ISO date (yyyy-mm-dd...). */
-function formatDayMonth(iso: string): string {
-  const day = Number(iso.slice(8, 10))
-  const month = MONTHS[Number(iso.slice(5, 7)) - 1] ?? ''
-  return `${day} ${month}`.trim()
 }
 
 function todayIso(): string {
@@ -131,187 +90,6 @@ function dateRangeBounds(range: DateRange): {
     .toISOString()
     .slice(0, 10)
   return { date_from: start, date_to: today }
-}
-
-interface SortHeaderProps {
-  label: string
-  field: SortField
-  sort: SortField
-  dir: SortDir
-  onSort: (field: SortField) => void
-  className?: string
-}
-
-function SortHeader({
-  label,
-  field,
-  sort,
-  dir,
-  onSort,
-  className,
-}: SortHeaderProps) {
-  const active = sort === field
-  return (
-    <th
-      scope="col"
-      className={cn(
-        'px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400',
-        className,
-      )}
-    >
-      <button
-        type="button"
-        onClick={() => onSort(field)}
-        aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-        className="inline-flex items-center gap-1 transition hover:text-slate-700 dark:hover:text-slate-200"
-      >
-        {label}
-        {active &&
-          (dir === 'asc' ? (
-            <ChevronUp className="h-3.5 w-3.5" aria-hidden />
-          ) : (
-            <ChevronDown className="h-3.5 w-3.5" aria-hidden />
-          ))}
-      </button>
-    </th>
-  )
-}
-
-/** Render a savings value as arrow + colour, no +/- sign.
- *  saved > 0 → green ↓ (cheaper than petrol)
- *  saved < 0 → red ↑ (dearer than petrol)
- *  saved === null → —
- *  estimated → ~ prefix
- */
-function SavingsCell({
-  saved,
-  estimated,
-  currency,
-  className,
-}: {
-  saved: number | null
-  estimated: boolean
-  currency: string
-  className?: string
-}) {
-  if (saved === null) {
-    return (
-      <span className={cn('text-slate-400 dark:text-slate-500', className)}>
-        —
-      </span>
-    )
-  }
-  const cheaper = saved > 0
-  const magnitude = Math.abs(saved)
-  const arrow = cheaper ? '↓' : '↑'
-  const colourCls = cheaper
-    ? 'text-emerald-600 dark:text-emerald-400'
-    : 'text-rose-600 dark:text-rose-400'
-  return (
-    <span className={cn('tabular-nums', colourCls, className)}>
-      {estimated ? '~' : ''}{arrow} {formatCurrency(magnitude, currency)}
-    </span>
-  )
-}
-
-interface SessionRowProps {
-  session: ChargingSessionPayload
-  highlighted: boolean
-  currency: string
-  /** First non-null breakeven across visible rows (for rate colouring). */
-  breakeven: number | null
-}
-
-function SessionRow({ session, highlighted, currency, breakeven }: SessionRowProps) {
-  const tone = SOURCE_TONE[session.source] ?? 'slate'
-  const sourceLabel = SOURCE_LABEL[session.source] ?? session.source
-  const locationName =
-    session.location_name ??
-    (session.location_id !== null
-      ? `loc#${session.location_id}`
-      : 'No location')
-  const tariffValue = session.tariff_p_per_kwh
-  const tariffText = tariffValue !== null ? `@${tariffValue.toFixed(0)}p` : null
-  const typeLabel = TYPE_LABEL[session.charging_type] ?? null
-  const estimated = session.comparison_basis === 'estimated'
-
-  // Rate cell colour: green ≤ breakeven, red > breakeven, neutral when missing.
-  const rateCls =
-    tariffValue === null || breakeven === null
-      ? 'text-slate-500 dark:text-slate-400'
-      : tariffValue <= breakeven
-        ? 'text-emerald-600 dark:text-emerald-400'
-        : 'text-rose-600 dark:text-rose-400'
-
-  return (
-    <tr
-      className={cn(
-        'border-b border-slate-200 transition last:border-b-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50',
-        highlighted &&
-          'animate-pulse-soft bg-emerald-50/60 dark:bg-emerald-950/20',
-      )}
-      data-testid="session-row"
-      data-highlighted={highlighted ? 'true' : 'false'}
-    >
-      <td className="px-3 py-2.5 text-sm tabular-nums text-slate-700 dark:text-slate-200">
-        <Link to={`/sessions/${session.id}`} className="block">
-          {formatDayMonth(session.date)}
-        </Link>
-      </td>
-      <td className="px-3 py-2.5">
-        <Link
-          to={`/sessions/${session.id}`}
-          className="flex items-center gap-2"
-        >
-          <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-            {locationName}
-          </span>
-          <Pill tone={tone} data-testid={`source-badge-${session.source}`}>
-            {sourceLabel}
-          </Pill>
-        </Link>
-      </td>
-      <td className="px-3 py-2.5 text-sm tabular-nums text-slate-700 dark:text-slate-200">
-        <Link to={`/sessions/${session.id}`} className="block">
-          {session.kwh_added.toFixed(1)}
-        </Link>
-      </td>
-      <td className="px-3 py-2.5">
-        <Link to={`/sessions/${session.id}`} className="block">
-          <GradientNumber size="sm" data-testid="session-cost">
-            {formatCurrency(session.cost_pence, currency)}
-          </GradientNumber>
-        </Link>
-      </td>
-      <td
-        data-testid="session-saved"
-        className="px-3 py-2.5 text-sm"
-      >
-        <Link to={`/sessions/${session.id}`} className="block">
-          <SavingsCell
-            saved={session.saved_vs_petrol_p}
-            estimated={estimated}
-            currency={currency}
-          />
-        </Link>
-      </td>
-      <td className="hidden px-3 py-2.5 text-sm tabular-nums text-slate-500 dark:text-slate-400 md:table-cell">
-        <Link to={`/sessions/${session.id}`} className="block">
-          {session.start_soc}→{session.end_soc}%
-        </Link>
-      </td>
-      <td className={cn('hidden px-3 py-2.5 text-sm tabular-nums md:table-cell', rateCls)}>
-        <Link to={`/sessions/${session.id}`} className="block">
-          {tariffText ?? ''}
-        </Link>
-      </td>
-      <td className="hidden px-3 py-2.5 text-sm text-slate-500 dark:text-slate-400 md:table-cell">
-        <Link to={`/sessions/${session.id}`} className="block">
-          {typeLabel ?? ''}
-        </Link>
-      </td>
-    </tr>
-  )
 }
 
 interface SessionCreateFormProps {
@@ -860,85 +638,13 @@ export default function Sessions() {
       )}
 
       {sessions.length > 0 && (
-        <Card className="overflow-x-auto p-0">
-          <table className="w-full border-collapse text-left">
-            <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-800">
-                <SortHeader
-                  label="Date"
-                  field="date"
-                  sort={sort}
-                  dir={dir}
-                  onSort={handleSort}
-                />
-                <th
-                  scope="col"
-                  className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400"
-                >
-                  Location
-                </th>
-                <SortHeader
-                  label="kWh"
-                  field="energy"
-                  sort={sort}
-                  dir={dir}
-                  onSort={handleSort}
-                />
-                <SortHeader
-                  label="Cost"
-                  field="cost"
-                  sort={sort}
-                  dir={dir}
-                  onSort={handleSort}
-                />
-                <SortHeader
-                  label="Saved"
-                  field="saved"
-                  sort={sort}
-                  dir={dir}
-                  onSort={handleSort}
-                />
-                <th
-                  scope="col"
-                  className="hidden px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400 md:table-cell"
-                >
-                  SoC
-                </th>
-                <th
-                  scope="col"
-                  className="hidden px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400 md:table-cell"
-                >
-                  <span>Rate</span>
-                  {summary.breakeven !== null && (
-                    <span
-                      className="ml-1 font-normal normal-case tracking-normal text-[10px] text-slate-400 dark:text-slate-500"
-                      title={`Charge rate above which electricity costs more than petrol per mile`}
-                    >
-                      vs petrol break-even ~{Math.round(summary.breakeven)}p/kWh
-                    </span>
-                  )}
-                </th>
-                <th
-                  scope="col"
-                  className="hidden px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400 md:table-cell"
-                >
-                  Type
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.map((session) => (
-                <SessionRow
-                  key={session.id}
-                  session={session}
-                  highlighted={recentlyImported.includes(session.id)}
-                  currency={currency}
-                  breakeven={summary.breakeven}
-                />
-              ))}
-            </tbody>
-          </table>
-        </Card>
+        <SessionsTable
+          sessions={sessions}
+          currency={currency}
+          breakeven={summary.breakeven}
+          highlightedIds={recentlyImported}
+          sortControls={{ sort, dir, onSort: handleSort }}
+        />
       )}
     </div>
   )
