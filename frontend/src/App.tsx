@@ -12,6 +12,8 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { applyThemeToDocument } from '@/theme'
 import Cars from '@/pages/Cars'
 import Dashboard from '@/pages/Dashboard'
+import Insights from '@/pages/Insights'
+import LocationDetail from '@/pages/LocationDetail'
 import Locations from '@/pages/Locations'
 import LoginPage from '@/pages/LoginPage'
 import Planner from '@/pages/Planner'
@@ -142,6 +144,18 @@ function AppRoutes({ result }: { result: BootstrapResult }) {
         }
       />
       <Route
+        path="/insights"
+        element={
+          result.setupNeeded ? (
+            <Navigate to="/setup" replace />
+          ) : !authed ? (
+            <Navigate to="/login" replace state={{ from: location }} />
+          ) : (
+            <Insights />
+          )
+        }
+      />
+      <Route
         path="/locations"
         element={
           result.setupNeeded ? (
@@ -150,6 +164,18 @@ function AppRoutes({ result }: { result: BootstrapResult }) {
             <Navigate to="/login" replace state={{ from: location }} />
           ) : (
             <Locations />
+          )
+        }
+      />
+      <Route
+        path="/locations/:id"
+        element={
+          result.setupNeeded ? (
+            <Navigate to="/setup" replace />
+          ) : !authed ? (
+            <Navigate to="/login" replace state={{ from: location }} />
+          ) : (
+            <LocationDetail />
           )
         }
       />
