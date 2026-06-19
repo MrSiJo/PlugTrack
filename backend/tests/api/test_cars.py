@@ -333,3 +333,47 @@ async def test_reveal_vin_rejects_non_owner(app, authed_client, other_user_heade
         )
         r = await other_client.get(f"/api/cars/{cid}/vin")
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# _mask_vin unit tests — privacy boundary regression
+# ---------------------------------------------------------------------------
+
+
+def test_mask_vin_none_returns_none():
+    from plugtrack.api.routes.cars import _mask_vin
+    assert _mask_vin(None) is None
+
+
+def test_mask_vin_empty_string_returns_none():
+    from plugtrack.api.routes.cars import _mask_vin
+    assert _mask_vin("") is None
+
+
+def test_mask_vin_short_string_fully_masked():
+    """A VIN of 3 chars must be returned fully masked — no original chars."""
+    from plugtrack.api.routes.cars import _mask_vin
+    result = _mask_vin("ABC")
+    assert result == "···"
+    assert "A" not in result
+    assert "B" not in result
+    assert "C" not in result
+
+
+def test_mask_vin_exactly_five_chars_fully_masked():
+    """A VIN of exactly 5 chars must be fully masked, not partially revealed."""
+    from plugtrack.api.routes.cars import _mask_vin
+    result = _mask_vin("ABCDE")
+    assert result == "·····"
+
+
+def test_mask_vin_standard_17_char_vin():
+    """A standard 17-char VIN keeps its last 5 and masks the first 12."""
+    from plugtrack.api.routes.cars import _mask_vin
+    vin = "VSSZZZK1ZNP123456"
+    result = _mask_vin(vin)
+    assert result is not None
+    assert result.endswith("23456")
+    assert len(result) == 17
+    # First 12 chars must all be the middle dot (·, U+00B7).
+    assert result[:12] == "·" * 12
