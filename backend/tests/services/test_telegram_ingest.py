@@ -200,8 +200,11 @@ def _merged():
 
 def test_summarise_shows_all_fields():
     text = _summarise([_merged()])
-    for token in ("9.78", "8.51", "56", "70", "Osprey", "Land's End", "TR19 7AA", "0.95"):
+    # Itemised card: kWh, cost (£8.51), SoC range, network/location — raw
+    # confidence is no longer printed.
+    for token in ("9.78", "8.51", "56", "70", "Osprey", "Land's End", "TR19 7AA"):
         assert token in text
+    assert "conf 0." not in text
 
 
 def test_summarise_shows_actual_charge_time():
@@ -214,7 +217,6 @@ def test_summarise_shows_actual_charge_time():
         network=None, peak_kw=2.0, confidence=0.95,
         actual_charge_seconds=3 * 3600 + 49 * 60, source_kinds=["mycupra"])
     text = _summarise([m])
-    assert "actual" in text.lower()
     assert "3h49m" in text
 
 
@@ -229,6 +231,57 @@ def test_summarise_shows_efficiency_and_location():
     text = _summarise([m])
     assert "home" in text.lower()
     assert "%" in text  # efficiency or SoC percentage shown
+
+
+def test_summarise_itemised_home_card():
+    from plugtrack.services.screenshot_correlation import MergedSession
+    m = MergedSession(
+        start_at=dt.datetime(2026, 6, 18, 13, 17, tzinfo=dt.timezone.utc),
+        end_at=dt.datetime(2026, 6, 18, 17, 15, tzinfo=dt.timezone.utc),
+        energy_kwh=None, cost_total_pence=None, cost_per_kwh_pence=None,
+        soc_start=67, soc_end=80, location_name="Home", location_address=None,
+        network=None, peak_kw=2.0, confidence=0.95,
+        actual_charge_seconds=14280, source_kinds=["mycupra", "granny"])
+    text = _summarise([m], projected=[{
+        "kwh_added": 9.22, "cost_pence": 178, "cost_basis": "location_rate",
+        "odometer_km": 11110 * 1.609344}], unit="mi")
+    assert "🏠 Home" in text
+    assert "— 18 Jun 13:17" in text
+    assert "🔋 67 → 80%" in text
+    assert "⚡ 9.22 kWh in 3h58m" in text
+    assert "💷 £1.78" in text
+    assert "19p/kWh" in text
+    assert "location rate" in text
+    assert "location_rate" not in text
+    assert "🛞 11,110 mi" in text
+    assert "conf 0." not in text
+
+
+def test_summarise_dc_uses_plug_emoji_and_basis_label():
+    from plugtrack.services.screenshot_correlation import MergedSession
+    m = MergedSession(
+        start_at=dt.datetime(2026, 6, 13, 8, 43, tzinfo=dt.timezone.utc),
+        end_at=dt.datetime(2026, 6, 13, 9, 1, tzinfo=dt.timezone.utc),
+        energy_kwh=37.9, cost_total_pence=1706, cost_per_kwh_pence=None,
+        soc_start=None, soc_end=None, location_name="Lifton", location_address=None,
+        network="Tesla", peak_kw=62.0, confidence=0.95, source_kinds=["tesla"])
+    text = _summarise([m], projected=[{
+        "kwh_added": 37.9, "cost_pence": 1706, "cost_basis": "override_total"}], unit="mi")
+    assert "🔌" in text
+    assert "💷 £17.06" in text
+    assert "manual total" in text
+
+
+def test_summarise_low_confidence_warning():
+    from plugtrack.services.screenshot_correlation import MergedSession
+    m = MergedSession(
+        start_at=dt.datetime(2026, 6, 18, 13, 17, tzinfo=dt.timezone.utc),
+        end_at=None, energy_kwh=9.3, cost_total_pence=None, cost_per_kwh_pence=None,
+        soc_start=67, soc_end=80, location_name="Home", location_address=None,
+        network=None, peak_kw=2.0, confidence=0.5, source_kinds=["mycupra"])
+    text = _summarise([m], projected=[{
+        "kwh_added": 9.3, "cost_pence": 178, "cost_basis": "location_rate"}], unit="mi")
+    assert "⚠ low confidence" in text
 
 
 class FakeTgText:

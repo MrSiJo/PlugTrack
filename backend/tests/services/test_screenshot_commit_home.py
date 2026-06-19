@@ -3,7 +3,10 @@ import datetime as dt
 import pytest
 
 from plugtrack.services.screenshot_correlation import MergedSession
-from plugtrack.services.screenshot_commit import commit_merged_session
+from plugtrack.services.screenshot_commit import (
+    commit_merged_session,
+    preview_merged_session,
+)
 
 
 def _merged(**over):
@@ -98,6 +101,22 @@ async def test_home_caption_matches_is_home_location_by_flag(test_sessionmaker, 
         await s.commit(); await s.refresh(cs)
     assert cs.location_id is not None          # linked via is_home, not by name
     assert cs.cost_basis == "location_rate"
+
+
+@pytest.mark.asyncio
+async def test_dc_power_curve_mapped_to_triplets(test_sessionmaker, seeded_user_car):
+    user_id, car_id = seeded_user_car
+    merged = _merged(
+        soc_start=55, soc_end=90, actual_charge_seconds=1320, network="Tesla",
+        cost_total_pence=1706, source_kinds=["tesla"],
+        power_curve=[[0.0, 0], [0.2, 62], [0.9, 50], [1.0, 0]])
+    async with test_sessionmaker() as s:
+        cs = await preview_merged_session(s, user_id=user_id, car_id=car_id, merged=merged)
+    assert cs.charging_type == "dc"
+    # leading/trailing zero-power points stripped
+    assert cs.power_curve[0][2] > 0 and cs.power_curve[-1][2] > 0
+    # first retained point: fraction 0.2 -> t=round(0.2*1320)=264, soc=55+0.2*(90-55)=62
+    assert cs.power_curve[0] == [264, 62, 62]
 
 
 @pytest.mark.asyncio

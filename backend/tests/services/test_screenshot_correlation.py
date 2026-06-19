@@ -89,3 +89,17 @@ def test_merge_carries_location_short_name():
     )
     sessions, _ = correlate_batch([e])
     assert sessions[0].location_short_name == "Osprey Land's End"
+
+
+def test_merge_carries_power_curve():
+    from plugtrack.services.screenshot_extraction import Extraction
+    from plugtrack.services.screenshot_correlation import correlate_batch
+    e = Extraction(
+        source="mycupra", has_cost=False, energy_kwh=None, cost_total_pence=None,
+        cost_per_kwh_pence=None, start_at="2026-06-18T11:26:00+00:00",
+        end_at="2026-06-18T11:50:00+00:00", soc_start=55, soc_end=90,
+        location_name=None, location_address=None, network=None, peak_kw=62.0,
+        confidence=0.9, power_curve=[[0.0, 0], [1.0, 48]],
+    )
+    sessions, _ = correlate_batch([e])
+    assert sessions[0].power_curve == [[0.0, 0], [1.0, 48]]

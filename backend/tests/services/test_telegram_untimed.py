@@ -87,7 +87,9 @@ def test_summarise_uses_projected_cost():
         network=None, peak_kw=2.0, confidence=0.91, source_kinds=["mycupra", "granny"])
     text = _summarise([m], projected=[
         {"kwh_added": 10.74, "cost_pence": 207, "cost_basis": "home_rate"}])
-    assert "£2.07" in text and "home_rate" in text and "10.74" in text
+    # Card shows the human label, not the raw basis token.
+    assert "£2.07" in text and "home rate" in text and "10.74" in text
+    assert "home_rate" not in text
 
 
 @pytest.mark.asyncio
@@ -107,7 +109,7 @@ async def test_card_shows_projected_home_cost(test_sessionmaker, seeded_user_car
                           usage=Usage(1, 1, 0), telegram_file_id="m", message_id=1, sha="m")
     card = tg.sent[-1]
     assert "10.74 kWh" in card
-    assert "£2.07" in card and "home_rate" in card
+    assert "£2.07" in card and "home rate" in card
 
 
 @pytest.mark.asyncio

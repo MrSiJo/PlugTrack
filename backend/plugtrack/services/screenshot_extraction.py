@@ -42,6 +42,10 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
             "odometer": {"type": ["number", "null"]},
             "odometer_unit": {"type": ["string", "null"]},
             "actual_charge_seconds": {"type": ["integer", "null"]},
+            "power_curve": {
+                "type": ["array", "null"],
+                "items": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+            },
             "confidence": {"type": "number"},
         },
         "required": [
@@ -49,7 +53,7 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
             "cost_per_kwh_pence", "start_at", "end_at", "soc_start", "soc_end",
             "location_name", "location_address", "location_short_name", "network",
             "peak_kw", "odometer", "odometer_unit", "actual_charge_seconds",
-            "confidence",
+            "power_curve", "confidence",
         ],
     },
 }
@@ -79,6 +83,12 @@ SYSTEM_PROMPT = (
     "the network ('Supercharging'/'Tesla Supercharging' -> 'Tesla'), and drop site noise "
     "('Car Park', bay numbers, ', UK'). Null it if this is not a recognisable public "
     "charging site. "
+    "For DC/rapid charges whose screen shows a real power-vs-time graph with "
+    "variation (a ramp up, a plateau, then a step-down taper), read that curve into "
+    "power_curve as up to 12 [fraction, power_kw] points, where fraction goes 0.0 at "
+    "charge start to 1.0 at the end and power_kw is the kW at that point. Capture the "
+    "shape — the ramp, the plateau peak, and the step-down taper. Return null for a "
+    "flat AC/home charge that shows no real curve. "
 )
 
 TEXT_SYSTEM_PROMPT = (
@@ -120,6 +130,7 @@ class Extraction:
     odometer_unit: Optional[str] = None
     location_short_name: Optional[str] = None
     actual_charge_seconds: Optional[int] = None
+    power_curve: Optional[list] = None
 
 
 @dataclass(frozen=True)
@@ -181,6 +192,7 @@ def parse_extraction(raw: dict[str, Any]) -> Extraction:
         odometer_unit=raw.get("odometer_unit"),
         location_short_name=raw.get("location_short_name"),
         actual_charge_seconds=raw.get("actual_charge_seconds"),
+        power_curve=raw.get("power_curve"),
     )
 
 
@@ -211,14 +223,14 @@ async def call_openai(
     client: Optional[httpx.AsyncClient] = None,
 ) -> ExtractionResult:
     payload = build_request_payload(image_bytes, model=model)
-    # Some models reject effort "none"; retry once at "minimal".
+    # Some models reject effort "none"; retry once at "low".
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     owns = client is None
     client = client or httpx.AsyncClient(timeout=90)
     try:
         resp = await client.post(RESPONSES_URL, json=payload, headers=headers)
         if resp.status_code == 400 and "effort" in resp.text.lower():
-            payload["reasoning"]["effort"] = "minimal"
+            payload["reasoning"]["effort"] = "low"
             resp = await client.post(RESPONSES_URL, json=payload, headers=headers)
         resp.raise_for_status()
         body = resp.json()
@@ -265,7 +277,7 @@ async def extract_from_text(
     try:
         resp = await client.post(RESPONSES_URL, json=payload, headers=headers)
         if resp.status_code == 400 and "effort" in resp.text.lower():
-            payload["reasoning"]["effort"] = "minimal"
+            payload["reasoning"]["effort"] = "low"
             resp = await client.post(RESPONSES_URL, json=payload, headers=headers)
         resp.raise_for_status()
         body = resp.json()
