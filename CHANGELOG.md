@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.7.0](https://github.com/MrSiJo/PlugTrack/compare/v2.6.0...v2.7.0) (2026-06-19)
+
+
+### Features
+
+* **insights:** add numeric aggregator service ([83ffce5](https://github.com/MrSiJo/PlugTrack/commit/83ffce57b6974d6bb7f4cb45ab855b6a3f141fb2))
+* **insights:** add per-car mileage allowance view ([7365240](https://github.com/MrSiJo/PlugTrack/commit/73652408954df3be486b058a800b3f7796675829))
+* **insights:** assemble additional modules into the Insights page ([de5a665](https://github.com/MrSiJo/PlugTrack/commit/de5a665572bbdcaa49bed7a58dbb6a2bffa3d6c3))
+* **insights:** client types + overview/mileage methods ([74187a5](https://github.com/MrSiJo/PlugTrack/commit/74187a57277656f1bb630d8e88486c3dd7aa87a9))
+* **insights:** design pass — card-wrap modules, fix mileage unit casing ([c3a9a5d](https://github.com/MrSiJo/PlugTrack/commit/c3a9a5d608b6e6c0b193349c8b049d05aa2d8c4f))
+* **insights:** mileage allowance / pace component ([430ba87](https://github.com/MrSiJo/PlugTrack/commit/430ba8793f1eed0b6720a963d95bd1fe8f49cc54))
+* **insights:** over-time, split, network & efficiency chart components ([b9d7a04](https://github.com/MrSiJo/PlugTrack/commit/b9d7a04abcc61f9f9b3ea1c9fe046777497a6d2d))
+* **insights:** overview + mileage endpoints ([d3a82f3](https://github.com/MrSiJo/PlugTrack/commit/d3a82f3e29add0ee16fe1f59fadd99680af524dd))
+
+
+### Bug Fixes
+
+* **insights:** UTC mileage date + honest over-allowance KPI ([209331b](https://github.com/MrSiJo/PlugTrack/commit/209331bdd3b78165b397bcf788b730bf95e3b4f3))
+
 ## [2.6.0](https://github.com/MrSiJo/PlugTrack/compare/v2.5.0...v2.6.0) (2026-06-19)
 
 
