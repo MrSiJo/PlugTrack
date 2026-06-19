@@ -46,4 +46,16 @@ describe('MileageAllowance', () => {
     // 3907 km used ≈ 2428 mi
     expect(screen.getByText(/2,428 mi|2428 mi/)).toBeInTheDocument()
   })
+
+  it('shows "Over by" label with absolute distance when remaining_km is negative', async () => {
+    setUnit('mi')
+    vi.spyOn(api, 'getInsightsMileage').mockResolvedValue({
+      ...ENABLED,
+      remaining_km: -500,
+      pace: 'over',
+    })
+    render(<MileageAllowance carId={1} />)
+    await waitFor(() => expect(screen.getByTestId('mileage-allowance')).toBeInTheDocument())
+    expect(screen.getByText(/over by/i)).toBeInTheDocument()
+  })
 })
