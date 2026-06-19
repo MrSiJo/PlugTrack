@@ -13,6 +13,7 @@ import { useEffect } from 'react'
 import { INTEGRATIONS } from '@/config/integrations'
 import { IntegrationCard } from '@/components/admin/IntegrationCard'
 import { PreferencesPanel } from '@/components/admin/PreferencesPanel'
+import { MaintenancePanel } from '@/components/admin/MaintenancePanel'
 import { LocationsManagement } from '@/components/admin/LocationsManagement'
 import { CarsManagement } from '@/components/admin/CarsManagement'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -54,7 +55,7 @@ export default function AdminPage() {
         <PreferencesPanel />
       </section>
 
-      {/* Maintenance — placeholder for Phase C */}
+      {/* Maintenance */}
       <section
         className="mb-10"
         aria-labelledby="section-maintenance-heading"
@@ -66,9 +67,7 @@ export default function AdminPage() {
         >
           Maintenance
         </h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          Maintenance tools coming soon.
-        </p>
+        <MaintenancePanel />
       </section>
 
       {/* Locations management */}
