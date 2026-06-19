@@ -144,6 +144,30 @@ async def _apply_value_migrations(conn) -> None:
     )
 
 
+async def reconcile_ai_enabled(session) -> None:
+    """One-shot, idempotent: enable AI when an OpenAI key already exists.
+
+    Post-pivot the live Telegram screenshot extraction depends on AI being
+    on. Settings rows carry no provenance, so we use the literal default
+    ("false") as the "untouched" sentinel: if a key exists and ai_enabled is
+    still that default, flip it on. Never flips a user-chosen value.
+    """
+    from sqlalchemy import select
+    from plugtrack.models.setting import Setting
+    rows = (await session.execute(
+        select(Setting).where(Setting.key.in_(["ai_enabled", "openai_api_key"]))
+    )).scalars().all()
+    by_key = {r.key: r for r in rows}
+    ai = by_key.get("ai_enabled")
+    key = by_key.get("openai_api_key")
+    if ai is None or key is None:
+        return
+    has_key = bool(key.value)
+    if has_key and ai.value in (None, "false"):
+        ai.value = "true"
+        await session.commit()
+
+
 async def _read_bool_setting(session, key: str, default: bool) -> bool:
     """Read a bool setting value from the DB; fall back to `default`."""
     from sqlalchemy import select as _select
@@ -167,6 +191,7 @@ async def _lifespan(app: FastAPI):
     async with db_module.SessionLocal() as session:
         await seed_defaults(session)
         await session.commit()
+        await reconcile_ai_enabled(session)
 
     # Standalone pivot: VAG blocked the pycupra API (2026-06-08). The sync
     # stack (orchestrator + scheduler) is only wired when `pycupra_enabled`
