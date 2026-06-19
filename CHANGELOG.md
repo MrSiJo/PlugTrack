@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.9.0](https://github.com/MrSiJo/PlugTrack/compare/v2.8.0...v2.9.0) (2026-06-19)
+
+
+### Features
+
+* **admin:** backup + export UI in Maintenance panel ([f570ceb](https://github.com/MrSiJo/PlugTrack/commit/f570ceb1ea09c6bfae74e2890d5ad144b7ca9f24))
+* backup & export (spec 06) ([2d9e7da](https://github.com/MrSiJo/PlugTrack/commit/2d9e7da46ac510c09dffbccdebd8c54f25882c7e))
+* **backup:** scheduled rotating snapshots via APScheduler ([2419803](https://github.com/MrSiJo/PlugTrack/commit/24198039eb7631c7be1341943416949ff3347ab4))
+* **backup:** VACUUM INTO snapshot service with keep-last-N pruning ([9c31965](https://github.com/MrSiJo/PlugTrack/commit/9c31965478e02059b27745ca78585e25a0377dce))
+* **export:** user-scoped sessions CSV/JSON export service ([4004e68](https://github.com/MrSiJo/PlugTrack/commit/4004e68de348a6bb13b422ef18160032d2a7dec0))
+* **maintenance:** backup + sessions export endpoints (auth-gated, traversal-safe) ([b80e0ba](https://github.com/MrSiJo/PlugTrack/commit/b80e0bacc733b4569669ad5b64d1349a6d3f623d))
+* **settings:** add backup_enabled/interval/retention keys ([b211240](https://github.com/MrSiJo/PlugTrack/commit/b211240383cd322b7f8531577ff73de62a7d255f))
+
+
+### Bug Fixes
+
+* **backup:** clamp backup interval and guard scheduler wiring against boot crash ([65ca906](https://github.com/MrSiJo/PlugTrack/commit/65ca90607a0143014a49584815b96927d1f8f510))
+
 ## [2.8.0](https://github.com/MrSiJo/PlugTrack/compare/v2.7.1...v2.8.0) (2026-06-19)
 
 
