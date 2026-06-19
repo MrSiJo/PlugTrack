@@ -467,6 +467,58 @@ export interface InsightsByLocationResponse {
   totals: { spend_pence: number; kwh: number; sessions: number }
 }
 
+export interface InsightsOverTimePoint {
+  period: string
+  spend_pence: number
+  kwh: number
+  sessions: number
+}
+
+export interface InsightsSplitBucket {
+  spend_pence: number
+  kwh: number
+  sessions: number
+  avg_p_per_kwh: number | null
+}
+
+export interface InsightsNetworkRow {
+  network: string
+  spend_pence: number
+  kwh: number
+  sessions: number
+  avg_p_per_kwh: number | null
+}
+
+export interface InsightsEfficiencyPoint {
+  period: string
+  observed_mi_per_kwh: number | null
+  cost_per_mile_p: number | null
+}
+
+export interface InsightsOverviewResponse {
+  granularity: 'daily' | 'weekly' | 'monthly'
+  over_time: InsightsOverTimePoint[]
+  split: { home: InsightsSplitBucket; public: InsightsSplitBucket }
+  by_network: InsightsNetworkRow[]
+  efficiency: InsightsEfficiencyPoint[]
+}
+
+export interface InsightsMileageResponse {
+  enabled: boolean
+  car_id: number
+  period_start: string | null
+  period_end: string | null
+  opening_km: number | null
+  current_km: number | null
+  target_km: number | null
+  used_km: number | null
+  remaining_km: number | null
+  days_elapsed: number | null
+  days_total: number | null
+  projected_year_end_km: number | null
+  pace: 'on' | 'under' | 'over' | null
+}
+
 // ---------------------------------------------------------------------------
 // Charge Planner
 // ---------------------------------------------------------------------------
@@ -685,6 +737,22 @@ export const api = {
       `/api/insights/by-location${qs ? `?${qs}` : ''}`,
     )
   },
+
+  getInsightsOverview: (
+    dateFrom?: string,
+    dateTo?: string,
+  ): Promise<InsightsOverviewResponse> => {
+    const params = new URLSearchParams()
+    if (dateFrom) params.set('date_from', dateFrom)
+    if (dateTo) params.set('date_to', dateTo)
+    const qs = params.toString()
+    return fetchJSON<InsightsOverviewResponse>(
+      `/api/insights/overview${qs ? `?${qs}` : ''}`,
+    )
+  },
+
+  getInsightsMileage: (carId: number): Promise<InsightsMileageResponse> =>
+    fetchJSON<InsightsMileageResponse>(`/api/insights/mileage?car_id=${carId}`),
 
   // ----- Sync -----
 
