@@ -35,6 +35,24 @@ const baseCar: DashboardCarPanel = {
 }
 
 describe('HeroCarCard', () => {
+  /**
+   * B7: Dashboard VIN masking.
+   *
+   * The DashboardCarPanel payload does not include a VIN field — VIN is
+   * only present on CarPayload (the list/get endpoint) which is masked
+   * server-side. The HeroCarCard therefore cannot leak a full VIN.
+   * This test asserts that no 17-character alphanumeric VIN string appears
+   * in the rendered card output.
+   */
+  it('does not render a 17-character VIN string', () => {
+    render(<HeroCarCard car={baseCar} />)
+    // A standard VIN is exactly 17 uppercase alphanumeric chars.
+    // The card should not contain any such string.
+    const container = screen.getByTestId(`car-panel-${baseCar.id}`)
+    const text = container.textContent ?? ''
+    expect(text).not.toMatch(/[A-HJ-NPR-Z0-9]{17}/)
+  })
+
   it('renders battery percentage as gradient number', () => {
     render(<HeroCarCard car={baseCar} />)
     expect(screen.getByText('62')).toBeInTheDocument()
