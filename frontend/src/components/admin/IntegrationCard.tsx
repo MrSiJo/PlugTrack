@@ -10,7 +10,7 @@
  * rather than the inline-save mode, so the card's single Save handles persistence.
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { SettingRow } from './SettingField'
 import type { IntegrationDef } from '@/config/integrations'
@@ -27,6 +27,13 @@ export function IntegrationCard({ def }: { def: IntegrationDef }) {
   const [enabled, setEnabled] = useState(
     masterStoredValue === 'true' || masterStoredValue === '1',
   )
+
+  // Re-sync the master toggle when the store hydrates (e.g. on fresh page load
+  // the store is empty at mount time; this effect fires once the async load
+  // populates settings and masterStoredValue changes from undefined → 'true'/'false').
+  useEffect(() => {
+    setEnabled(masterStoredValue === 'true' || masterStoredValue === '1')
+  }, [masterStoredValue])
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
