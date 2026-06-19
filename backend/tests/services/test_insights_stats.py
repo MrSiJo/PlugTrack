@@ -122,3 +122,41 @@ async def test_aggregators_user_isolation(test_sessionmaker, seeded_user_car):
         out = await ins.spend_energy_over_time(
             s, user_id=uid, date_from=None, date_to=None, granularity="daily")
     assert out == []
+
+
+@pytest.mark.asyncio
+async def test_mileage_view_not_enabled(test_sessionmaker, seeded_user_car):
+    uid, car = seeded_user_car
+    async with test_sessionmaker() as s:
+        view = await ins.mileage_allowance_view(s, user_id=uid, car_id=car, today=dt.date(2026, 6, 19))
+    assert view == {
+        "enabled": False, "car_id": car, "period_start": None, "period_end": None,
+        "opening_km": None, "current_km": None, "target_km": None, "used_km": None,
+        "remaining_km": None, "days_elapsed": None, "days_total": None,
+        "projected_year_end_km": None, "pace": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_mileage_view_projection_and_pace(test_sessionmaker, seeded_user_car):
+    uid, car = seeded_user_car
+    from plugtrack.services import mileage_tracking
+    # Tracking opens 2026-01-01 at 10000 mi with a 10000 mi/yr target.
+    async with test_sessionmaker() as s:
+        await mileage_tracking.set_tracking(
+            s, user_id=uid, car_id=car, start_date=dt.date(2026, 1, 1),
+            opening_miles=10000.0, annual_mileage_target_miles=10000.0,
+            today=dt.date(2026, 1, 1))
+        await s.commit()
+    # A session 100 days in with +2000 mi on the odometer (10000+2000 mi → km).
+    await _mk(test_sessionmaker, user_id=uid, car_id=car, when=dt.date(2026, 4, 10),
+              kwh=10.0, cost_pence=100, odometer_km=12000.0 * 1.609344)
+    async with test_sessionmaker() as s:
+        view = await ins.mileage_allowance_view(s, user_id=uid, car_id=car, today=dt.date(2026, 4, 10))
+    assert view["enabled"] is True
+    assert view["days_total"] == 365
+    assert view["days_elapsed"] == 100
+    assert view["used_km"] == pytest.approx(2000.0 * 1.609344, abs=1.0)
+    # projected = used/elapsed*total = 2000/100*365 = 7300 mi → under the 10000 target
+    assert view["projected_year_end_km"] == pytest.approx((10000 + 7300) * 1.609344, abs=5.0)
+    assert view["pace"] == "under"
