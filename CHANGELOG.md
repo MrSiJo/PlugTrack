@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.1](https://github.com/MrSiJo/PlugTrack/compare/v2.7.0...v2.7.1) (2026-06-19)
+
+
+### Bug Fixes
+
+* **ui:** drive dark mode from the .dark class, not OS scheme ([c26123e](https://github.com/MrSiJo/PlugTrack/commit/c26123e5dc6b4ba81dde81723036845200f86150))
+
 ## [2.7.0](https://github.com/MrSiJo/PlugTrack/compare/v2.6.0...v2.7.0) (2026-06-19)
 
 
