@@ -83,12 +83,13 @@ SYSTEM_PROMPT = (
     "the network ('Supercharging'/'Tesla Supercharging' -> 'Tesla'), and drop site noise "
     "('Car Park', bay numbers, ', UK'). Null it if this is not a recognisable public "
     "charging site. "
-    "For DC/rapid charges whose screen shows a real power-vs-time graph with "
-    "variation (a ramp up, a plateau, then a step-down taper), read that curve into "
-    "power_curve as up to 12 [fraction, power_kw] points, where fraction goes 0.0 at "
-    "charge start to 1.0 at the end and power_kw is the kW at that point. Capture the "
-    "shape — the ramp, the plateau peak, and the step-down taper. Return null for a "
-    "flat AC/home charge that shows no real curve. "
+    "When the screen shows a power-vs-time graph (MyCupra charge screens always do), "
+    "read that curve into power_curve as up to 12 [fraction, power_kw] points, where "
+    "fraction goes 0.0 at charge start to 1.0 at the end and power_kw is the kW at that "
+    "point. Capture the real shape: for a DC/rapid charge the ramp up, the plateau peak "
+    "and the step-down taper; for a flatter AC/home charge the roughly constant band "
+    "(note its level and any dips or ripples). Set power_curve null only when no power "
+    "graph is shown at all (e.g. a granny/EVSE meter display or a network receipt). "
 )
 
 TEXT_SYSTEM_PROMPT = (

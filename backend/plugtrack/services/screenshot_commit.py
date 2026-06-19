@@ -25,32 +25,40 @@ DEDUPE_TIME_MIN = 30
 DEDUPE_KWH_TOL = 0.5
 
 
-def _map_extracted_curve(merged: MergedSession) -> Optional[list]:
+def map_curve_points(
+    points: Optional[list],
+    secs: Optional[int],
+    soc_start: Optional[int],
+    soc_end: Optional[int],
+) -> Optional[list]:
     """Map extracted [fraction, kw] points to the renderer's
-    [t_seconds, soc, power_kw] triplets. Strips leading/trailing zero-power
-    points (pre-charge lead-in / terminal cutoff). Returns None when there is
-    no usable curve."""
-    pts = merged.power_curve
-    if not pts:
+    [t_seconds, soc, power_kw] triplets, interpolating SoC linearly across the
+    charge and stripping leading/trailing zero-power points (pre-charge lead-in
+    / terminal cutoff). Returns None when there is no usable curve. Shared by
+    commit and the backfill CLI."""
+    if not points or not secs or secs <= 0:
         return None
-    secs = merged.actual_charge_seconds
-    if not secs and merged.end_at and merged.start_at:
-        secs = int((merged.end_at - merged.start_at).total_seconds())
-    if not secs or secs <= 0:
-        return None
-    s0 = merged.soc_start if merged.soc_start is not None else 0
-    s1 = merged.soc_end if merged.soc_end is not None else s0
+    s0 = soc_start if soc_start is not None else 0
+    s1 = soc_end if soc_end is not None else s0
     triplets = []
-    for frac, kw in pts:
+    for frac, kw in points:
         t = int(round(float(frac) * secs))
         soc = round(s0 + float(frac) * (s1 - s0))
         triplets.append([t, soc, float(kw)])
-    # strip leading/trailing zero-power points
     while triplets and triplets[0][2] <= 0:
         triplets.pop(0)
     while triplets and triplets[-1][2] <= 0:
         triplets.pop()
     return triplets or None
+
+
+def _map_extracted_curve(merged: MergedSession) -> Optional[list]:
+    """Map a MergedSession's extracted curve to renderer triplets, falling back
+    to the plug-in window when actual_charge_seconds is unknown."""
+    secs = merged.actual_charge_seconds
+    if not secs and merged.end_at and merged.start_at:
+        secs = int((merged.end_at - merged.start_at).total_seconds())
+    return map_curve_points(merged.power_curve, secs, merged.soc_start, merged.soc_end)
 
 
 async def _distance_unit(session: AsyncSession) -> str:
