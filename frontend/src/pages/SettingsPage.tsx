@@ -5,7 +5,6 @@ import {
   api,
   type CarPayload,
   type HealthReport,
-  type OpenAiModelsResponse,
   type SettingPayload,
   type SyncStatusResponse,
 } from '@/api/client'
@@ -13,27 +12,10 @@ import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useSyncStore } from '@/stores/syncStore'
 import { useTheme } from '@/theme'
+import { SettingField, ENUM_OPTIONS, ModelSelect } from '@/components/admin/SettingField'
 
-// Hardcoded option lists for enum settings — kept local per YAGNI.
-// Backend catalogue stores these keys as `enum` value_type but doesn't
-// itself enumerate options.
-const ENUM_OPTIONS: Record<string, { value: string; label: string }[]> = {
-  theme: [
-    { value: 'system', label: 'System' },
-    { value: 'light', label: 'Light' },
-    { value: 'dark', label: 'Dark' },
-  ],
-  vehicle_provider: [{ value: 'cupra_connect', label: 'Cupra Connect' }],
-  distance_unit: [
-    { value: 'mi', label: 'Miles' },
-    { value: 'km', label: 'Kilometres' },
-  ],
-  geocoding_provider: [
-    { value: 'nominatim', label: 'Nominatim (free)' },
-    { value: 'mapbox', label: 'Mapbox' },
-    { value: 'opencage', label: 'OpenCage' },
-  ],
-}
+// Re-export so existing imports of ModelSelect from SettingsPage continue to work.
+export { ENUM_OPTIONS, ModelSelect }
 
 export default function SettingsPage() {
   const settings = useSettingsStore((s) => s.settings)
@@ -230,43 +212,6 @@ export function TestConnectionPanel() {
         </ul>
       )}
     </div>
-  )
-}
-
-export function ModelSelect({
-  value,
-  onChange,
-}: {
-  value: string
-  onChange: (v: string) => void
-}) {
-  const [data, setData] = useState<OpenAiModelsResponse | null>(null)
-  const [failed, setFailed] = useState(false)
-  useEffect(() => {
-    api.getOpenAiModels().then(setData).catch(() => setFailed(true))
-  }, [])
-  if (failed || !data) {
-    return (
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={failed ? 'Save your OpenAI key first, then reload' : 'Loading models…'}
-        className="w-full rounded border border-slate-300 px-3 py-1 text-sm dark:border-slate-700 dark:bg-slate-800"
-      />
-    )
-  }
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded border border-slate-300 px-3 py-1 text-sm dark:border-slate-700 dark:bg-slate-800"
-    >
-      {data.models.map((m) => (
-        <option key={m.id} value={m.id}>
-          {m.recommended ? `⭐ ${m.id}` : m.id}
-        </option>
-      ))}
-    </select>
   )
 }
 
@@ -569,7 +514,7 @@ function SettingRow({ entry }: SettingRowProps) {
             </button>
           </div>
         ) : (
-          <SettingInput
+          <SettingField
             id={`setting-${entry.key}`}
             entry={entry}
             value={value}
@@ -601,73 +546,3 @@ function SettingRow({ entry }: SettingRowProps) {
   )
 }
 
-interface SettingInputProps {
-  id: string
-  entry: SettingPayload
-  value: string
-  onChange: (next: string) => void
-}
-
-function SettingInput({ id, entry, value, onChange }: SettingInputProps) {
-  const baseClass =
-    'w-full rounded border border-slate-300 px-3 py-1 text-sm dark:border-slate-700 dark:bg-slate-800'
-
-  if (entry.value_type === 'bool') {
-    const checked = value === 'true' || value === '1'
-    return (
-      <input
-        id={id}
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked ? 'true' : 'false')}
-      />
-    )
-  }
-
-  if (entry.value_type === 'enum') {
-    const options = ENUM_OPTIONS[entry.key] ?? []
-    return (
-      <select
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={baseClass}
-      >
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-    )
-  }
-
-  if (entry.value_type === 'int' || entry.value_type === 'float') {
-    return (
-      <input
-        id={id}
-        type="number"
-        step={entry.value_type === 'float' ? '0.01' : '1'}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={baseClass}
-      />
-    )
-  }
-
-  if (entry.key === 'openai_model') {
-    return <ModelSelect value={value} onChange={onChange} />
-  }
-
-  // string (possibly secret).
-  return (
-    <input
-      id={id}
-      type={entry.is_secret ? 'password' : 'text'}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className={baseClass}
-      autoComplete={entry.is_secret ? 'new-password' : 'off'}
-    />
-  )
-}
