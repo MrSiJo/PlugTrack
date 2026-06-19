@@ -387,6 +387,7 @@ def create_app() -> FastAPI:
     from .api.routes import health as health_routes
     from .api.routes import insights as insights_routes
     from .api.routes import locations as locations_routes
+    from .api.routes import maintenance as maintenance_routes
     from .api.routes import sessions as sessions_routes
     from .api.routes import settings as settings_routes
     from .api.routes import setup as setup_routes
@@ -406,5 +407,6 @@ def create_app() -> FastAPI:
     app.include_router(geocode_routes.router)
     app.include_router(charge_plan_routes.router)
     app.include_router(telegram_routes.router)
+    app.include_router(maintenance_routes.router)
 
     return app
