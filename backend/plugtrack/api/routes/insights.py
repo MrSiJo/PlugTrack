@@ -15,6 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
 from ...services.insights import aggregate_by_location
+from ...services.insights_stats import (
+    efficiency_over_time,
+    home_public_split,
+    mileage_allowance_view,
+    network_breakdown,
+    resolve_granularity,
+    spend_energy_over_time,
+    window_totals,
+)
 
 
 router = APIRouter(prefix="/api/insights", tags=["insights"])
@@ -59,3 +68,63 @@ async def get_by_location(
             "totals": result.totals,
         }
     )
+
+
+async def _effective_bounds(session, user_id, date_from, date_to):
+    """Resolve concrete (lo, hi) for granularity. Missing bounds fall back
+    to the user's min/max session date. Returns (None, None) if no data."""
+    from sqlalchemy import func, select
+    from ...models import ChargingSession
+    lo, hi = date_from, date_to
+    if lo is None:
+        lo = (await session.execute(
+            select(func.min(ChargingSession.date)).where(
+                ChargingSession.user_id == user_id,
+                ChargingSession.source != "unconfirmed"))).scalar_one_or_none()
+    if hi is None:
+        hi = (await session.execute(
+            select(func.max(ChargingSession.date)).where(
+                ChargingSession.user_id == user_id,
+                ChargingSession.source != "unconfirmed"))).scalar_one_or_none()
+    return lo, hi
+
+
+@router.get("/overview")
+async def get_overview(
+    request: Request,
+    date_from: Optional[date_cls] = Query(default=None),
+    date_to: Optional[date_cls] = Query(default=None),
+    session: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    user_id = _user_id(request)
+    lo, hi = await _effective_bounds(session, user_id, date_from, date_to)
+    granularity = resolve_granularity(lo, hi) if lo and hi else "daily"
+
+    over_time = await spend_energy_over_time(
+        session, user_id=user_id, date_from=date_from, date_to=date_to, granularity=granularity)
+    split = await home_public_split(
+        session, user_id=user_id, date_from=date_from, date_to=date_to)
+    by_network = await network_breakdown(
+        session, user_id=user_id, date_from=date_from, date_to=date_to)
+    efficiency = await efficiency_over_time(
+        session, user_id=user_id, date_from=date_from, date_to=date_to, granularity=granularity)
+
+    return JSONResponse(content={
+        "granularity": granularity,
+        "over_time": over_time,
+        "split": split,
+        "by_network": by_network,
+        "efficiency": efficiency,
+    })
+
+
+@router.get("/mileage")
+async def get_mileage(
+    request: Request,
+    car_id: int = Query(...),
+    session: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    user_id = _user_id(request)
+    view = await mileage_allowance_view(
+        session, user_id=user_id, car_id=car_id, today=date_cls.today())
+    return JSONResponse(content=view)
