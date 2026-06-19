@@ -140,6 +140,10 @@ class SessionPayload(BaseModel):
     # session detail page can plot SoC + power as the charge progresses.
     # NULL on manual sessions and pre-Phase-4 historic rows.
     power_curve: Optional[list] = None
+    # True when `power_curve` is a vision-extracted approximation (a telegram
+    # screenshot's app graph) rather than a measured synthesis curve. The
+    # frontend dashes + badges an approximate curve.
+    power_curve_approximate: bool = False
     saved_vs_petrol_p: Optional[int] = None
     comparison_basis: Optional[str] = None
     breakeven_p_per_kwh: Optional[float] = None
@@ -241,6 +245,7 @@ def _to_payload(
         source=cs.source,
         telematics_session_id=cs.telematics_session_id,
         power_curve=cs.power_curve,
+        power_curve_approximate=bool(cs.power_curve) and cs.source != "synthesis",
         saved_vs_petrol_p=saved_vs_petrol_p,
         comparison_basis=comparison_basis,
         breakeven_p_per_kwh=breakeven_p_per_kwh,

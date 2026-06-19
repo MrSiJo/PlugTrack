@@ -317,6 +317,8 @@ export interface ChargingSessionPayload {
   breakeven_p_per_kwh: number | null
   // [[delta_seconds, soc, power_kw], ...] — live during charge.
   power_curve?: number[][] | null
+  // True when power_curve is vision-extracted (source != 'synthesis').
+  power_curve_approximate?: boolean
   metrics?: SessionMetricsPayload | null
 }
 

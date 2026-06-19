@@ -490,6 +490,52 @@ async def test_update_session_accepts_charge_context(authed_client):
 
 
 @pytest.mark.asyncio
+async def test_power_curve_approximate_flag(authed_client, test_sessionmaker):
+    """`power_curve_approximate` is True for a vision-extracted (non-synthesis)
+    curve, False for a measured synthesis curve, and False when there is no curve."""
+    from sqlalchemy import select
+    from plugtrack.models import ChargingSession
+
+    car_id = await _create_car(authed_client)
+
+    async def _make(source: str, power_curve):
+        create = await authed_client.post(
+            "/api/sessions",
+            json={
+                "car_id": car_id,
+                "date": date.today().isoformat(),
+                "start_soc": 20,
+                "end_soc": 80,
+                "kwh_added": 10.0,
+            },
+            headers=csrf_headers(authed_client),
+        )
+        sid = create.json()["id"]
+        async with test_sessionmaker() as s:
+            cs = (await s.execute(
+                select(ChargingSession).where(ChargingSession.id == sid))).scalar_one()
+            cs.source = source
+            cs.power_curve = power_curve
+            await s.commit()
+        return sid
+
+    # telegram session with a curve -> approximate
+    sid = await _make("telegram", [[0, 20, 50.0], [600, 80, 30.0]])
+    body = (await authed_client.get(f"/api/sessions/{sid}")).json()
+    assert body["power_curve_approximate"] is True
+
+    # synthesis session with a curve -> measured (not approximate)
+    sid = await _make("synthesis", [[0, 20, 50.0], [600, 80, 30.0]])
+    body = (await authed_client.get(f"/api/sessions/{sid}")).json()
+    assert body["power_curve_approximate"] is False
+
+    # no curve -> not approximate
+    sid = await _make("telegram", None)
+    body = (await authed_client.get(f"/api/sessions/{sid}")).json()
+    assert body["power_curve_approximate"] is False
+
+
+@pytest.mark.asyncio
 async def test_update_session_accepts_timestamps_and_interrupted(authed_client):
     """PUT can correct charge_start_at/charge_end_at and the interrupted flag.
 

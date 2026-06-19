@@ -65,63 +65,143 @@ function renderDetail() {
   )
 }
 
-describe('SessionDetail — charge context', () => {
+describe('SessionDetail — hero charge time', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     useSettingsStore.setState({ settings: {}, loaded: true })
   })
 
-  it('renders a Charge context section with mode/type/battery-care/max-current', async () => {
+  it('shows actual charge time (not the plug-in window) labelled "Charge time"', async () => {
+    // 18h41m plug-in window, but only 3h58m of actual charging.
     vi.spyOn(api, 'getSession').mockResolvedValue(
       makeSession({
+        charge_start_at: '2026-06-18T13:17:00',
+        charge_end_at: '2026-06-19T07:58:00',
+        actual_charge_seconds: 3 * 3600 + 58 * 60,
+      }),
+    )
+
+    renderDetail()
+
+    const tile = await screen.findByTestId('session-duration')
+    expect(tile).toHaveTextContent('Charge time')
+    expect(tile).toHaveTextContent('3h 58')
+    expect(tile).not.toHaveTextContent('18h 41')
+  })
+
+  it('falls back to the plug-in window labelled "Duration" when actual charge time is null', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        charge_start_at: '2026-06-18T13:17:00',
+        charge_end_at: '2026-06-18T17:15:00',
+        actual_charge_seconds: null,
+      }),
+    )
+
+    renderDetail()
+
+    const tile = await screen.findByTestId('session-duration')
+    expect(tile).toHaveTextContent('Duration')
+    expect(tile).toHaveTextContent('3h 58')
+  })
+
+  it('no longer renders the standalone kwh-calc-hint paragraph', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({ kwh_added: 46.2, kwh_calculated: 44.0 }),
+    )
+
+    renderDetail()
+
+    await screen.findByTestId('toggle-edit')
+    expect(screen.queryByTestId('kwh-calc-hint')).not.toBeInTheDocument()
+  })
+})
+
+describe('SessionDetail — charge details', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    useSettingsStore.setState({ settings: {}, loaded: true })
+  })
+
+  it('renders a single Charge details section merging mechanics + context', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        charge_start_at: '2026-06-18T13:17:00',
+        charge_end_at: '2026-06-18T17:15:00',
         charging_mode: 'timer',
         charging_type: 'ac',
         battery_care: true,
         max_charge_current: 'maximum',
+        metrics: makeMetrics({
+          range_added_miles: 120,
+          average_power_kw: 7.2,
+          peak_power_kw: 11,
+          duration_minutes: 238,
+        }),
       }),
     )
 
     renderDetail()
 
-    const section = await screen.findByTestId('charge-context')
-    expect(section).toHaveTextContent('Charge context')
+    const section = await screen.findByTestId('charge-details')
+    expect(section).toHaveTextContent('Charge details')
+    // Spine — always present.
+    expect(section).toHaveTextContent('Range added')
+    expect(section).toHaveTextContent('Avg power')
+    // Known context tiles.
     expect(section).toHaveTextContent('Timer')
     expect(section).toHaveTextContent('AC')
     expect(section).toHaveTextContent('Battery care')
-    expect(section).toHaveTextContent('Maximum')
+    // The dead tiles are gone.
+    expect(screen.queryByTestId('metric-peak-power')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ctx-max-current')).not.toBeInTheDocument()
+    // There is no separate mechanics/context section any more.
+    expect(screen.queryByTestId('charge-mechanics')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('charge-context')).not.toBeInTheDocument()
   })
 
-  it('shows actual charging time against the plugged-in duration', async () => {
-    vi.spyOn(api, 'getSession').mockResolvedValue(
-      makeSession({
-        actual_charge_seconds: 9 * 3600 + 9 * 60,
-        metrics: makeMetrics({ duration_minutes: 19 * 60 + 5 }),
-      }),
-    )
-
-    renderDetail()
-
-    const line = await screen.findByTestId('metric-actual-charge')
-    expect(line).toHaveTextContent('9h 09m')
-    expect(line).toHaveTextContent('plugged in')
-  })
-
-  it('omits the Charge context section when nothing useful is known', async () => {
+  it('renders the spine even when mode/type/care are unknown', async () => {
     vi.spyOn(api, 'getSession').mockResolvedValue(
       makeSession({
         charging_mode: 'unknown',
         charging_type: 'unknown',
         battery_care: null,
         max_charge_current: null,
+        metrics: makeMetrics({
+          range_added_miles: 80,
+          average_power_kw: 6.5,
+        }),
       }),
     )
 
     renderDetail()
 
-    await waitFor(() => {
-      expect(screen.getByTestId('toggle-edit')).toBeInTheDocument()
-    })
-    expect(screen.queryByTestId('charge-context')).not.toBeInTheDocument()
+    const section = await screen.findByTestId('charge-details')
+    expect(section).toHaveTextContent('Range added')
+    expect(section).toHaveTextContent('Avg power')
+    // Unknown context tiles are suppressed.
+    expect(screen.queryByTestId('ctx-mode')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ctx-type')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ctx-battery-care')).not.toBeInTheDocument()
+  })
+
+  it('renders the Duration tile only when both timestamps exist', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        charge_start_at: null,
+        charge_end_at: null,
+        metrics: makeMetrics({
+          range_added_miles: 80,
+          average_power_kw: 6.5,
+          duration_minutes: 200,
+        }),
+      }),
+    )
+
+    renderDetail()
+
+    await screen.findByTestId('charge-details')
+    expect(screen.queryByTestId('details-duration')).not.toBeInTheDocument()
   })
 
   it('edit form has battery-care and max-current inputs and submits them', async () => {
@@ -232,6 +312,56 @@ function makeMetrics(
   }
 }
 
+describe('SessionDetail — charge curve approximation', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    useSettingsStore.setState({ settings: {}, loaded: true })
+  })
+
+  const curve = [
+    [0, 55, 0],
+    [264, 62, 62],
+    [1188, 86, 50],
+    [1320, 90, 0],
+  ]
+
+  it('renders an Approximate badge + dashed power line when approximate', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        power_curve: curve,
+        power_curve_approximate: true,
+      }),
+    )
+
+    renderDetail()
+
+    const section = await screen.findByTestId('charge-curve')
+    expect(section).toHaveTextContent(/Approximate/i)
+    expect(section).not.toHaveTextContent('Measured')
+    const power = section.querySelector('[data-testid="curve-power-path"]')
+    expect(power).not.toBeNull()
+    expect(power!.getAttribute('stroke-dasharray')).toBeTruthy()
+  })
+
+  it('renders a Measured badge + solid power line when not approximate', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        power_curve: curve,
+        power_curve_approximate: false,
+      }),
+    )
+
+    renderDetail()
+
+    const section = await screen.findByTestId('charge-curve')
+    expect(section).toHaveTextContent('Measured')
+    expect(section).not.toHaveTextContent(/Approximate/i)
+    const power = section.querySelector('[data-testid="curve-power-path"]')
+    expect(power).not.toBeNull()
+    expect(power!.getAttribute('stroke-dasharray')).toBeFalsy()
+  })
+})
+
 describe('SessionDetail — petrol comparison basis', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -333,40 +463,70 @@ describe('SessionDetail — petrol comparison basis', () => {
     expect(screen.queryByText(/chain/i)).not.toBeInTheDocument()
   })
 
-  it('shows measured distance info when measured_miles_since_previous is present', async () => {
-    vi.spyOn(api, 'getSession').mockResolvedValue(
-      makeSession({
-        metrics: makeMetrics({
-          comparison_basis: 'estimated',
-          miles_since_previous: 62,
-          measured_miles_since_previous: 124,
-        }),
-      }),
-    )
+})
 
-    renderDetail()
-
-    const info = await screen.findByTestId('measured-distance-info')
-    expect(info).toBeInTheDocument()
-    // Shows the measured distance value.
-    expect(info).toHaveTextContent('124')
+describe('SessionDetail — petrol comparison compact card', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    useSettingsStore.setState({ settings: {}, loaded: true })
   })
 
-  it('does not show measured distance info when measured_miles_since_previous is null', async () => {
+  it('renders one compact line with savings, EV vs petrol /mi and equivalent', async () => {
     vi.spyOn(api, 'getSession').mockResolvedValue(
       makeSession({
         metrics: makeMetrics({
-          comparison_basis: 'estimated',
+          comparison_basis: 'measured',
+          savings_vs_petrol_p: 185,
           miles_since_previous: 62,
-          measured_miles_since_previous: null,
+          cost_per_mile_p: 6.3,
+          petrol_ppm: 12.8,
+          petrol_equivalent_cost_p: 363,
         }),
       }),
     )
 
     renderDetail()
 
-    await screen.findByTestId('toggle-edit')
-    expect(screen.queryByTestId('measured-distance-info')).not.toBeInTheDocument()
+    const card = await screen.findByTestId('petrol-comparison')
+    expect(card).toHaveTextContent('£1.85')
+    expect(card).toHaveTextContent('6.3p')
+    expect(card).toHaveTextContent('12.8p')
+    expect(card).toHaveTextContent('£3.63')
+
+    // The four standalone StatTiles are gone.
+    expect(screen.queryByTestId('metric-cost-per-mile')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('metric-petrol-ppm')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('metric-petrol-cost')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('metric-miles')).not.toBeInTheDocument()
+  })
+
+  it('keeps the "set Settings" empty state', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        metrics: makeMetrics({
+          petrol_price_p_per_litre: null,
+          petrol_mpg: null,
+        }),
+      }),
+    )
+
+    renderDetail()
+
+    const card = await screen.findByTestId('petrol-comparison')
+    expect(card).toHaveTextContent(/Settings/i)
+  })
+
+  it('keeps the "needs data" empty state', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        metrics: makeMetrics({ miles_since_previous: null }),
+      }),
+    )
+
+    renderDetail()
+
+    const card = await screen.findByTestId('petrol-comparison')
+    expect(card).toHaveTextContent(/Needs energy or odometer data/i)
   })
 })
 

@@ -123,15 +123,37 @@ def _kb() -> dict[str, Any]:
     }
 
 
+# Map the raw cost_basis token to a human label for the confirm card. An
+# unknown/missing basis just drops the parenthetical (we don't print the token).
+_BASIS_LABELS = {
+    "location_rate": "location rate",
+    "home_rate": "home rate",
+    "location_free": "free",
+    "override_total": "manual total",
+    "override_per_kwh": "manual rate",
+}
+
+
+def _hms(seconds: int) -> str:
+    """`14280` -> `3h58m`, `1200` -> `20m`."""
+    mins = seconds // 60
+    h, mm = divmod(mins, 60)
+    return f"{h}h{mm:02d}m" if h else f"{mm}m"
+
+
 def _summarise(merged: list[MergedSession], projected: Optional[list[dict]] = None, *, unit: str = "mi") -> str:
-    """Render the confirm card. When `projected` is supplied (per-session dicts
-    with kwh_added/cost_pence/cost_basis from a commit preview), show the kWh and
-    £ the Save will actually produce — including the home/location rate — instead
-    of the raw extracted values (which carry no cost for home charges)."""
+    """Render the confirm card as an itemised, human-readable block per charge.
+
+    When `projected` is supplied (per-session dicts with kwh_added/cost_pence/
+    cost_basis from a commit preview), show the kWh and £ the Save will actually
+    produce — including the home/location rate — instead of the raw extracted
+    values (which carry no cost for home charges). Each line is omitted entirely
+    when its datum is missing (never a `?` placeholder)."""
     def _odo(km: float) -> str:
         return f"{km / KM_PER_MILE:,.0f} mi" if unit == "mi" else f"{km:,.0f} km"
 
-    lines = [f"Staged {len(merged)} session(s):"]
+    n = len(merged)
+    blocks = [f"Staged {n} {'charge' if n == 1 else 'charges'}:"]
     for i, m in enumerate(merged):
         proj = projected[i] if (projected and i < len(projected)) else None
         kwh = (proj.get("kwh_added") if proj else None) or m.energy_kwh
@@ -140,58 +162,59 @@ def _summarise(merged: list[MergedSession], projected: Optional[list[dict]] = No
             cost_pence = m.cost_total_pence
         basis = proj.get("cost_basis") if proj else None
 
-        # Build each line from only the fields we actually have — omit unknowns
-        # rather than print "?" placeholders.
-        head = [f"⚡ {kwh:.2f} kWh"] if kwh else ["⚡ energy derived from SoC on save"]
-        if cost_pence is not None:
-            head.append(f"£{cost_pence / 100:.2f}" + (f" ({basis})" if basis else ""))
-            if kwh:
-                head.append(f"~{cost_pence / kwh:.0f}p/kWh")
-
-        detail: list[str] = []
-        if m.soc_start is not None and m.soc_end is not None:
-            detail.append(f"{m.soc_start}→{m.soc_end}%")
         is_dc = bool(m.network) or m.cost_total_pence is not None
-        if is_dc:
-            detail.append("DC")
-        elif m.soc_start is not None:
-            detail.append("AC/home")
-        if m.network:
-            detail.append(m.network)
-        if m.location_name:
-            detail.append(m.location_name + (f" ({m.location_address})" if m.location_address else ""))
-        elif m.location_address:
-            detail.append(m.location_address)
+        emoji = "🔌" if is_dc else "🏠"
 
-        when = f"{m.start_at:%d %b %H:%M}"
-        if m.end_at:
-            when += f"–{m.end_at:%H:%M}"
-        meta = [when]
+        lines: list[str] = []
+
+        # Location line: emoji + the best label we have + the start time.
+        # Compose '<Network> <Name> (<Address>)' from whatever's present,
+        # skipping a network already echoed in the name.
+        name = m.location_name
+        if m.network and not (name and m.network.lower() in name.lower()):
+            name = f"{m.network} {name}" if name else m.network
+        place = name
+        if m.location_address:
+            place = f"{place} ({m.location_address})" if place else m.location_address
+        loc = f"{emoji} {place}" if place else emoji
+        loc += f" — {m.start_at:%d %b %H:%M}"
+        lines.append(loc)
+
+        if m.soc_start is not None and m.soc_end is not None:
+            lines.append(f"🔋 {m.soc_start} → {m.soc_end}%")
+
+        energy = f"⚡ {kwh:.2f} kWh" if kwh else "⚡ energy set on save"
         if m.actual_charge_seconds:
-            mins = m.actual_charge_seconds // 60
-            h, mm = divmod(mins, 60)
-            meta.append(f"actual {h}h{mm:02d}m" if h else f"actual {mm}m")
-        meta.append(f"conf {m.confidence:.2f}")
-        if m.confidence < 0.6:
-            meta.append("⚠ low confidence")
+            energy += f" in {_hms(m.actual_charge_seconds)}"
+        lines.append(energy)
+
+        if cost_pence is not None:
+            cost = f"💷 £{cost_pence / 100:.2f}"
+            bits: list[str] = []
+            if kwh:
+                bits.append(f"~{cost_pence / kwh:.0f}p/kWh")
+            label = _BASIS_LABELS.get(basis or "")
+            if label:
+                bits.append(label)
+            if bits:
+                cost += f" ({', '.join(bits)})"
+            lines.append(cost)
 
         odo_km = proj.get("odometer_km") if proj else None
-        odo_line = None
         if odo_km is not None:
             odo_line = f"🛞 {_odo(odo_km)}"
             if proj.get("odometer_regressed"):
                 em = proj.get("existing_max_km")
                 if em is not None:
                     odo_line += f"  ⚠ below last reading ({_odo(em)})"
+            lines.append(odo_line)
 
-        parts = [" · ".join(head)]
-        if detail:
-            parts.append("   " + " · ".join(detail))
-        if odo_line:
-            parts.append("   " + odo_line)
-        parts.append("   " + " · ".join(meta))
-        lines.append("\n".join(parts))
-    return "\n".join(lines)
+        if m.confidence < 0.6:
+            lines.append("⚠ low confidence")
+
+        blocks.append("\n".join(lines))
+    # Blank line between the header/sessions for readability.
+    return "\n\n".join(blocks)
 
 
 def _committed_dupe_text(ctx: IngestContext, existing: "ScreenshotImport") -> str:

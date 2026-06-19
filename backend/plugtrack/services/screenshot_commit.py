@@ -25,6 +25,34 @@ DEDUPE_TIME_MIN = 30
 DEDUPE_KWH_TOL = 0.5
 
 
+def _map_extracted_curve(merged: MergedSession) -> Optional[list]:
+    """Map extracted [fraction, kw] points to the renderer's
+    [t_seconds, soc, power_kw] triplets. Strips leading/trailing zero-power
+    points (pre-charge lead-in / terminal cutoff). Returns None when there is
+    no usable curve."""
+    pts = merged.power_curve
+    if not pts:
+        return None
+    secs = merged.actual_charge_seconds
+    if not secs and merged.end_at and merged.start_at:
+        secs = int((merged.end_at - merged.start_at).total_seconds())
+    if not secs or secs <= 0:
+        return None
+    s0 = merged.soc_start if merged.soc_start is not None else 0
+    s1 = merged.soc_end if merged.soc_end is not None else s0
+    triplets = []
+    for frac, kw in pts:
+        t = int(round(float(frac) * secs))
+        soc = round(s0 + float(frac) * (s1 - s0))
+        triplets.append([t, soc, float(kw)])
+    # strip leading/trailing zero-power points
+    while triplets and triplets[0][2] <= 0:
+        triplets.pop(0)
+    while triplets and triplets[-1][2] <= 0:
+        triplets.pop()
+    return triplets or None
+
+
 async def _distance_unit(session: AsyncSession) -> str:
     """The user-facing distance unit ('mi'/'km') from settings; default 'mi'."""
     from ..models import Setting
@@ -122,7 +150,7 @@ async def _build_session(
         charge_network=merged.network,
         user_label=label[:128] if label else None,
         notes=notes[:512] if notes else None,
-        power_curve=None,
+        power_curve=_map_extracted_curve(merged),
         actual_charge_seconds=merged.actual_charge_seconds,
         source="telegram",
     )

@@ -61,9 +61,10 @@ function fmtPencePerMile(p: number | null): string {
 
 interface ChargeCurveProps {
   samples: number[][]
+  approximate: boolean
 }
 
-function ChargeCurve({ samples }: ChargeCurveProps) {
+function ChargeCurve({ samples, approximate }: ChargeCurveProps) {
   // Normalise the [delta_seconds, soc, power_kw] triplets to a typed
   // shape up-front so the rest of the function isn't littered with
   // index-access guards.
@@ -116,6 +117,24 @@ function ChargeCurve({ samples }: ChargeCurveProps) {
 
   return (
     <div data-testid="charge-curve">
+      <div className="mb-2 flex items-center gap-2">
+        {approximate ? (
+          <span
+            className="cursor-help rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+            data-testid="curve-approximate-badge"
+            title="Reconstructed from the app's curve — not measured."
+          >
+            Approximate · read from app graph
+          </span>
+        ) : (
+          <span
+            className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+            data-testid="curve-measured-badge"
+          >
+            Measured
+          </span>
+        )}
+      </div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         className="w-full"
@@ -176,12 +195,14 @@ function ChargeCurve({ samples }: ChargeCurveProps) {
           className="stroke-emerald-500 dark:stroke-emerald-400"
           strokeWidth={1.75}
         />
-        {/* Power line — cyan */}
+        {/* Power line — cyan; dashed when the curve is vision-approximated. */}
         <path
           d={powerPath}
           fill="none"
           className="stroke-cyan-500 dark:stroke-cyan-400"
           strokeWidth={1.75}
+          data-testid="curve-power-path"
+          {...(approximate ? { strokeDasharray: '5 4' } : {})}
         />
         {/* X-axis bottom labels */}
         <text
@@ -215,12 +236,10 @@ function ChargeCurve({ samples }: ChargeCurveProps) {
   )
 }
 
-interface ChargeMechanicsProps {
+interface ChargeDetailsProps {
+  session: ChargingSessionPayload
   metrics: SessionMetricsPayload
   unit: 'mi' | 'km'
-  kwhAdded: number
-  kwhCalculated: number | null
-  actualChargeSeconds: number | null
 }
 
 function fmtDuration(minutes: number | null): string {
@@ -252,97 +271,6 @@ function fmtRange(miles: number | null, unit: 'mi' | 'km'): string {
     : `${(miles * 1.609344).toFixed(0)} km`
 }
 
-function ChargeMechanics({
-  metrics,
-  unit,
-  kwhAdded,
-  kwhCalculated,
-  actualChargeSeconds,
-}: ChargeMechanicsProps) {
-  // Suppress the whole section if every field is None (e.g. a manual
-  // session with only SoC + kWh + cost — nothing useful to display).
-  const hasAny =
-    metrics.range_added_miles !== null
-    || metrics.duration_minutes !== null
-    || metrics.average_power_kw !== null
-    || metrics.peak_power_kw !== null
-    || metrics.efficiency_percent !== null
-    || actualChargeSeconds !== null
-  if (!hasAny) return null
-
-  return (
-    <section className="mb-6" data-testid="charge-mechanics">
-      <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-        Charge mechanics
-      </h2>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile
-          label="Range added"
-          value={
-            <span data-testid="metric-range-added">
-              {fmtRange(metrics.range_added_miles, unit)}
-            </span>
-          }
-        />
-        <StatTile
-          label="Duration"
-          value={
-            <span data-testid="metric-duration">
-              {fmtDuration(metrics.duration_minutes)}
-            </span>
-          }
-        />
-        <StatTile
-          label="Avg power"
-          value={
-            <span data-testid="metric-avg-power">
-              {fmtKw(metrics.average_power_kw)}
-            </span>
-          }
-        />
-        <StatTile
-          label="Peak power"
-          value={
-            <span data-testid="metric-peak-power">
-              {fmtKw(metrics.peak_power_kw)}
-            </span>
-          }
-        />
-      </div>
-      {metrics.efficiency_percent !== null && (
-        <p
-          className="mt-3 text-[11px] text-slate-500 dark:text-slate-400"
-          data-testid="metric-efficiency"
-        >
-          Energy efficiency: <strong>{metrics.efficiency_percent.toFixed(1)}%</strong>
-          {kwhCalculated !== null && (
-            <>
-              {' '}(charger {kwhAdded.toFixed(1)} kWh → pack{' '}
-              {kwhCalculated.toFixed(1)} kWh)
-            </>
-          )}
-        </p>
-      )}
-      {actualChargeSeconds !== null && (
-        <p
-          className="mt-1 text-[11px] text-slate-500 dark:text-slate-400"
-          data-testid="metric-actual-charge"
-        >
-          Actual charging time:{' '}
-          <strong>{fmtChargeSeconds(actualChargeSeconds)}</strong>
-          {metrics.duration_minutes !== null && (
-            <> of {fmtDuration(metrics.duration_minutes)} plugged in</>
-          )}
-        </p>
-      )}
-    </section>
-  )
-}
-
-interface ChargeContextProps {
-  session: ChargingSessionPayload
-}
-
 const CHARGING_MODE_LABEL: Record<string, string> = {
   manual: 'Manual',
   timer: 'Timer',
@@ -354,64 +282,101 @@ const CHARGING_TYPE_LABEL: Record<string, string> = {
   dc: 'DC',
 }
 
-function fmtMaxCurrent(v: string | null): string {
-  if (v === null) return '—'
-  if (v === 'maximum') return 'Maximum'
-  if (v === 'reduced') return 'Reduced'
-  return v
-}
-
-function ChargeContext({ session }: ChargeContextProps) {
+/**
+ * Merged "Charge details" — the canonical spine (Range added + Avg power,
+ * always) plus the optional context tiles (Mode / Type / Battery care /
+ * plug-in-window Duration) that only render when their datum is known.
+ *
+ * Peak power and Max current have been removed deliberately: peak is captured
+ * by the charge curve, max-current is an edit-only field.
+ */
+function ChargeDetails({ session, metrics, unit }: ChargeDetailsProps) {
   const modeKnown =
     session.charging_mode !== 'unknown' && Boolean(session.charging_mode)
   const typeKnown =
     session.charging_type !== 'unknown' && Boolean(session.charging_type)
-  const hasAny =
-    modeKnown
-    || typeKnown
-    || session.battery_care !== null
-    || session.max_charge_current !== null
-  if (!hasAny) return null
 
-  const modeLabel = modeKnown
-    ? (CHARGING_MODE_LABEL[session.charging_mode] ?? session.charging_mode)
-    : '—'
-  const typeLabel = typeKnown
-    ? (CHARGING_TYPE_LABEL[session.charging_type] ?? session.charging_type)
-    : '—'
-  const careLabel =
-    session.battery_care === null
-      ? '—'
-      : session.battery_care
-        ? 'On'
-        : 'Off'
+  // Plug-in window duration (wall clock) — distinct from actual charge time.
+  const windowMinutes = (() => {
+    const start = session.charge_start_at
+      ? Date.parse(session.charge_start_at)
+      : null
+    const end = session.charge_end_at ? Date.parse(session.charge_end_at) : null
+    if (
+      start === null
+      || end === null
+      || Number.isNaN(start)
+      || Number.isNaN(end)
+    ) {
+      return null
+    }
+    return Math.max(0, Math.round((end - start) / 60_000))
+  })()
+
+  const careLabel = session.battery_care ? 'On' : 'Off'
 
   return (
-    <section className="mb-6" data-testid="charge-context">
+    <section className="mb-6" data-testid="charge-details">
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-        Charge context
+        Charge details
       </h2>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Spine — always rendered. */}
         <StatTile
-          label="Mode"
-          value={<span data-testid="ctx-mode">{modeLabel}</span>}
-        />
-        <StatTile
-          label="Type"
-          value={<span data-testid="ctx-type">{typeLabel}</span>}
-        />
-        <StatTile
-          label="Battery care"
-          value={<span data-testid="ctx-battery-care">{careLabel}</span>}
-        />
-        <StatTile
-          label="Max current"
+          label="Range added"
           value={
-            <span data-testid="ctx-max-current">
-              {fmtMaxCurrent(session.max_charge_current)}
+            <span data-testid="metric-range-added">
+              {fmtRange(metrics.range_added_miles, unit)}
             </span>
           }
         />
+        <StatTile
+          label="Avg power"
+          value={
+            <span data-testid="metric-avg-power">
+              {fmtKw(metrics.average_power_kw)}
+            </span>
+          }
+        />
+        {/* Context tiles — only when known. */}
+        {modeKnown && (
+          <StatTile
+            label="Mode"
+            value={
+              <span data-testid="ctx-mode">
+                {CHARGING_MODE_LABEL[session.charging_mode]
+                  ?? session.charging_mode}
+              </span>
+            }
+          />
+        )}
+        {typeKnown && (
+          <StatTile
+            label="Type"
+            value={
+              <span data-testid="ctx-type">
+                {CHARGING_TYPE_LABEL[session.charging_type]
+                  ?? session.charging_type}
+              </span>
+            }
+          />
+        )}
+        {session.battery_care !== null && (
+          <StatTile
+            label="Battery care"
+            value={<span data-testid="ctx-battery-care">{careLabel}</span>}
+          />
+        )}
+        {windowMinutes !== null && (
+          <StatTile
+            label="Duration"
+            value={
+              <span data-testid="details-duration">
+                {fmtDuration(windowMinutes)}
+              </span>
+            }
+          />
+        )}
       </div>
     </section>
   )
@@ -419,10 +384,9 @@ function ChargeContext({ session }: ChargeContextProps) {
 
 interface PetrolComparisonProps {
   metrics: SessionMetricsPayload
-  unit: 'mi' | 'km'
 }
 
-function PetrolComparison({ metrics, unit }: PetrolComparisonProps) {
+function PetrolComparison({ metrics }: PetrolComparisonProps) {
   const settingsConfigured =
     metrics.petrol_price_p_per_litre !== null && metrics.petrol_mpg !== null
   // miles_since_previous is the energy-estimated range (drives the Distance tile).
@@ -432,52 +396,7 @@ function PetrolComparison({ metrics, unit }: PetrolComparisonProps) {
   // `~` prefix on estimate-derived figures (energy × efficiency).
   const approx = isEstimated ? '~' : ''
 
-  // Formatted energy-estimated distance for the Distance tile.
-  const estimatedDistanceDisplay =
-    metrics.miles_since_previous === null
-      ? '—'
-      : unit === 'mi'
-        ? `${metrics.miles_since_previous.toFixed(0)} mi`
-        : `${(metrics.miles_since_previous * 1.609344).toFixed(0)} km`
-
-  // Formatted genuine odometer-measured distance (informational only).
-  const measuredDistanceDisplay =
-    metrics.measured_miles_since_previous === null
-      ? null
-      : unit === 'mi'
-        ? `${metrics.measured_miles_since_previous.toFixed(0)} mi`
-        : `${(metrics.measured_miles_since_previous * 1.609344).toFixed(0)} km`
-
   const savings = metrics.savings_vs_petrol_p
-  const savingsPositive = savings !== null && savings > 0
-
-  // Arrow + colour savings hero — no +/- sign.
-  const renderSavingsHero = () => {
-    if (savings === null) {
-      return (
-        <span
-          className="text-3xl font-bold tabular-nums tracking-tight text-slate-400"
-          data-testid="metric-savings"
-        >
-          —
-        </span>
-      )
-    }
-    const cheaper = savings > 0
-    const magnitude = Math.abs(savings)
-    const arrow = cheaper ? '↓' : '↑'
-    const colourCls = cheaper
-      ? 'text-emerald-600 dark:text-emerald-400'
-      : 'text-rose-600 dark:text-rose-400'
-    return (
-      <span
-        className={`text-3xl font-bold tabular-nums tracking-tight ${colourCls}`}
-        data-testid="metric-savings"
-      >
-        {approx}{arrow} {fmtPence(magnitude)}
-      </span>
-    )
-  }
 
   const renderEmpty = (body: string, testid?: string) => (
     <Card className="p-4 text-sm" data-testid={testid ?? 'petrol-comparison'}>
@@ -500,88 +419,59 @@ function PetrolComparison({ metrics, unit }: PetrolComparisonProps) {
     return renderEmpty('Needs energy or odometer data to compare.')
   }
 
-  return (
-    <div data-testid="petrol-comparison">
-      <div className="mb-3 flex items-baseline justify-between">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-            Petrol comparison
-          </h2>
-          {isEstimated && (
-            <span
-              className="cursor-help rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
-              data-testid="estimated-badge"
-              title="Estimated from this charge's energy × your car's real-world efficiency (from its odometer history, or the configured nominal if none yet)."
-            >
-              Estimated
-            </span>
-          )}
-        </div>
-        <span className="text-[10px] text-slate-400 dark:text-slate-500">
-          {metrics.petrol_price_p_per_litre}p/L petrol @ {metrics.petrol_mpg}{' '}
-          MPG
+  // Compact savings: arrow + colour + magnitude (no +/- sign), `~` when estimated.
+  const renderSavings = () => {
+    if (savings === null) {
+      return (
+        <span className="font-semibold text-slate-400" data-testid="metric-savings">
+          —
         </span>
-      </div>
+      )
+    }
+    const cheaper = savings > 0
+    const arrow = cheaper ? '↓' : '↑'
+    const colourCls = cheaper
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : 'text-rose-600 dark:text-rose-400'
+    return (
+      <span
+        className={`font-semibold tabular-nums ${colourCls}`}
+        data-testid="metric-savings"
+      >
+        {approx}{arrow} {fmtPence(Math.abs(savings))} {cheaper ? 'saved' : 'over'} vs petrol
+      </span>
+    )
+  }
 
-      {/* Hero "you saved" card. */}
-      <Card variant="hero" className="mb-3 flex items-baseline gap-3 p-4">
-        <div className="flex flex-col">
-          <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-            {savingsPositive ? 'Saved vs petrol' : 'Spent over petrol'}
+  return (
+    <Card className="p-4" data-testid="petrol-comparison">
+      <div className="mb-1.5 flex items-center gap-2">
+        <h2 className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+          Petrol comparison
+        </h2>
+        {isEstimated && (
+          <span
+            className="cursor-help rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+            data-testid="estimated-badge"
+            title="Estimated from this charge's energy × your car's real-world efficiency (from its odometer history, or the configured nominal if none yet)."
+          >
+            Estimated
           </span>
-          {renderSavingsHero()}
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            over ~{estimatedDistanceDisplay} of estimated range
-          </span>
-        </div>
-      </Card>
-
-      {/* KPI tile row */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile
-          label="Estimated range"
-          value={
-            <span data-testid="metric-miles">{`${approx}${estimatedDistanceDisplay}`}</span>
-          }
-        />
-        <StatTile
-          label="EV cost / mile"
-          value={
-            <span data-testid="metric-cost-per-mile">
-              {`${approx}${fmtPencePerMile(metrics.cost_per_mile_p)}`}
-            </span>
-          }
-        />
-        <StatTile
-          label="Petrol cost / mile"
-          value={
-            <span data-testid="metric-petrol-ppm">
-              {fmtPencePerMile(metrics.petrol_ppm)}
-            </span>
-          }
-        />
-        <StatTile
-          label="Petrol equivalent"
-          value={
-            <span data-testid="metric-petrol-cost">
-              {`${approx}${fmtPence(metrics.petrol_equivalent_cost_p)}`}
-            </span>
-          }
-        />
+        )}
       </div>
-
-      {/* Odometer-measured distance — informational only, distinct from the
-          energy-estimated range that feeds savings. */}
-      {measuredDistanceDisplay !== null && (
-        <p
-          className="mt-3 text-[11px] text-slate-500 dark:text-slate-400"
-          data-testid="measured-distance-info"
-        >
-          Odometer reading: {measuredDistanceDisplay} driven since last
-          odometer reading.
-        </p>
-      )}
-    </div>
+      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-slate-700 dark:text-slate-200">
+        {renderSavings()}
+        <span className="text-slate-300 dark:text-slate-600">·</span>
+        <span className="tabular-nums">
+          {`${approx}${fmtPencePerMile(metrics.cost_per_mile_p)}`} vs{' '}
+          {fmtPencePerMile(metrics.petrol_ppm)}
+        </span>
+        <span className="text-slate-300 dark:text-slate-600">·</span>
+        <span className="tabular-nums">
+          equiv {`${approx}${fmtPence(metrics.petrol_equivalent_cost_p)}`}
+        </span>
+      </p>
+    </Card>
   )
 }
 
@@ -1186,7 +1076,18 @@ export default function SessionDetail() {
     session.location_address ?? null,
   ].filter((p): p is string => Boolean(p))
 
-  const durationDisplay = (() => {
+  // Hero time tile prefers the *actual* charging time (telemetry / extracted)
+  // over the wall-clock plug-in window, which is often much longer (overnight
+  // trickle, idle after full). Fall back to the window only when the actual
+  // charge time is unknown.
+  const timeDisplay = (() => {
+    if (session.actual_charge_seconds !== null
+      && session.actual_charge_seconds !== undefined) {
+      return {
+        label: 'Charge time',
+        value: fmtChargeSeconds(session.actual_charge_seconds),
+      }
+    }
     const start = session.charge_start_at
       ? Date.parse(session.charge_start_at)
       : null
@@ -1199,9 +1100,14 @@ export default function SessionDetail() {
     const totalMin = Math.max(0, Math.round((end - start) / 60_000))
     const h = Math.floor(totalMin / 60)
     const m = totalMin % 60
-    if (h === 0) return { value: `${m}`, suffix: 'min' }
-    return { value: `${h}h ${String(m).padStart(2, '0')}`, suffix: 'h m' }
+    return {
+      label: 'Duration',
+      value: h === 0 ? `${m}m` : `${h}h ${String(m).padStart(2, '0')}`,
+    }
   })()
+
+  // Energy tooltip: measured (charger) → banked (SoC-derived) → efficiency.
+  const efficiencyPct = session.metrics?.efficiency_percent ?? null
 
   return (
     <TooltipProvider>
@@ -1222,8 +1128,35 @@ export default function SessionDetail() {
         {/* Summary strip */}
         <Card variant="hero" className="mb-6 flex flex-wrap items-center gap-4">
           <div className="flex flex-col">
-            <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+            <span className="flex items-center gap-1 text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
               Energy
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="cursor-help"
+                    data-testid="energy-info"
+                    aria-label="Energy detail"
+                  >
+                    <Info className="inline h-3 w-3" aria-hidden />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p className="font-medium">Energy</p>
+                  <p className="mt-1 text-[11px]">
+                    Measured (charger): {session.kwh_added.toFixed(2)} kWh
+                  </p>
+                  {session.kwh_calculated !== null && (
+                    <p className="text-[11px]">
+                      Banked (SoC delta): {session.kwh_calculated.toFixed(2)} kWh
+                    </p>
+                  )}
+                  {efficiencyPct !== null && (
+                    <p className="text-[11px]">
+                      Efficiency: {efficiencyPct.toFixed(1)}%
+                    </p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
             </span>
             <GradientNumber size="lg">
               {session.kwh_added.toFixed(1)}
@@ -1256,15 +1189,12 @@ export default function SessionDetail() {
               {session.end_soc - session.start_soc}% gained
             </span>
           </div>
-          {durationDisplay && (
+          {timeDisplay && (
             <div className="flex flex-col" data-testid="session-duration">
               <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-                Duration
+                {timeDisplay.label}
               </span>
-              <GradientNumber size="lg">{durationDisplay.value}</GradientNumber>
-              <span className="text-xs text-slate-500 dark:text-slate-400">
-                {durationDisplay.suffix}
-              </span>
+              <GradientNumber size="lg">{timeDisplay.value}</GradientNumber>
             </div>
           )}
           <div className="ml-auto flex items-center gap-2">
@@ -1298,16 +1228,6 @@ export default function SessionDetail() {
             </Tooltip>
           </div>
         </Card>
-        {session.kwh_calculated !== null &&
-          session.source !== 'unconfirmed' &&
-          Math.abs(session.kwh_calculated - session.kwh_added) >= 0.01 && (
-            <p
-              className="mb-6 text-xs text-slate-400"
-              data-testid="kwh-calc-hint"
-            >
-              Calculated from SoC delta: {session.kwh_calculated.toFixed(2)} kWh
-            </p>
-          )}
 
         {session.source === 'unconfirmed' && (
           <UnconfirmedActionPanel
@@ -1327,29 +1247,25 @@ export default function SessionDetail() {
               Charge curve
             </h2>
             <Card>
-              <ChargeCurve samples={session.power_curve} />
+              <ChargeCurve
+                samples={session.power_curve}
+                approximate={session.power_curve_approximate ?? false}
+              />
             </Card>
           </section>
         )}
 
       {session.metrics && (
-        <ChargeMechanics
+        <ChargeDetails
+          session={session}
           metrics={session.metrics}
           unit={unit}
-          kwhAdded={session.kwh_added}
-          kwhCalculated={session.kwh_calculated ?? null}
-          actualChargeSeconds={session.actual_charge_seconds ?? null}
         />
       )}
 
-      <ChargeContext session={session} />
-
       {session.metrics && (
         <section className="mb-6">
-          <PetrolComparison
-            metrics={session.metrics}
-            unit={unit}
-          />
+          <PetrolComparison metrics={session.metrics} />
         </section>
       )}
 

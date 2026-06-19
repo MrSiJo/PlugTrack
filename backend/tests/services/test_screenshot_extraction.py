@@ -162,3 +162,30 @@ def test_parse_extraction_reads_actual_charge_seconds():
 def test_parse_extraction_actual_charge_seconds_defaults_none():
     from plugtrack.services.screenshot_extraction import parse_extraction
     assert parse_extraction({"source": "text"}).actual_charge_seconds is None
+
+
+def test_parse_extraction_reads_power_curve():
+    raw = {
+        "source": "mycupra", "has_cost": False, "energy_kwh": None,
+        "cost_total_pence": None, "cost_per_kwh_pence": None,
+        "start_at": "2026-06-18T11:26:00", "end_at": "2026-06-18T11:50:00",
+        "soc_start": 55, "soc_end": 90, "location_name": None,
+        "location_address": None, "location_short_name": None, "network": None,
+        "peak_kw": 62, "odometer": None, "odometer_unit": None,
+        "actual_charge_seconds": 1320, "confidence": 0.9,
+        "power_curve": [[0.0, 0], [0.2, 62], [1.0, 48]],
+    }
+    e = parse_extraction(raw)
+    assert e.power_curve == [[0.0, 0], [0.2, 62], [1.0, 48]]
+
+
+def test_parse_extraction_power_curve_defaults_none():
+    raw = {  # minimal AC-style payload, no power_curve key
+        "source": "granny", "has_cost": False, "energy_kwh": 9.2,
+        "cost_total_pence": None, "cost_per_kwh_pence": None,
+        "start_at": None, "end_at": None, "soc_start": None, "soc_end": None,
+        "location_name": None, "location_address": None, "location_short_name": None,
+        "network": None, "peak_kw": None, "odometer": None, "odometer_unit": None,
+        "actual_charge_seconds": 1200, "confidence": 0.8,
+    }
+    assert parse_extraction(raw).power_curve is None
