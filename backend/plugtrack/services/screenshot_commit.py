@@ -127,7 +127,8 @@ async def _build_session(
     named location, resolve delivered-vs-banked kWh, and apply cost. Does NOT
     add it to the session or flush. Shared by commit (persists) and preview
     (renders the confirm card)."""
-    from ..api.routes.sessions import _apply_cost, _derive_kwh_calculated  # reuse
+    from ..api.routes.sessions import _derive_kwh_calculated  # reuse
+    from .cost_apply import apply_cost
 
     has_network = bool(merged.network) or merged.cost_total_pence is not None
     has_soc = merged.soc_start is not None or merged.soc_end is not None
@@ -172,7 +173,7 @@ async def _build_session(
     if (cs.kwh_added is None or cs.kwh_added == 0.0) and cs.kwh_calculated:
         cs.kwh_added = cs.kwh_calculated
 
-    await _apply_cost(session, cs, user_id)
+    await apply_cost(session, cs)
 
     if merged.odometer is not None:
         from .mileage_tracking import miles_to_km
