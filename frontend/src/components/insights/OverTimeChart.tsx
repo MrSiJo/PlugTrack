@@ -61,23 +61,27 @@ export function OverTimeChart({
 
   return (
     <div className={className} data-testid={testId}>
-      <div className="mb-3 flex gap-6">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Spend</p>
-          <p className="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-            {formatCurrency(totalSpend, currency)}
-          </p>
+      <div className="mb-3 flex items-end justify-between gap-6">
+        <div className="flex gap-6">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">Spend</p>
+            <p className="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+              {formatCurrency(totalSpend, currency)}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">Energy</p>
+            <p className="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+              {totalKwh.toFixed(1)} kWh
+            </p>
+          </div>
         </div>
-        <div>
-          <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Energy</p>
-          <p className="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-            {totalKwh.toFixed(1)} kWh
-          </p>
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Granularity</p>
-          <p className="text-2xl font-semibold capitalize text-slate-900 dark:text-slate-100">{granularity}</p>
-        </div>
+        <span
+          title="Bucket size adapts to the selected range"
+          className="rounded-full border border-slate-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400"
+        >
+          {granularity}
+        </span>
       </div>
       <div className="h-56">
         <ResponsiveContainer width="100%" height="100%">
