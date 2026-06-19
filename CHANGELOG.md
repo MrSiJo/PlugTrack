@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.10.0](https://github.com/MrSiJo/PlugTrack/compare/v2.9.0...v2.10.0) (2026-06-19)
+
+
+### Features
+
+* **admin:** MCP token management (mint/list/revoke) ([b330b11](https://github.com/MrSiJo/PlugTrack/commit/b330b110244cd1b8467dd370de69dac22a6547b5))
+* **bot:** agentic tool-calling loop replacing read-only usage chat ([fa5a243](https://github.com/MrSiJo/PlugTrack/commit/fa5a243ddd13359d34f55a2a6d5669fa519846c1))
+* MCP server + agentic Telegram bot (spec 05) ([5440a0a](https://github.com/MrSiJo/PlugTrack/commit/5440a0a920f0b1a792096cd0f1639fd98eab36ec))
+* **mcp:** per-user MCP token model + service (hashed, scoped, revocable) ([076f612](https://github.com/MrSiJo/PlugTrack/commit/076f612d13282823d42a36f3429eabc3f66504e8))
+* **mcp:** streamable-HTTP MCP server at /mcp with bearer-token auth + scopes ([0cb4315](https://github.com/MrSiJo/PlugTrack/commit/0cb43151358b65eb44226ca578cd7d37506c0a94))
+* **mcp:** user-scoped tool core with two-phase propose/commit ([3dcac01](https://github.com/MrSiJo/PlugTrack/commit/3dcac01ed2e051b6b4091d4d6ba1f2a4a9992516))
+
+
+### Bug Fixes
+
+* **bot:** wire ai_enabled through load_bot_config + reconcile so the agent loop is live ([a0de622](https://github.com/MrSiJo/PlugTrack/commit/a0de6226ca70428fe9c4c29ac4a44f128bd21eb2))
+* **mcp:** geocode address at propose, purge change-store, test location filter ([fcd6c9c](https://github.com/MrSiJo/PlugTrack/commit/fcd6c9c0ec9583e4b37463e2b83bf1cd02ee4143))
+
 ## [2.9.0](https://github.com/MrSiJo/PlugTrack/compare/v2.8.0...v2.9.0) (2026-06-19)
 
 
