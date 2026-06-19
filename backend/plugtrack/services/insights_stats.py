@@ -239,3 +239,65 @@ async def efficiency_over_time(
             "cost_per_mile_p": cost_per_mile,
         })
     return out
+
+
+def _round_or_none(v: Optional[float], digits: int = 1) -> Optional[float]:
+    return None if v is None else round(v, digits)
+
+
+async def mileage_allowance_view(
+    session: AsyncSession, *, user_id: int, car_id: int, today: dt.date,
+) -> dict:
+    """Per-car annual-allowance view: used/remaining/projected/pace over the
+    active tracking period. Ignores any page date filter — the allowance
+    period is what matters. Sourced from mileage_tracking.get_status."""
+    empty = {
+        "enabled": False, "car_id": car_id, "period_start": None, "period_end": None,
+        "opening_km": None, "current_km": None, "target_km": None, "used_km": None,
+        "remaining_km": None, "days_elapsed": None, "days_total": None,
+        "projected_year_end_km": None, "pace": None,
+    }
+    status = await mileage_tracking.get_status(
+        session, user_id=user_id, car_id=car_id, today=today)
+    if not status.enabled or status.current_period is None:
+        return empty
+
+    cp = status.current_period
+    opening = cp.opening_odometer_km
+    current = cp.current_odometer_km
+    used = max(0.0, current - opening)
+    target = cp.annual_mileage_target_km
+
+    days_total = (cp.period_end_date - cp.period_start_date).days + 1
+    days_elapsed = (today - cp.period_start_date).days + 1
+    days_elapsed = max(0, min(days_elapsed, days_total))
+
+    projected_year_end: Optional[float] = None
+    pace: Optional[str] = None
+    if days_elapsed > 0:
+        projected_used = used / days_elapsed * days_total
+        projected_year_end = opening + projected_used
+        if target is not None and target > 0:
+            if projected_used <= target * 0.98:
+                pace = "under"
+            elif projected_used >= target * 1.02:
+                pace = "over"
+            else:
+                pace = "on"
+
+    remaining = (target - used) if target is not None else None
+    return {
+        "enabled": True,
+        "car_id": car_id,
+        "period_start": cp.period_start_date.isoformat(),
+        "period_end": cp.period_end_date.isoformat(),
+        "opening_km": _round_or_none(opening),
+        "current_km": _round_or_none(current),
+        "target_km": _round_or_none(target),
+        "used_km": _round_or_none(used),
+        "remaining_km": _round_or_none(remaining),
+        "days_elapsed": days_elapsed,
+        "days_total": days_total,
+        "projected_year_end_km": _round_or_none(projected_year_end),
+        "pace": pace,
+    }
