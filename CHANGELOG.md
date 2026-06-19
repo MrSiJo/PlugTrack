@@ -1,5 +1,36 @@
 # Changelog
 
+## [2.8.0](https://github.com/MrSiJo/PlugTrack/compare/v2.7.1...v2.8.0) (2026-06-19)
+
+
+### Features
+
+* **admin:** add INTEGRATIONS frontend config ([c54bc8f](https://github.com/MrSiJo/PlugTrack/commit/c54bc8f0b00ae683ad96323f541139ba58b2072b))
+* **admin:** AdminPage shell with Integrations + Preferences; route /admin ([e34cecb](https://github.com/MrSiJo/PlugTrack/commit/e34cecb0f3646cf5b24c0d0a7649059f1149e26a))
+* **admin:** IntegrationCard with master-toggle gating + single Save ([86d10b4](https://github.com/MrSiJo/PlugTrack/commit/86d10b44704a02102f24e6abaf1d801856b3bb91))
+* Administration page (spec 04) ([4fcf70d](https://github.com/MrSiJo/PlugTrack/commit/4fcf70d96807e4f49c5ae221d16ecdc6ba72f740))
+* **admin:** MaintenancePanel (CSV import/backfill remain CLI; backup/export to follow) ([c1a7908](https://github.com/MrSiJo/PlugTrack/commit/c1a7908b39907671c35c3f4549efe93d82fae106))
+* **admin:** master-detail layout with left section rail ([7acd585](https://github.com/MrSiJo/PlugTrack/commit/7acd5854ad8b1de3415207bab5be2302a2c75d96))
+* **admin:** PreferencesPanel ([0b35ca9](https://github.com/MrSiJo/PlugTrack/commit/0b35ca96b8e9d9c43be6c22a7019d6a8e86f09e5))
+* **admin:** relocate cars management + VIN reveal-on-edit into Admin ([33dcb2b](https://github.com/MrSiJo/PlugTrack/commit/33dcb2bdbff2297785d371ada4226c6dbea027b5))
+* **admin:** relocate locations management (create/delete/merge) into Admin ([c88a9d2](https://github.com/MrSiJo/PlugTrack/commit/c88a9d24f8795c74ed35e3267ffccad6c9ef42d5))
+* **cars:** mask VIN in payload, add owner-gated reveal endpoint ([2263103](https://github.com/MrSiJo/PlugTrack/commit/22631036b6040be0506a3730776e758d5d589aa3))
+* **client:** add revealCarVin ([0040b80](https://github.com/MrSiJo/PlugTrack/commit/0040b803b4dadb7f5beca86883060d649d5e9dfe))
+* **dashboard:** add Plan a charge entry point (Planner left main nav) ([52b04ae](https://github.com/MrSiJo/PlugTrack/commit/52b04ae3049c4372dd11d792a062741e6d2dc6f0))
+* **nav:** replace Settings link with /admin gear icon ([6abe637](https://github.com/MrSiJo/PlugTrack/commit/6abe63711fb2bf46525d985a9213bb0a288e17a5))
+* **settings:** add ai_enabled + ai_provider keys, regroup openai_* under ai ([d020754](https://github.com/MrSiJo/PlugTrack/commit/d0207544ba176041c016670a44127acc1983f53f))
+* **settings:** seed ai_enabled=true when an OpenAI key already exists ([e8c781c](https://github.com/MrSiJo/PlugTrack/commit/e8c781c771f498bf71e6b827812a96c90242d98e))
+
+
+### Bug Fixes
+
+* **admin:** correct Telegram card AI-key hint ([ed4be36](https://github.com/MrSiJo/PlugTrack/commit/ed4be361e5d9ac11c317fe6fe564705f0e88e26f))
+* **admin:** guard VIN reveal against cross-car race in edit ([e908e9d](https://github.com/MrSiJo/PlugTrack/commit/e908e9d01dab3aea2481aef232bc048f08b26985))
+* **admin:** resync IntegrationCard master toggle when settings hydrate ([25824fe](https://github.com/MrSiJo/PlugTrack/commit/25824fe3e633afc79564f7d7223e22e60d078acf))
+* **cars:** don't persist masked VIN when reveal fails (frontend guard + backend reject) ([be81b39](https://github.com/MrSiJo/PlugTrack/commit/be81b39ba038751580ad0e0f679461735a3181e7))
+* **cars:** fully mask VINs of 5 or fewer characters ([bd9c5a1](https://github.com/MrSiJo/PlugTrack/commit/bd9c5a1bfb9ca9b6c87f99802d3e350c325bfa87))
+* **dashboard:** show masked VIN on car card ([2260597](https://github.com/MrSiJo/PlugTrack/commit/2260597ba76e14b27edea0475cc0b99e023ed0ba))
+
 ## [2.7.1](https://github.com/MrSiJo/PlugTrack/compare/v2.7.0...v2.7.1) (2026-06-19)
 
 
