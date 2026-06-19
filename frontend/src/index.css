@@ -2,6 +2,13 @@
 @import "@fontsource-variable/inter";
 @import "leaflet/dist/leaflet.css";
 
+/* Class-based dark mode. Tailwind v4 defaults the `dark:` variant to
+ * `prefers-color-scheme`; we drive theme from the `.dark` class on <html>
+ * (see theme.ts), so the in-app toggle — not the OS — controls every
+ * `dark:*` utility, keeping them in sync with the `.dark {}` token overrides
+ * below. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ---------- Electric palette tokens (light mode = default) ---------- */
 @theme {
   --font-sans: "Inter Variable", system-ui, -apple-system, sans-serif;
