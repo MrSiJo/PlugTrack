@@ -87,11 +87,15 @@ def _mask_vin(vin: str | None) -> str | None:
 
     The masked form is shown in list/get payloads. The full VIN is only
     returned by the owner-gated ``GET /api/cars/{id}/vin`` endpoint.
+
+    Short VINs (5 chars or fewer) are fully masked so no characters are
+    ever returned in the clear via the list/get endpoints.
     """
     if not vin:
         return None
-    tail = vin[-5:]
-    return "·" * max(0, len(vin) - 5) + tail
+    if len(vin) <= 5:
+        return "·" * len(vin)
+    return "·" * (len(vin) - 5) + vin[-5:]
 
 
 def _to_payload(car: Car) -> CarPayload:
