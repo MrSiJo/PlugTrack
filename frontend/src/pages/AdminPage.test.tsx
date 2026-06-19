@@ -18,6 +18,7 @@ vi.mock('@/api/client', async (importOriginal) => {
       testTelegram: vi.fn(),
       getLocations: vi.fn().mockResolvedValue([]),
       getCars: vi.fn().mockResolvedValue([]),
+      listMcpTokens: vi.fn().mockResolvedValue([]),
     },
   }
 })
@@ -78,9 +79,9 @@ describe('AdminPage — master-detail layout', () => {
     expect(screen.getByRole('heading', { name: /administration/i })).toBeInTheDocument()
   })
 
-  it('renders all 8 left-rail nav items', () => {
+  it('renders all 9 left-rail nav items', () => {
     renderAdminPage()
-    const expectedKeys = ['cupra', 'telegram', 'ai', 'geocoding', 'preferences', 'maintenance', 'locations', 'cars']
+    const expectedKeys = ['cupra', 'telegram', 'ai', 'geocoding', 'preferences', 'maintenance', 'locations', 'cars', 'mcp']
     for (const key of expectedKeys) {
       expect(screen.getByTestId(`admin-nav-${key}`)).toBeInTheDocument()
     }
@@ -159,6 +160,16 @@ describe('AdminPage — master-detail layout', () => {
     await user.click(screen.getByTestId('admin-nav-cars'))
 
     expect(screen.getByTestId('cars-management')).toBeInTheDocument()
+  })
+
+  it('shows MCP tokens panel when mcp nav item is clicked', async () => {
+    const user = userEvent.setup()
+    renderAdminPage()
+
+    await user.click(screen.getByTestId('admin-nav-mcp'))
+
+    expect(screen.getByTestId('mcp-tokens-panel')).toBeInTheDocument()
+    expect(screen.queryByTestId('integration-cupra')).not.toBeInTheDocument()
   })
 
   it('falls back to cupra for an unknown hash', () => {
