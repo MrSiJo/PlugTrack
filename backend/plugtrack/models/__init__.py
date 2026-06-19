@@ -4,6 +4,7 @@ from .car_mileage_year import CarMileageYear
 from .car_state import CarStateSnapshot
 from .charging_session import ChargingSession
 from .location import Location
+from .mcp_token import MCPToken
 from .plug_in_record import PlugInRecord
 from .screenshot_import import ScreenshotImport
 from .setting import Setting
@@ -18,6 +19,7 @@ __all__ = [
     "CarStateSnapshot",
     "ChargingSession",
     "Location",
+    "MCPToken",
     "PlugInRecord",
     "ScreenshotImport",
     "Setting",
