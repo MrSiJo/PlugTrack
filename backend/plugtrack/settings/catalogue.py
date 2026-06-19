@@ -386,4 +386,29 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         description="Optional. Output tokens include reasoning tokens (≈0 here). Leave blank to show tokens only.",
         default_value=None,
     ),
+    # Backup / export
+    CatalogueEntry(
+        key="backup_enabled",
+        value_type="bool",
+        group_name="backup",
+        label="Scheduled backups enabled",
+        description="When enabled, PlugTrack automatically snapshots the database on a recurring schedule.",
+        default_value="true",
+    ),
+    CatalogueEntry(
+        key="backup_interval_hours",
+        value_type="int",
+        group_name="backup",
+        label="Backup interval (hours)",
+        description="How often (in hours) the scheduled backup runs. Default 24 (once daily).",
+        default_value="24",
+    ),
+    CatalogueEntry(
+        key="backup_retention",
+        value_type="int",
+        group_name="backup",
+        label="Backup retention (count)",
+        description="Keep this many of the most recent backup snapshots; older ones are pruned automatically. Default 7.",
+        default_value="7",
+    ),
 )
