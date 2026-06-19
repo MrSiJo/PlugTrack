@@ -266,7 +266,8 @@ async def _build_insert(
     session: AsyncSession, *, user_id: int, car_id: int, row: CsvRow,
     location_id: Optional[int] = None,
 ) -> ChargingSession:
-    from ..api.routes.sessions import _apply_cost, _derive_kwh_calculated
+    from ..api.routes.sessions import _derive_kwh_calculated
+    from .cost_apply import apply_cost
 
     cs = ChargingSession(
         user_id=user_id,
@@ -287,7 +288,7 @@ async def _build_insert(
     await _derive_kwh_calculated(session, cs)
     if (cs.kwh_added is None or cs.kwh_added == 0.0) and cs.kwh_calculated:
         cs.kwh_added = cs.kwh_calculated
-    await _apply_cost(session, cs, user_id)
+    await apply_cost(session, cs)
     return cs
 
 

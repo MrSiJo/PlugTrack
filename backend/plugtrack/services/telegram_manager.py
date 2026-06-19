@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 def _fingerprint(cfg: BotConfig) -> tuple:
     return (cfg.token, cfg.openai_key, cfg.model, cfg.car_id, cfg.user_id,
-            frozenset(cfg.allowed))
+            frozenset(cfg.allowed), cfg.ai_enabled)
 
 
 class TelegramBotManager:
@@ -52,6 +52,7 @@ class TelegramBotManager:
             self._ctx = build_ingest_context(
                 cfg, sessionmaker=self._sessionmaker,
                 health_check=lambda uid: self.health(requesting_user_id=uid),
+                ai_enabled=cfg.ai_enabled,
             )
             self._stop = asyncio.Event()
             self._task = asyncio.create_task(run_bot(self._ctx, stop=self._stop))

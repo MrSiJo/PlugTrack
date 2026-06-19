@@ -521,6 +521,27 @@ export interface InsightsMileageResponse {
 }
 
 // ---------------------------------------------------------------------------
+// MCP / API tokens
+// ---------------------------------------------------------------------------
+
+export interface McpTokenListItem {
+  id: number
+  name: string
+  scope: string
+  created_at: string
+  last_used_at: string | null
+}
+
+export interface McpTokenCreateResponse {
+  id: number
+  name: string
+  scope: string
+  created_at: string
+  /** Plaintext token — shown ONCE. Store immediately. */
+  token: string
+}
+
+// ---------------------------------------------------------------------------
 // Charge Planner
 // ---------------------------------------------------------------------------
 
@@ -834,6 +855,23 @@ export const api = {
     fetchJSON<ChargePlan>(
       `/api/charge-plan?car_id=${carId}&start_soc=${startSoc}&target_soc=${targetSoc}`,
     ),
+
+  // ----- MCP / API tokens -----
+
+  listMcpTokens: (): Promise<McpTokenListItem[]> =>
+    fetchJSON<McpTokenListItem[]>('/api/mcp/tokens'),
+
+  createMcpToken: (
+    name: string,
+    scope: 'read' | 'readwrite',
+  ): Promise<McpTokenCreateResponse> =>
+    fetchJSON<McpTokenCreateResponse>('/api/mcp/tokens', {
+      method: 'POST',
+      body: { name, scope },
+    }),
+
+  revokeMcpToken: (id: number): Promise<void> =>
+    fetchJSON<void>(`/api/mcp/tokens/${id}`, { method: 'DELETE' }),
 }
 
 export interface SpendTrendDay {
