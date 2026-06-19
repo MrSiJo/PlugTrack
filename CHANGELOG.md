@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.6.0](https://github.com/MrSiJo/PlugTrack/compare/v2.5.0...v2.6.0) (2026-06-19)
+
+
+### Features
+
+* **cost:** bake location rate into frozen override on delete ([1fc049d](https://github.com/MrSiJo/PlugTrack/commit/1fc049d07561f19959c904674d38687c3706adf1))
+* **cost:** freeze session cost on edit — re-scale at stored tariff ([b90d363](https://github.com/MrSiJo/PlugTrack/commit/b90d363a563eb0eef03104b29d882747ea9951a5))
+* **cost:** make first-label forward-only, keep network backfill ([4414d42](https://github.com/MrSiJo/PlugTrack/commit/4414d42f160caf82ba1831200f81354f343f07a5))
+* **curves:** read AC curves + add screenshot curve-backfill CLI ([bcd2a36](https://github.com/MrSiJo/PlugTrack/commit/bcd2a36a469c3a9dd361ccf3cf63a78d7d93f26c))
+* **insights:** add by-location breakdown endpoint ([76dd8a5](https://github.com/MrSiJo/PlugTrack/commit/76dd8a52a647bfa5f36a4341297fcfb64b79e422))
+* **insights:** add Insights page with by-location breakdown ([006e0b2](https://github.com/MrSiJo/PlugTrack/commit/006e0b2f9cbeec7bb8209be06456abaec4837b8d))
+* **insights:** add location detail page ([7bcc857](https://github.com/MrSiJo/PlugTrack/commit/7bcc8571aca55bb8bad2cca415f69cbf402ceb80))
+* **insights:** wire /insights and /locations/:id routes + nav ([5c98347](https://github.com/MrSiJo/PlugTrack/commit/5c98347507ea0801c387e161077c9cb0376d0f0f))
+* **locations:** assign location from session edit + forward-geocode address search ([b37bf65](https://github.com/MrSiJo/PlugTrack/commit/b37bf65f197e27a30ba6707f1f80580d9ad385d7))
+* **sessions:** redesign detail page + extract DC charge curves ([6edc7a0](https://github.com/MrSiJo/PlugTrack/commit/6edc7a02944ca7e308b224ed657131aed1a9fafd))
+
+
+### Bug Fixes
+
+* **insights:** dark-mode-aware chart tooltip ([87b553e](https://github.com/MrSiJo/PlugTrack/commit/87b553e66a67678588690d2d7f885552166fbf09))
+* **insights:** reconcile detail header with breakdown; review nits ([98c8d68](https://github.com/MrSiJo/PlugTrack/commit/98c8d687a2cff84f81f88e3fea1de5046f77a29d))
+
 ## [2.5.0](https://github.com/MrSiJo/PlugTrack/compare/v2.4.0...v2.5.0) (2026-06-18)
 
 
