@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as settingsStoreModule from '@/stores/settingsStore'
 import { IntegrationCard } from './IntegrationCard'
@@ -128,6 +128,41 @@ describe('IntegrationCard', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Saved.')).toBeInTheDocument()
+    })
+  })
+
+  it('master toggle syncs to true when store hydrates after mount (empty → true)', async () => {
+    // Start with an empty settings store (simulates the card mounting before
+    // the async settings load has completed — masterStoredValue is undefined).
+    // When settings is empty, masterEntry is undefined so the aria-label falls
+    // back to the def.label + " enabled" fallback → "AI enabled".
+    settingsStoreModule.useSettingsStore.setState(
+      { settings: {}, loaded: false, loading: true, error: null, set: mockSet } as unknown as Parameters<typeof settingsStoreModule.useSettingsStore.setState>[0],
+    )
+
+    render(<IntegrationCard def={AI_DEF} />)
+
+    // Initially the master toggle must be unchecked (store empty → no value → false).
+    // The aria-label at this point is the fallback "AI enabled" (no catalogue label yet).
+    const masterCheckbox = screen.getByRole('checkbox', { name: /AI enabled/i })
+    expect(masterCheckbox).not.toBeChecked()
+
+    // Simulate the store hydrating: settings arrive with ai_enabled = 'true'.
+    await act(async () => {
+      settingsStoreModule.useSettingsStore.setState(
+        { settings: makeSettings('true'), loaded: true, loading: false, error: null, set: mockSet } as unknown as Parameters<typeof settingsStoreModule.useSettingsStore.setState>[0],
+      )
+    })
+
+    // After hydration the toggle must now be checked.
+    // aria-label is now "AI features enabled" (from the catalogue entry label).
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: /AI features enabled/i })).toBeChecked()
+    })
+
+    // And the member field must be enabled (un-greyed).
+    await waitFor(() => {
+      expect(screen.getByLabelText(/AI provider/i)).not.toBeDisabled()
     })
   })
 })
