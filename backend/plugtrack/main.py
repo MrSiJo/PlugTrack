@@ -14,10 +14,12 @@ The lifespan handler:
 from __future__ import annotations
 
 import asyncio as _asyncio
+import logging
 import os
 import sys
 import tempfile
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -32,8 +34,40 @@ from .models import Base
 from .security.csrf import CsrfMiddleware
 from .settings.seeds import seed_defaults
 
+_log = logging.getLogger(__name__)
+
 
 _LOCK_HANDLE = None  # module-level so the lock survives lifespan scope
+
+
+# ---------------------------------------------------------------------------
+# Backup scheduler job — exported so tests can call it directly.
+# ---------------------------------------------------------------------------
+
+async def run_scheduled_backup(*, retention: int = 7) -> None:
+    """Run one scheduled backup iteration: snapshot + prune.
+
+    This is a module-level coroutine so tests can call it directly without
+    real APScheduler timing.  The lifespan registers it as an interval job.
+
+    Resilience: the entire body is wrapped in a broad try/except.  A backup
+    failure (disk full, locked DB, …) is logged and swallowed — it MUST NOT
+    crash the scheduler or the app.
+
+    Note: the ``retention`` parameter is read INSIDE the job (passed in by
+    the scheduler wrapper below) so that changes to the ``backup_retention``
+    setting apply without a restart.  The *interval* is read once at startup;
+    changing ``backup_interval_hours`` requires a restart (acceptable for v1).
+    """
+    from .services import backup as _bk
+
+    try:
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%S")
+        await _asyncio.to_thread(_bk.create_backup, timestamp)
+        await _asyncio.to_thread(_bk.prune_backups, retention)
+        _log.info("Scheduled backup completed (retention=%d).", retention)
+    except Exception:  # noqa: BLE001
+        _log.exception("Scheduled backup failed — swallowed to protect scheduler.")
 
 
 def _assert_single_worker() -> None:
@@ -353,6 +387,77 @@ async def _lifespan(app: FastAPI):
     app.state.telegram_manager = TelegramBotManager(db_module.SessionLocal)
     await app.state.telegram_manager.reconcile()
 
+    # ---------------------------------------------------------------------------
+    # Backup scheduler — independent of the pycupra sync stack.
+    # Starts whenever `backup_enabled` is true (default: true).
+    # The interval is read once at startup; changing backup_interval_hours
+    # requires a restart (acceptable for v1).  Retention is read fresh inside
+    # each job invocation so changes apply without a restart.
+    # ---------------------------------------------------------------------------
+    from sqlalchemy import select as _select
+    from .models import Setting as _Setting
+
+    app.state.backup_scheduler = None
+    async with db_module.SessionLocal() as _bk_session:
+        backup_enabled = await _read_bool_setting(_bk_session, "backup_enabled", True)
+        _bk_interval_hours = 24
+        _bk_retention = 7
+        if backup_enabled:
+            _bk_interval_row = (await _bk_session.execute(
+                _select(_Setting).where(_Setting.key == "backup_interval_hours")
+            )).scalar_one_or_none()
+            try:
+                _bk_interval_hours = int(_bk_interval_row.value) if _bk_interval_row and _bk_interval_row.value else 24
+            except (TypeError, ValueError):
+                _bk_interval_hours = 24
+
+            _bk_retention_row = (await _bk_session.execute(
+                _select(_Setting).where(_Setting.key == "backup_retention")
+            )).scalar_one_or_none()
+            try:
+                _bk_retention = int(_bk_retention_row.value) if _bk_retention_row and _bk_retention_row.value else 7
+            except (TypeError, ValueError):
+                _bk_retention = 7
+
+    if backup_enabled:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler as _AsyncIOScheduler
+        from apscheduler.triggers.interval import IntervalTrigger as _IntervalTrigger
+
+        _bk_retention_default = _bk_retention  # capture for closure fallback
+
+        async def _backup_job() -> None:
+            # Read retention fresh each run so setting changes apply without restart.
+            retention = _bk_retention_default
+            try:
+                async with db_module.SessionLocal() as _s:
+                    _ret_row = (await _s.execute(
+                        _select(_Setting).where(_Setting.key == "backup_retention")
+                    )).scalar_one_or_none()
+                    if _ret_row and _ret_row.value:
+                        try:
+                            retention = int(_ret_row.value)
+                        except (TypeError, ValueError):
+                            pass
+            except Exception:  # noqa: BLE001
+                pass  # use captured default if DB read fails
+            await run_scheduled_backup(retention=retention)
+
+        _bk_scheduler = _AsyncIOScheduler()
+        _bk_scheduler.add_job(
+            _backup_job,
+            trigger=_IntervalTrigger(hours=_bk_interval_hours),
+            id="backup-scheduled",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
+        _bk_scheduler.start()
+        app.state.backup_scheduler = _bk_scheduler
+        _log.info(
+            "Backup scheduler started: interval=%dh, retention=%d.",
+            _bk_interval_hours,
+            _bk_retention,
+        )
+
     try:
         yield
     finally:
@@ -362,6 +467,12 @@ async def _lifespan(app: FastAPI):
         mgr = getattr(app.state, "telegram_manager", None)
         if mgr is not None:
             await mgr.stop()
+        bk_scheduler = getattr(app.state, "backup_scheduler", None)
+        if bk_scheduler is not None:
+            try:
+                bk_scheduler.shutdown(wait=False)
+            except Exception:  # noqa: BLE001
+                pass
 
 
 def create_app() -> FastAPI:
