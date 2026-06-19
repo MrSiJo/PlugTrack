@@ -5,6 +5,8 @@ Provides:
   lifespan handler, so the `setting` table is populated.
 - `authed_client`: a `seeded_client` with a user created and a valid
   signed session cookie set, plus a primed CSRF cookie.
+- `other_user_headers`: headers for a second authenticated user (no
+  shared state with `authed_client`), used to prove cross-user 404.
 """
 from __future__ import annotations
 
@@ -13,6 +15,8 @@ from httpx import ASGITransport, AsyncClient
 
 from plugtrack.api.auth_middleware import SESSION_COOKIE_NAME, make_serializer
 from plugtrack.security.csrf import CSRF_COOKIE_NAME
+from plugtrack.models import User
+from plugtrack.security.crypto import hash_password
 from plugtrack.services.auth_service import bootstrap_user
 
 
@@ -47,6 +51,29 @@ async def authed_client(app, test_sessionmaker):
             # works because we have a valid session.
             await c.get("/api/settings")
             yield c
+
+
+@pytest_asyncio.fixture
+async def other_user_headers(app, test_sessionmaker):
+    """Return session cookie headers for a second user distinct from `authed_client`.
+
+    The fixture creates a second user (``"other_user"``) directly via the
+    model (``bootstrap_user`` refuses when any user already exists) and
+    mints a valid session token for them.  The returned dict can be passed
+    as ``headers=`` to AsyncClient requests alongside ``authed_client``.
+    """
+    async with test_sessionmaker() as session:
+        other = User(
+            username="other_user",
+            password_hash=hash_password("test-password-12chars"),
+        )
+        session.add(other)
+        await session.commit()
+        await session.refresh(other)
+
+    serializer = make_serializer("test-secret-key-for-tests-only-padding-padding")
+    token = serializer.dumps({"user_id": other.id})
+    return {SESSION_COOKIE_NAME: token}
 
 
 def csrf_headers(client: AsyncClient) -> dict[str, str]:
