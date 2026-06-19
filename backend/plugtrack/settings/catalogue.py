@@ -336,11 +336,27 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         description="Car ID that imported charging sessions are attached to.",
         default_value=None,
     ),
-    # OpenAI vision extraction
+    # AI — master switch + provider, plus OpenAI-specific keys (grouped under "ai")
+    CatalogueEntry(
+        key="ai_enabled",
+        value_type="bool",
+        group_name="ai",
+        label="AI features enabled",
+        description="Master switch for AI features (screenshot extraction, conversational bot).",
+        default_value="false",
+    ),
+    CatalogueEntry(
+        key="ai_provider",
+        value_type="enum",
+        group_name="ai",
+        label="AI provider",
+        description="Which AI provider to use. Only OpenAI is implemented in v1.",
+        default_value="openai",
+    ),
     CatalogueEntry(
         key="openai_api_key",
         value_type="string",
-        group_name="openai",
+        group_name="ai",
         label="OpenAI API key",
         description="Used for vision extraction of charge screenshots. Stored encrypted.",
         default_value=None,
@@ -349,7 +365,7 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
     CatalogueEntry(
         key="openai_model",
         value_type="string",
-        group_name="openai",
+        group_name="ai",
         label="OpenAI vision model",
         description="Vision-capable model for screenshot extraction.",
         default_value="gpt-5.5",
@@ -357,7 +373,7 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
     CatalogueEntry(
         key="openai_input_price_per_1k_pence",
         value_type="float",
-        group_name="openai",
+        group_name="ai",
         label="OpenAI input price (pence / 1k tokens)",
         description="Optional. Used to show £ cost per extraction. Leave blank to show tokens only.",
         default_value=None,
@@ -365,7 +381,7 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
     CatalogueEntry(
         key="openai_output_price_per_1k_pence",
         value_type="float",
-        group_name="openai",
+        group_name="ai",
         label="OpenAI output price (pence / 1k tokens)",
         description="Optional. Output tokens include reasoning tokens (≈0 here). Leave blank to show tokens only.",
         default_value=None,

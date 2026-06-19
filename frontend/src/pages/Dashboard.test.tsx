@@ -297,4 +297,19 @@ describe('Dashboard page', () => {
     expect(screen.getByText(/No sessions yet/)).toBeInTheDocument()
     expect(screen.getByText(/No locations yet/)).toBeInTheDocument()
   })
+
+  it('has a "Plan a charge" link targeting /planner', async () => {
+    vi.spyOn(api, 'getDashboard').mockResolvedValue(fixtureSummary())
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('dashboard-root')).toBeInTheDocument(),
+    )
+    const planLink = screen.getByRole('link', { name: /plan a charge/i })
+    expect(planLink).toBeInTheDocument()
+    expect(planLink).toHaveAttribute('href', '/planner')
+  })
 })

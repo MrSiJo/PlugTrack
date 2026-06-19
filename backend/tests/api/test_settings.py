@@ -184,3 +184,19 @@ async def test_clear_pycupra_tokens_no_dir_returns_zero(
     assert r.status_code == 200
     body = r.json()
     assert body == {"cleared": False, "count": 0}
+
+
+@pytest.mark.asyncio
+async def test_catalogue_has_ai_keys_grouped(test_sessionmaker):
+    from plugtrack.settings.catalogue import CATALOGUE
+    by_key = {e.key: e for e in CATALOGUE}
+    assert "ai_enabled" in by_key
+    assert by_key["ai_enabled"].value_type == "bool"
+    assert by_key["ai_enabled"].group_name == "ai"
+    assert "ai_provider" in by_key
+    assert by_key["ai_provider"].value_type == "enum"
+    assert by_key["ai_provider"].default_value == "openai"
+    # openai_* regrouped under "ai" so the AI integration card can find them
+    for k in ("openai_api_key", "openai_model",
+              "openai_input_price_per_1k_pence", "openai_output_price_per_1k_pence"):
+        assert by_key[k].group_name == "ai", f"{k} not regrouped"

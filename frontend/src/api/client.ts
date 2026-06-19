@@ -207,6 +207,7 @@ export interface CarPayload {
   id: number
   make: string
   model: string
+  /** Now masked in list/get payloads (e.g. "········XYZ12"). Use revealCarVin() for the full value. */
   vin: string | null
   battery_kwh: number
   nominal_efficiency_mi_per_kwh: number
@@ -603,6 +604,12 @@ export const api = {
 
   deleteCar: (id: number): Promise<void> =>
     fetchJSON<void>(`/api/cars/${id}`, { method: 'DELETE' }),
+
+  /** Reveal the full (unmasked) VIN for a car the caller owns.
+   *  The list/get payload now returns a masked VIN; call this to get the
+   *  full plaintext value (e.g. when opening the edit form). */
+  revealCarVin: (id: number): Promise<{ vin: string | null }> =>
+    fetchJSON<{ vin: string | null }>(`/api/cars/${id}/vin`),
 
   /** URL of the cached pycupra image for this car. Returns 404 when the
    *  image isn't on disk yet (frontend renders a placeholder).

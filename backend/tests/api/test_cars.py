@@ -44,13 +44,18 @@ async def test_car_round_trip_with_vin(authed_client):
     assert r.status_code == 201, r.text
     body = r.json()
     car_id = body["id"]
-    # VIN comes back decrypted in the API payload.
-    assert body["vin"] == "TESTVIN0000000001"
+    # VIN is now masked in the payload — last 5 chars only.
+    assert body["vin"] == "············00001"
     assert body["battery_kwh"] == 77.0
     assert body["active"] is True
 
-    # Fetch single car
+    # Fetch single car — also masked.
     r = await authed_client.get(f"/api/cars/{car_id}")
+    assert r.status_code == 200
+    assert r.json()["vin"] == "············00001"
+
+    # Full VIN only via the reveal endpoint.
+    r = await authed_client.get(f"/api/cars/{car_id}/vin")
     assert r.status_code == 200
     assert r.json()["vin"] == "TESTVIN0000000001"
 
@@ -251,3 +256,168 @@ async def test_cross_user_isolation(app, test_sessionmaker):
                 headers=csrf_b,
             )
             assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# VIN masking + owner-gated reveal
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_cars_masks_vin(authed_client):
+    """List and get payloads must carry the masked VIN, not the plaintext."""
+    await authed_client.post(
+        "/api/cars",
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "vin": "VSSZZZK1ZNP123456",
+            "battery_kwh": 58,
+            "nominal_efficiency_mi_per_kwh": 3.8,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    r = await authed_client.get("/api/cars")
+    assert r.status_code == 200
+    vin = r.json()[0]["vin"]
+    assert vin is not None
+    assert "VSSZZZK1ZNP" not in vin          # body hidden
+    assert vin.endswith("23456")             # last 5 preserved
+    assert vin != "VSSZZZK1ZNP123456"        # not the full string
+
+
+@pytest.mark.asyncio
+async def test_reveal_vin_returns_full_for_owner(authed_client):
+    """The reveal endpoint returns the full plaintext VIN to the owner."""
+    r = await authed_client.post(
+        "/api/cars",
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "vin": "VSSZZZK1ZNP123456",
+            "battery_kwh": 58,
+            "nominal_efficiency_mi_per_kwh": 3.8,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    cid = r.json()["id"]
+    r = await authed_client.get(f"/api/cars/{cid}/vin")
+    assert r.status_code == 200
+    assert r.json()["vin"] == "VSSZZZK1ZNP123456"
+
+
+@pytest.mark.asyncio
+async def test_reveal_vin_rejects_non_owner(app, authed_client, other_user_headers):
+    """The reveal endpoint returns 404 when a different user requests the VIN."""
+    from httpx import ASGITransport, AsyncClient
+    from plugtrack.api.auth_middleware import SESSION_COOKIE_NAME
+
+    r = await authed_client.post(
+        "/api/cars",
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "vin": "VSSZZZK1ZNP123456",
+            "battery_kwh": 58,
+            "nominal_efficiency_mi_per_kwh": 3.8,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    cid = r.json()["id"]
+    # Send the request as the other user via a fresh client with their cookie.
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as other_client:
+        other_client.cookies.set(
+            SESSION_COOKIE_NAME,
+            other_user_headers[SESSION_COOKIE_NAME],
+        )
+        r = await other_client.get(f"/api/cars/{cid}/vin")
+    assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# _mask_vin unit tests — privacy boundary regression
+# ---------------------------------------------------------------------------
+
+
+def test_mask_vin_none_returns_none():
+    from plugtrack.api.routes.cars import _mask_vin
+    assert _mask_vin(None) is None
+
+
+def test_mask_vin_empty_string_returns_none():
+    from plugtrack.api.routes.cars import _mask_vin
+    assert _mask_vin("") is None
+
+
+def test_mask_vin_short_string_fully_masked():
+    """A VIN of 3 chars must be returned fully masked — no original chars."""
+    from plugtrack.api.routes.cars import _mask_vin
+    result = _mask_vin("ABC")
+    assert result == "···"
+    assert "A" not in result
+    assert "B" not in result
+    assert "C" not in result
+
+
+def test_mask_vin_exactly_five_chars_fully_masked():
+    """A VIN of exactly 5 chars must be fully masked, not partially revealed."""
+    from plugtrack.api.routes.cars import _mask_vin
+    result = _mask_vin("ABCDE")
+    assert result == "·····"
+
+
+def test_mask_vin_standard_17_char_vin():
+    """A standard 17-char VIN keeps its last 5 and masks the first 12."""
+    from plugtrack.api.routes.cars import _mask_vin
+    vin = "VSSZZZK1ZNP123456"
+    result = _mask_vin(vin)
+    assert result is not None
+    assert result.endswith("23456")
+    assert len(result) == 17
+    # First 12 chars must all be the middle dot (·, U+00B7).
+    assert result[:12] == "·" * 12
+
+
+# ---------------------------------------------------------------------------
+# Defense-in-depth: reject mask characters in VIN update payload
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_car_rejects_masked_vin(authed_client, test_sessionmaker):
+    """PUT /api/cars/{id} with a mask-character VIN must return 400
+    and must NOT overwrite the stored VIN."""
+    from plugtrack.models import Car
+    from sqlalchemy import select
+
+    # Create a car with a known full VIN.
+    plain_vin = "VSSZZZK1ZNP999999"
+    r = await authed_client.post(
+        "/api/cars",
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "vin": plain_vin,
+            "battery_kwh": 77.0,
+            "nominal_efficiency_mi_per_kwh": 3.6,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    car_id = r.json()["id"]
+
+    # Attempt to update with a VIN that contains the mask character (·, U+00B7).
+    masked_vin = "············99999"
+    r = await authed_client.put(
+        f"/api/cars/{car_id}",
+        json={"vin": masked_vin},
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 400, r.text
+    assert "mask" in r.json()["detail"].lower()
+
+    # The stored VIN must still be the original plaintext.
+    async with test_sessionmaker() as session:
+        car = (await session.execute(select(Car).where(Car.id == car_id))).scalar_one()
+        assert car.vin == plain_vin

@@ -82,12 +82,28 @@ class CarUpdateRequest(BaseModel):
     active: Optional[bool] = None
 
 
+def _mask_vin(vin: str | None) -> str | None:
+    """Return VIN with all but the last 5 characters replaced by · (U+00B7).
+
+    The masked form is shown in list/get payloads. The full VIN is only
+    returned by the owner-gated ``GET /api/cars/{id}/vin`` endpoint.
+
+    Short VINs (5 chars or fewer) are fully masked so no characters are
+    ever returned in the clear via the list/get endpoints.
+    """
+    if not vin:
+        return None
+    if len(vin) <= 5:
+        return "·" * len(vin)
+    return "·" * (len(vin) - 5) + vin[-5:]
+
+
 def _to_payload(car: Car) -> CarPayload:
     return CarPayload(
         id=car.id,
         make=car.make,
         model=car.model,
-        vin=car.vin,  # property — decrypts on the fly
+        vin=_mask_vin(car.vin),  # masked — full VIN via GET /{id}/vin
         battery_kwh=car.battery_kwh,
         nominal_efficiency_mi_per_kwh=car.nominal_efficiency_mi_per_kwh,
         provider=car.provider,
@@ -245,6 +261,22 @@ async def _get_owned(session: AsyncSession, car_id: int, user_id: int) -> Car:
     return car
 
 
+@router.get("/{car_id}/vin")
+async def reveal_vin(
+    car_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return the full plaintext VIN for a car the caller owns.
+
+    Only the authenticated owner can retrieve the full VIN; cross-user
+    requests return 404 (via ``_get_owned``).
+    """
+    user_id = _user_id(request)
+    car = await _get_owned(session, car_id, user_id)
+    return {"vin": car.vin}
+
+
 @router.get("/{car_id}/image")
 async def get_car_image(
     car_id: int,
@@ -304,7 +336,13 @@ async def update_car(
 
     data = body.model_dump(exclude_unset=True)
     if "vin" in data:
-        car.vin = data.pop("vin")  # property setter encrypts
+        incoming_vin = data.pop("vin")
+        if incoming_vin is not None and "·" in incoming_vin:
+            raise HTTPException(
+                status_code=400,
+                detail="VIN contains mask characters; reveal the full VIN before editing",
+            )
+        car.vin = incoming_vin  # property setter encrypts
     for k, v in data.items():
         setattr(car, k, v)
 

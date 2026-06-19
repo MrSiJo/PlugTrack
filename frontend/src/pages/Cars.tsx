@@ -1,9 +1,15 @@
+/**
+ * Cars browse page (B6 stripped).
+ *
+ * Shows the car cards (image, specs, mileage display) and the Cupra
+ * "discover" flow. Car add/edit/delete and mileage-setup have moved to
+ * Admin → CarsManagement.
+ */
 import { useEffect, useState } from 'react'
 import {
   ApiError,
   api,
   type CarPayload,
-  type CarCreateRequest,
   type DiscoveredVehicle,
 } from '@/api/client'
 import { CarImage } from '@/components/cars/CarImage'
@@ -14,30 +20,10 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Pill } from '@/components/ui/Pill'
 
-// `battery_kwh` and `nominal_efficiency_mi_per_kwh` are typed `number` on
-// the API but rendered with `value={... || ''}` so the input starts blank;
-// HTML5 `required` then prevents an empty submit before the backend's
-// `gt=0` validator can reject it.
-const EMPTY_NEW: CarCreateRequest = {
-  make: '',
-  model: '',
-  vin: '',
-  battery_kwh: NaN,
-  nominal_efficiency_mi_per_kwh: NaN,
-  provider: 'cupra_connect',
-  provider_vehicle_id: '',
-  active: true,
-}
-
 export default function CarsPage() {
   const [cars, setCars] = useState<CarPayload[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
-  const [draft, setDraft] = useState<CarCreateRequest>(EMPTY_NEW)
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [editDraft, setEditDraft] = useState<CarCreateRequest>(EMPTY_NEW)
-  const [busy, setBusy] = useState(false)
   const [discovering, setDiscovering] = useState(false)
   const [discovered, setDiscovered] = useState<DiscoveredVehicle[] | null>(null)
 
@@ -58,19 +44,6 @@ export default function CarsPage() {
     }
   }
 
-  function applyDiscovered(v: DiscoveredVehicle) {
-    setCreating(true)
-    setDraft({
-      ...EMPTY_NEW,
-      make: 'Cupra',
-      model: v.model ?? '',
-      vin: v.vin,
-      provider: 'cupra_connect',
-      provider_vehicle_id: v.vin,
-    })
-    setDiscovered(null)
-  }
-
   async function reload() {
     setLoading(true)
     setError(null)
@@ -88,93 +61,19 @@ export default function CarsPage() {
     void reload()
   }, [])
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault()
-    setBusy(true)
-    setError(null)
-    try {
-      await api.createCar({
-        ...draft,
-        vin: draft.vin?.trim() || null,
-        provider_vehicle_id: draft.provider_vehicle_id?.trim() || null,
-      })
-      setDraft(EMPTY_NEW)
-      setCreating(false)
-      await reload()
-    } catch (err) {
-      setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleSave(id: number, e: React.FormEvent) {
-    e.preventDefault()
-    setBusy(true)
-    setError(null)
-    try {
-      await api.updateCar(id, {
-        ...editDraft,
-        vin: editDraft.vin?.trim() || null,
-        provider_vehicle_id: editDraft.provider_vehicle_id?.trim() || null,
-      })
-      setEditingId(null)
-      await reload()
-    } catch (err) {
-      setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleDelete(id: number) {
-    if (!window.confirm('Delete this car? Charging sessions will remain but lose their car link.')) {
-      return
-    }
-    setBusy(true)
-    setError(null)
-    try {
-      await api.deleteCar(id)
-      await reload()
-    } catch (err) {
-      setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  function startEdit(car: CarPayload) {
-    setEditingId(car.id)
-    setEditDraft({
-      make: car.make,
-      model: car.model,
-      vin: car.vin ?? '',
-      battery_kwh: car.battery_kwh,
-      nominal_efficiency_mi_per_kwh: car.nominal_efficiency_mi_per_kwh,
-      provider: car.provider,
-      provider_vehicle_id: car.provider_vehicle_id ?? '',
-      active: car.active,
-    })
-  }
-
   return (
     <main className="mx-auto max-w-7xl px-4 py-6">
       <PageHeader
         title="Cars"
         actions={
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void handleDiscover()}
-              disabled={discovering}
-            >
-              {discovering ? 'Discovering…' : 'Discover from Cupra'}
-            </Button>
-            <Button size="sm" onClick={() => setCreating((v) => !v)}>
-              {creating ? 'Cancel' : 'Add car manually'}
-            </Button>
-          </>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleDiscover()}
+            disabled={discovering}
+          >
+            {discovering ? 'Discovering…' : 'Discover from Cupra'}
+          </Button>
         }
       />
 
@@ -197,14 +96,9 @@ export default function CarsPage() {
                     {v.model ?? 'unknown model'} {v.year ?? ''}
                   </span>
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => applyDiscovered(v)}
-                >
-                  Use this vehicle
-                </Button>
+                <span className="text-xs text-slate-500">
+                  Add via Admin → Cars
+                </span>
               </li>
             ))}
           </ul>
@@ -217,130 +111,18 @@ export default function CarsPage() {
         </div>
       )}
 
-      {creating && (
-        <Card variant="hero" className="mb-6">
-          <form onSubmit={handleCreate}>
-            <CarFields draft={draft} setDraft={setDraft} />
-            <div className="mt-4 flex gap-2">
-              <Button type="submit" size="sm" disabled={busy}>
-                {busy ? 'Creating…' : 'Create'}
-              </Button>
-            </div>
-          </form>
-        </Card>
-      )}
-
       {loading ? (
         <p className="text-sm text-slate-500">Loading…</p>
       ) : cars.length === 0 ? (
         <EmptyState
           title="No cars yet"
-          body="Add your first vehicle manually, or use Discover from Cupra to pull one off your Cupra Connect account."
+          body="Add your first vehicle from the Admin page."
         />
       ) : (
         <ul className="grid gap-4 md:grid-cols-2">
           {cars.map((car) => (
             <li key={car.id}>
-              {editingId === car.id ? (
-                <Card variant="hero">
-                  <form onSubmit={(e) => handleSave(car.id, e)}>
-                    <CarFields draft={editDraft} setDraft={setEditDraft} />
-                    <div className="mt-4 flex gap-2">
-                      <Button type="submit" size="sm" disabled={busy}>
-                        Save
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setEditingId(null)}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </form>
-                </Card>
-              ) : (
-                <Card variant="hero" className="p-4">
-                  <div className="flex gap-4">
-                    <CarImage
-                      carId={car.id}
-                      className="aspect-[4/3] h-28 w-44 flex-shrink-0"
-                      alt={`${car.make} ${car.model}`}
-                    />
-                    <div className="flex min-w-0 flex-1 flex-col">
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                          {car.make} {car.model}
-                        </h3>
-                        <div className="flex gap-1">
-                          {car.active ? (
-                            <Pill tone="green">Active</Pill>
-                          ) : (
-                            <Pill tone="slate">Inactive</Pill>
-                          )}
-                        </div>
-                      </div>
-                      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-400">
-                        <div>
-                          <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
-                            Battery
-                          </dt>
-                          <dd className="font-medium text-slate-900 dark:text-slate-100">
-                            {car.battery_kwh} kWh
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
-                            Efficiency
-                          </dt>
-                          <dd className="font-medium text-slate-900 dark:text-slate-100">
-                            {car.nominal_efficiency_mi_per_kwh} mi/kWh
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
-                            Provider
-                          </dt>
-                          <dd className="font-medium text-slate-900 dark:text-slate-100">
-                            {car.provider}
-                          </dd>
-                        </div>
-                        {car.vin && (
-                          <div>
-                            <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
-                              VIN
-                            </dt>
-                            <dd className="truncate font-mono text-[11px] text-slate-700 dark:text-slate-200">
-                              {car.vin}
-                            </dd>
-                          </div>
-                        )}
-                      </dl>
-                      <div className="mt-3 flex gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => startEdit(car)}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void handleDelete(car.id)}
-                          className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                  <CarMileageSection carId={car.id} />
-                </Card>
-              )}
+              <CarCard car={car} />
             </li>
           ))}
         </ul>
@@ -349,119 +131,67 @@ export default function CarsPage() {
   )
 }
 
-interface CarFieldsProps {
-  draft: CarCreateRequest
-  setDraft: (next: CarCreateRequest) => void
-}
-
-function CarFields({ draft, setDraft }: CarFieldsProps) {
-  const fieldClass =
-    'mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100'
-  const labelClass = 'block text-xs font-medium text-slate-700 dark:text-slate-300'
-
+function CarCard({ car }: { car: CarPayload }) {
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      <label className={labelClass}>
-        Make
-        <input
-          required
-          value={draft.make}
-          onChange={(e) => setDraft({ ...draft, make: e.target.value })}
-          className={fieldClass}
+    <Card variant="hero" className="p-4">
+      <div className="flex gap-4">
+        <CarImage
+          carId={car.id}
+          className="aspect-[4/3] h-28 w-44 flex-shrink-0"
+          alt={`${car.make} ${car.model}`}
         />
-      </label>
-      <label className={labelClass}>
-        Model
-        <input
-          required
-          value={draft.model}
-          onChange={(e) => setDraft({ ...draft, model: e.target.value })}
-          className={fieldClass}
-        />
-      </label>
-      <label className={labelClass}>
-        Battery (kWh) <span className="text-red-600">*</span>
-        <input
-          required
-          type="number"
-          step="0.1"
-          min="0.1"
-          placeholder="e.g. 58 for Cupra Born"
-          value={Number.isFinite(draft.battery_kwh) ? draft.battery_kwh : ''}
-          onChange={(e) =>
-            setDraft({
-              ...draft,
-              battery_kwh: e.target.value === '' ? NaN : Number(e.target.value),
-            })
-          }
-          className={fieldClass}
-        />
-        <span className="mt-0.5 block text-[11px] font-normal text-slate-500">
-          Cupra Connect doesn't expose battery capacity — enter manually.
-        </span>
-      </label>
-      <label className={labelClass}>
-        Nominal efficiency (mi/kWh) <span className="text-red-600">*</span>
-        <input
-          required
-          type="number"
-          step="0.1"
-          min="0.1"
-          placeholder="e.g. 3.5 for Cupra Born"
-          value={
-            Number.isFinite(draft.nominal_efficiency_mi_per_kwh)
-              ? draft.nominal_efficiency_mi_per_kwh
-              : ''
-          }
-          onChange={(e) =>
-            setDraft({
-              ...draft,
-              nominal_efficiency_mi_per_kwh:
-                e.target.value === '' ? NaN : Number(e.target.value),
-            })
-          }
-          className={fieldClass}
-        />
-        <span className="mt-0.5 block text-[11px] font-normal text-slate-500">
-          Real-world miles per kWh. Used for range estimates.
-        </span>
-      </label>
-      <label className={labelClass}>
-        Provider
-        <select
-          value={draft.provider ?? 'cupra_connect'}
-          onChange={(e) => setDraft({ ...draft, provider: e.target.value })}
-          className={fieldClass}
-        >
-          <option value="cupra_connect">Cupra Connect</option>
-          <option value="manual">Manual only</option>
-        </select>
-      </label>
-      <label className={labelClass}>
-        Provider vehicle ID (VIN-like handle from your account)
-        <input
-          value={draft.provider_vehicle_id ?? ''}
-          onChange={(e) => setDraft({ ...draft, provider_vehicle_id: e.target.value })}
-          className={fieldClass}
-          placeholder="optional, required for Cupra Connect sync"
-        />
-      </label>
-      <label className={`${labelClass} sm:col-span-2`}>
-        VIN (optional, encrypted at rest)
-        <input
-          value={draft.vin ?? ''}
-          onChange={(e) => setDraft({ ...draft, vin: e.target.value })}
-          className={fieldClass}
-        />
-      </label>
-      <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
-        <input
-          type="checkbox"
-          checked={draft.active ?? true}
-          onChange={(e) => setDraft({ ...draft, active: e.target.checked })}
-        />
-        Active (synced + visible in dashboards)
-      </label>
-    </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+              {car.make} {car.model}
+            </h3>
+            <div className="flex gap-1">
+              {car.active ? (
+                <Pill tone="green">Active</Pill>
+              ) : (
+                <Pill tone="slate">Inactive</Pill>
+              )}
+            </div>
+          </div>
+          <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-400">
+            <div>
+              <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
+                Battery
+              </dt>
+              <dd className="font-medium text-slate-900 dark:text-slate-100">
+                {car.battery_kwh} kWh
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
+                Efficiency
+              </dt>
+              <dd className="font-medium text-slate-900 dark:text-slate-100">
+                {car.nominal_efficiency_mi_per_kwh} mi/kWh
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
+                Provider
+              </dt>
+              <dd className="font-medium text-slate-900 dark:text-slate-100">
+                {car.provider}
+              </dd>
+            </div>
+            {car.vin && (
+              <div>
+                <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
+                  VIN
+                </dt>
+                <dd className="truncate font-mono text-[11px] text-slate-700 dark:text-slate-200">
+                  {car.vin}
+                </dd>
+              </div>
+            )}
+          </dl>
+        </div>
+      </div>
+      <CarMileageSection carId={car.id} />
+    </Card>
   )
 }
