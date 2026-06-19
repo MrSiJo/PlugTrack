@@ -69,6 +69,7 @@ class BotConfig:
     public_base_url: Optional[str] = None
     input_price_p: Optional[float] = None
     output_price_p: Optional[float] = None
+    ai_enabled: bool = False
 
 
 @dataclass
@@ -702,6 +703,7 @@ async def load_bot_config(sessionmaker):
         public_base_url=(rows.get("public_base_url") or None),
         input_price_p=_to_float(rows.get("openai_input_price_per_1k_pence")),
         output_price_p=_to_float(rows.get("openai_output_price_per_1k_pence")),
+        ai_enabled=_truthy(rows.get("ai_enabled")),
     )
 
 
