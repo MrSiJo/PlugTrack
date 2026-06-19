@@ -773,3 +773,208 @@ async def test_propose_set_location_other_users_session_is_error(test_sessionmak
         )
 
     assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Fix 3: find_charges location_id filter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_find_charges_location_id_filter(test_sessionmaker):
+    """find_charges(location_id=X) returns only sessions at location X."""
+    from plugtrack.mcp.tools import find_charges
+
+    user_id = await _seed_user(test_sessionmaker, "loc_filter_user")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    loc_a = await _seed_location(test_sessionmaker, user_id, name="LocationA")
+    loc_b = await _seed_location(test_sessionmaker, user_id, name="LocationB")
+
+    # Two sessions at loc_a, one at loc_b
+    id_a1 = await _seed_session(test_sessionmaker, user_id, car_id, date_offset=0, location_id=loc_a)
+    id_a2 = await _seed_session(test_sessionmaker, user_id, car_id, date_offset=1, location_id=loc_a)
+    _id_b = await _seed_session(test_sessionmaker, user_id, car_id, date_offset=2, location_id=loc_b)
+
+    async with test_sessionmaker() as session:
+        results = await find_charges(session, user_id, location_id=loc_a)
+
+    ids = [r["id"] for r in results]
+    assert set(ids) == {id_a1, id_a2}, "Only loc_a sessions should be returned"
+    assert all(r["location_id"] == loc_a for r in results)
+
+
+# ---------------------------------------------------------------------------
+# Fix 1: propose_create_location geocodes at propose time
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_propose_create_location_address_geocodes_at_propose(
+    test_sessionmaker, monkeypatch
+):
+    """propose_create_location(address=...) geocodes at propose time and stores coords."""
+    from plugtrack.mcp import tools as tools_module
+    from plugtrack.mcp.tools import propose_create_location, commit_change
+    from plugtrack.services.geocoding import GeocodeResult
+    from sqlalchemy import select as sa_select
+
+    FAKE_LAT = 51.5074
+    FAKE_LNG = -0.1278
+
+    class _FakeProvider:
+        async def forward(self, query: str):
+            return GeocodeResult(
+                address="10 Downing Street, London, SW1A 2AA",
+                provider="fake",
+                lat=FAKE_LAT,
+                lng=FAKE_LNG,
+            )
+
+        async def reverse(self, lat, lng):
+            return None
+
+    monkeypatch.setattr(tools_module, "get_provider", lambda settings: _FakeProvider())
+
+    user_id = await _seed_user(test_sessionmaker, "geocode_propose_user")
+
+    async with test_sessionmaker() as session:
+        result = await propose_create_location(
+            session, user_id, name="Westminster", address="10 Downing Street, London"
+        )
+
+    assert "error" not in result, f"Unexpected error: {result}"
+    assert "summary" in result
+    assert "change_token" in result
+    # Summary should contain resolved coords
+    assert str(round(FAKE_LAT, 4)) in result["summary"] or "51.5074" in result["summary"]
+
+    # Commit should succeed and create a location with the geocoded coords
+    async with test_sessionmaker() as session:
+        commit_result = await commit_change(session, user_id, result["change_token"])
+
+    assert "error" not in commit_result, f"Commit failed: {commit_result}"
+
+    async with test_sessionmaker() as session:
+        rows = (
+            await session.execute(sa_select(Location).where(Location.user_id == user_id))
+        ).scalars().all()
+    assert len(rows) >= 1
+    # The created location should have the geocoded coordinates
+    created = next((r for r in rows if r.name == "Westminster"), None)
+    assert created is not None, "Location named 'Westminster' not found"
+    assert abs(created.centroid_lat - FAKE_LAT) < 0.01
+    assert abs(created.centroid_lng - FAKE_LNG) < 0.01
+
+
+@pytest.mark.asyncio
+async def test_propose_create_location_address_geocode_fails_returns_error(
+    test_sessionmaker, monkeypatch
+):
+    """propose_create_location(address=...) returns error at propose time if geocoding fails."""
+    from plugtrack.mcp import tools as tools_module
+    from plugtrack.mcp.tools import propose_create_location
+    from sqlalchemy import select as sa_select
+
+    class _NoMatchProvider:
+        async def forward(self, query: str):
+            return None
+
+        async def reverse(self, lat, lng):
+            return None
+
+    monkeypatch.setattr(tools_module, "get_provider", lambda settings: _NoMatchProvider())
+
+    user_id = await _seed_user(test_sessionmaker, "geocode_fail_user")
+
+    async with test_sessionmaker() as session:
+        result = await propose_create_location(
+            session, user_id, address="totally unmatchable address xyz"
+        )
+
+    assert "error" in result
+    assert "geocode" in result["error"].lower() or "could not" in result["error"].lower()
+
+    # No location should have been created
+    async with test_sessionmaker() as session:
+        rows = (
+            await session.execute(sa_select(Location).where(Location.user_id == user_id))
+        ).scalars().all()
+    assert len(rows) == 0, "No location should be created when geocoding fails"
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: _mint_token purges expired/used entries from _CHANGE_STORE
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mint_token_purges_expired_entries(test_sessionmaker):
+    """_mint_token evicts entries whose age exceeds TTL before inserting the new one."""
+    import plugtrack.mcp.tools as tools_module
+
+    user_id = await _seed_user(test_sessionmaker, "evict_user")
+
+    # Mint two tokens and artificially backdate them beyond the TTL
+    async with test_sessionmaker() as session:
+        r1 = await tools_module.propose_create_location(
+            session, user_id, name="Old Place 1", lat=1.0, lng=1.0
+        )
+    async with test_sessionmaker() as session:
+        r2 = await tools_module.propose_create_location(
+            session, user_id, name="Old Place 2", lat=2.0, lng=2.0
+        )
+
+    tok1 = r1["change_token"]
+    tok2 = r2["change_token"]
+
+    # Backdate both tokens beyond TTL
+    old_time = dt.datetime.now(timezone.utc) - dt.timedelta(
+        seconds=tools_module._TOKEN_TTL_SECONDS + 60
+    )
+    tools_module._CHANGE_STORE[tok1]["created_at"] = old_time
+    tools_module._CHANGE_STORE[tok2]["created_at"] = old_time
+
+    assert tok1 in tools_module._CHANGE_STORE
+    assert tok2 in tools_module._CHANGE_STORE
+
+    # Minting a new token should purge the expired ones
+    async with test_sessionmaker() as session:
+        r3 = await tools_module.propose_create_location(
+            session, user_id, name="Fresh Place", lat=3.0, lng=3.0
+        )
+
+    tok3 = r3["change_token"]
+    assert tok3 in tools_module._CHANGE_STORE, "New token should be present"
+    assert tok1 not in tools_module._CHANGE_STORE, "Expired token 1 should have been evicted"
+    assert tok2 not in tools_module._CHANGE_STORE, "Expired token 2 should have been evicted"
+
+
+@pytest.mark.asyncio
+async def test_mint_token_purges_used_entries(test_sessionmaker):
+    """_mint_token evicts already-used entries before inserting the new one."""
+    import plugtrack.mcp.tools as tools_module
+
+    user_id = await _seed_user(test_sessionmaker, "evict_used_user")
+
+    # Mint a token and mark it as used
+    async with test_sessionmaker() as session:
+        r1 = await tools_module.propose_create_location(
+            session, user_id, name="Used Place", lat=10.0, lng=10.0
+        )
+
+    tok1 = r1["change_token"]
+    # Commit it so it's marked used
+    async with test_sessionmaker() as session:
+        await tools_module.commit_change(session, user_id, tok1)
+
+    assert tools_module._CHANGE_STORE[tok1]["used"] is True
+
+    # Minting a new token should purge the used one
+    async with test_sessionmaker() as session:
+        r2 = await tools_module.propose_create_location(
+            session, user_id, name="New Place", lat=11.0, lng=11.0
+        )
+
+    tok2 = r2["change_token"]
+    assert tok2 in tools_module._CHANGE_STORE
+    assert tok1 not in tools_module._CHANGE_STORE, "Used token should have been evicted"

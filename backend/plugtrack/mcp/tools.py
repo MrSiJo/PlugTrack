@@ -39,9 +39,10 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import ChargingSession, Location
+from ..models import ChargingSession, Location, Setting
 from ..services import insights_stats
 from ..services.cost_apply import apply_cost
+from ..services.geocoding import get_provider
 from ..services.location_clustering import find_or_create_location
 
 
@@ -53,7 +54,19 @@ _CHANGE_STORE: dict[str, dict] = {}
 _TOKEN_TTL_SECONDS = 600  # 10 minutes
 
 
+def _evict_stale_tokens() -> None:
+    """Remove expired and already-used entries from _CHANGE_STORE (lazy eviction)."""
+    now = dt.datetime.now(timezone.utc)
+    stale = [
+        k for k, v in _CHANGE_STORE.items()
+        if v["used"] or (now - v["created_at"]).total_seconds() > _TOKEN_TTL_SECONDS
+    ]
+    for k in stale:
+        del _CHANGE_STORE[k]
+
+
 def _mint_token(user_id: int, kind: str, data: dict) -> str:
+    _evict_stale_tokens()
     token = secrets.token_urlsafe(12)
     _CHANGE_STORE[token] = {
         "user_id": user_id,
@@ -249,6 +262,15 @@ async def get_insights(
 # ---------------------------------------------------------------------------
 
 
+async def _geocoding_settings(session: AsyncSession) -> dict:
+    """Read geocoding settings from the Setting table."""
+    keys = ["geocoding_enabled", "geocoding_provider", "geocoding_api_key"]
+    rows = (
+        await session.execute(select(Setting).where(Setting.key.in_(keys)))
+    ).scalars().all()
+    return {r.key: r.value for r in rows}
+
+
 async def propose_create_location(
     session: AsyncSession,
     user_id: int,
@@ -260,37 +282,55 @@ async def propose_create_location(
 ) -> dict:
     """Propose creating a new location.
 
-    If address is given, we note it in the summary (geocoding can be done at
-    commit time or pre-resolved by the caller). If explicit coords given, use
-    them directly.
+    If explicit coords are given, use them directly.
+    If only an address is given, geocode it at propose time so that:
+    (a) the summary shows the resolved place, and (b) commit can succeed
+    (Location requires coords). Returns an error immediately if geocoding
+    yields no result.
 
     Writes nothing. Returns {summary, change_token}.
     """
     try:
-        # Build data payload
-        data: dict = {"user_id": user_id}
-        if name is not None:
-            data["name"] = name
-        if lat is not None:
-            data["lat"] = lat
-        if lng is not None:
-            data["lng"] = lng
-        if address is not None:
-            data["address"] = address
-
         # Validate: need at least coords or address
         if lat is None and address is None:
             return {"error": "must provide either (lat, lng) or address"}
         if lat is not None and lng is None:
             return {"error": "lng is required when lat is provided"}
 
+        resolved_address: Optional[str] = None
+
+        if lat is None:
+            # Address-only path: geocode at propose time
+            settings_dict = await _geocoding_settings(session)
+            provider = get_provider(settings_dict)
+            result = await provider.forward(address)  # type: ignore[arg-type]
+            if result is None:
+                return {
+                    "error": (
+                        f"could not geocode {address!r}; provide coordinates"
+                    )
+                }
+            lat = result.lat
+            lng = result.lng
+            resolved_address = result.address
+
+        # Build data payload (coords now always present)
+        data: dict = {"user_id": user_id, "lat": lat, "lng": lng}
+        if name is not None:
+            data["name"] = name
+        if address is not None:
+            data["address"] = address
+
         # Build human-readable summary
         location_desc = name or "new location"
-        if lat is not None:
-            coord_str = f"({lat:.4f}, {lng:.4f})"
-            summary = f"Create location '{location_desc}' at {coord_str}"
+        coord_str = f"({lat:.4f}, {lng:.4f})"
+        if resolved_address is not None:
+            summary = (
+                f"Create location '{location_desc}' at {coord_str} "
+                f"(resolved: {resolved_address!r})"
+            )
         else:
-            summary = f"Create location '{location_desc}' at address: {address!r}"
+            summary = f"Create location '{location_desc}' at {coord_str}"
 
         token = _mint_token(user_id, "create_location", data)
         return {"summary": summary, "change_token": token}
