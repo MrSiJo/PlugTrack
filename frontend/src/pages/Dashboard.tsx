@@ -14,6 +14,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Zap } from 'lucide-react'
 import {
   ApiError,
   api,
@@ -289,6 +290,17 @@ export default function Dashboard() {
           sub={costPerMile30d !== null ? `30d ${costPerMile30d}` : undefined}
           data-testid="lifetime-cost-per-mile"
         />
+      </section>
+
+      {/* Plan a charge entry point */}
+      <section className="mt-4" data-testid="panel-plan">
+        <Link
+          to="/planner"
+          className="inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-medium text-cyan-700 hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-cyan-950/30 dark:text-cyan-300 dark:hover:bg-cyan-900/40"
+        >
+          <Zap className="h-4 w-4" aria-hidden />
+          Plan a charge
+        </Link>
       </section>
 
       {/* Recent sessions */}
