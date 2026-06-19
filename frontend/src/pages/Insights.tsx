@@ -49,6 +49,11 @@ const RANGE_LABEL: Record<RangeKey, string> = {
   custom: 'Custom range',
 }
 
+/** Shared card-label treatment for the analytics modules (matches the
+ *  "Spend by location" eyebrow), kept as a heading for screen readers. */
+const MODULE_EYEBROW =
+  'mb-3 text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400'
+
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10)
 }
@@ -392,51 +397,57 @@ export default function Insights() {
         </Card>
       )}
 
-      <section className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-100">
-          Spend &amp; energy over time
-        </h2>
-        {overview && (
-          <OverTimeChart data={overview.over_time} granularity={overview.granularity} currency={currency} />
-        )}
-      </section>
+      {!loading && !error && overview && (
+        <>
+          <Card className="mb-6">
+            <h2 className={MODULE_EYEBROW}>Spend &amp; energy over time</h2>
+            <OverTimeChart
+              data={overview.over_time}
+              granularity={overview.granularity}
+              currency={currency}
+            />
+          </Card>
 
-      <section className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-100">Home vs public</h2>
-        {overview && <HomePublicSplit split={overview.split} currency={currency} />}
-      </section>
+          <div className="mb-6 grid gap-6 lg:grid-cols-2">
+            <Card>
+              <h2 className={MODULE_EYEBROW}>Home vs public</h2>
+              <HomePublicSplit split={overview.split} currency={currency} />
+            </Card>
+            <Card>
+              <h2 className={MODULE_EYEBROW}>Network breakdown</h2>
+              <NetworkBreakdown rows={overview.by_network} currency={currency} />
+            </Card>
+          </div>
 
-      <section className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-100">Network breakdown</h2>
-        {overview && <NetworkBreakdown rows={overview.by_network} currency={currency} />}
-      </section>
+          <Card className="mb-6">
+            <h2 className={MODULE_EYEBROW}>Efficiency &amp; cost per mile</h2>
+            <EfficiencyChart data={overview.efficiency} />
+          </Card>
+        </>
+      )}
 
-      <section className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-100">
-          Efficiency &amp; cost per mile
-        </h2>
-        {overview && <EfficiencyChart data={overview.efficiency} />}
-      </section>
-
-      <section className="mt-8">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Mileage allowance</h2>
-          {cars.length > 1 && (
-            <select
-              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
-              value={selectedCarId ?? ''}
-              onChange={(e) => setSelectedCarId(Number(e.target.value))}
-            >
-              {cars.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.make} {c.model}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-        {selectedCarId != null && <MileageAllowance carId={selectedCarId} />}
-      </section>
+      {!loading && !error && (
+        <Card className="mb-6">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className={cn(MODULE_EYEBROW, 'mb-0')}>Mileage allowance</h2>
+            {cars.length > 1 && (
+              <select
+                aria-label="Select car"
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-900"
+                value={selectedCarId ?? ''}
+                onChange={(e) => setSelectedCarId(Number(e.target.value))}
+              >
+                {cars.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.make} {c.model}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          {selectedCarId != null && <MileageAllowance carId={selectedCarId} />}
+        </Card>
+      )}
     </div>
   )
 }

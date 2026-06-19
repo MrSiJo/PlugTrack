@@ -94,7 +94,11 @@ export function MileageAllowance({ carId }: MileageAllowanceProps) {
         data.projected_year_end_km != null && data.opening_km != null
           ? data.projected_year_end_km - data.opening_km
           : null, unit) },
-    { label: 'Pace', value: data.pace ?? '—', tone: data.pace ? PACE_STYLE[data.pace] : undefined },
+    {
+      label: 'Pace',
+      value: data.pace ? data.pace.charAt(0).toUpperCase() + data.pace.slice(1) : '—',
+      tone: data.pace ? PACE_STYLE[data.pace] : undefined,
+    },
   ]
 
   return (
@@ -102,8 +106,8 @@ export function MileageAllowance({ carId }: MileageAllowanceProps) {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {kpis.map((k) => (
           <div key={k.label} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-            <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{k.label}</p>
-            <p className={`text-lg font-semibold capitalize tabular-nums ${k.tone ?? 'text-slate-900 dark:text-slate-100'}`}>
+            <p className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">{k.label}</p>
+            <p className={`text-lg font-semibold tabular-nums ${k.tone ?? 'text-slate-900 dark:text-slate-100'}`}>
               {k.value}
             </p>
           </div>
