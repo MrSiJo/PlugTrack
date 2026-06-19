@@ -41,10 +41,21 @@ class IngestContext:
     health_check: Optional[Callable[[int], Awaitable[Any]]] = None
     extractor_text: Optional[Callable[[str], Awaitable[Any]]] = None
     usage_answerer: Optional[Callable[[str], Awaitable[Any]]] = None
+    # Agentic bot fields (Task 4)
+    agent_runner: Optional[Callable[..., Awaitable[Any]]] = None  # run_agent_turn-shaped
+    ai_enabled: bool = False
+    openai_key: Optional[str] = None
+    openai_model: str = "gpt-5-mini"
     # chat_id -> message_id of the current batch's confirm card, so we EDIT it
     # in place as more screenshots merge in (instead of spamming new cards).
     # Scoped to the bot instance (reset on reconcile); cleared on Save/Discard.
     card_ids: dict[int, int] = field(default_factory=dict)
+    # Per-chat rolling conversation history for the agentic loop (Task 4).
+    # Keyed by chat_id; each value is a list of Responses-API input item dicts.
+    # Reset on new charge Save; capped at HISTORY_TURN_CAP * 2 items.
+    rolling_context: dict[int, list[dict]] = field(default_factory=dict)
+    # chat_id -> pending change_token (from a propose_* result awaiting commit).
+    pending_tokens: dict[int, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -386,6 +397,40 @@ async def handle_callback(
         return
     user_id, car_id = ctx.resolve_target()
 
+    # -----------------------------------------------------------------------
+    # MCP propose/commit callbacks (Task 4)
+    # -----------------------------------------------------------------------
+    if data.startswith("mcpcommit:"):
+        token = data[len("mcpcommit:"):]
+        await ctx.telegram.answer_callback(callback_id, "Applying…")
+        try:
+            async with ctx.sessionmaker() as s:
+                from ..mcp.tools import commit_change
+                result = await commit_change(s, user_id, token)
+            ctx.pending_tokens.pop(chat_id, None)
+            if result.get("ok"):
+                await ctx.telegram.send_message(chat_id=chat_id, text="Done — change saved.")
+            else:
+                err = result.get("error", "unknown error")
+                await ctx.telegram.send_message(
+                    chat_id=chat_id, text=f"Could not apply: {err}"
+                )
+        except Exception:
+            logger.exception("mcpcommit failed")
+            await ctx.telegram.send_message(
+                chat_id=chat_id, text="Sorry — the change could not be applied."
+            )
+        return
+
+    if data.startswith("mcpdiscard:"):
+        ctx.pending_tokens.pop(chat_id, None)
+        await ctx.telegram.answer_callback(callback_id, "Discarded")
+        await ctx.telegram.send_message(chat_id=chat_id, text="Change discarded.")
+        return
+
+    # -----------------------------------------------------------------------
+    # Existing Save / Discard (screenshot batch) paths — UNCHANGED
+    # -----------------------------------------------------------------------
     async with ctx.sessionmaker() as s:
         staged = (
             await s.execute(
@@ -423,6 +468,8 @@ async def handle_callback(
             row.status = "committed"
         await s.commit()
         ctx.card_ids.pop(chat_id, None)  # batch saved -> next charge gets a fresh card
+        # Reset rolling history on a new charge save (fresh conversation context)
+        ctx.rolling_context.pop(chat_id, None)
 
     await ctx.telegram.answer_callback(callback_id, "Saved")
     lines = [f"Saved {len(created)} session(s)."]
@@ -439,6 +486,30 @@ async def handle_callback(
             "for that charge to place them."
         )
     await ctx.telegram.send_message(chat_id=chat_id, text="\n".join(lines))
+
+
+# Rolling history cap: keep the last N user+assistant turn pairs (2 items each).
+_HISTORY_TURN_CAP = 10  # keeps last 10 pairs = 20 items
+
+
+def _append_history(ctx: "IngestContext", chat_id: int, user_text: str, reply_text: str) -> None:
+    """Append a user+assistant pair to rolling_context[chat_id], then cap."""
+    history = ctx.rolling_context.setdefault(chat_id, [])
+    history.append({"role": "user", "content": [{"type": "input_text", "text": user_text}]})
+    history.append({"role": "assistant", "content": [{"type": "output_text", "text": reply_text}]})
+    # Cap: keep only the last _HISTORY_TURN_CAP * 2 items
+    if len(history) > _HISTORY_TURN_CAP * 2:
+        ctx.rolling_context[chat_id] = history[-(  _HISTORY_TURN_CAP * 2):]
+
+
+def _proposal_kb(change_token: str) -> dict[str, Any]:
+    """Build an inline keyboard for a pending proposal (Save = commit, Discard = drop)."""
+    return {
+        "inline_keyboard": [[
+            {"text": "✓ Save", "callback_data": f"mcpcommit:{change_token}"},
+            {"text": "🗑️ Discard", "callback_data": f"mcpdiscard:{change_token}"},
+        ]]
+    }
 
 
 _COMMANDS = {"/test", "/start", "/ping", "test", "ping"}
@@ -474,6 +545,47 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
                                   usage=result.usage, telegram_file_id=None,
                                   message_id=None, sha=sha)
             return
+    # -----------------------------------------------------------------------
+    # Agentic loop (Task 4) — replaces usage_answerer for non-charge messages.
+    # Falls back to usage_answerer if agent_runner is not set (backward compat).
+    # -----------------------------------------------------------------------
+    if ctx.agent_runner is not None and ctx.ai_enabled and ctx.openai_key and text and text.strip():
+        history = list(ctx.rolling_context.get(chat_id, []))
+        try:
+            result = await ctx.agent_runner(
+                session=None,  # runner uses the sessionmaker itself or is already bound
+                user_id=ctx.resolve_target()[0],
+                text=text,
+                history=history,
+                api_key=ctx.openai_key,
+                model=ctx.openai_model,
+                # tool_runner is not passed here — the injected agent_runner
+                # is a pre-wired closure (or make_tool_runner is called inside).
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("agent_runner failed; sending error reply")
+            await ctx.telegram.send_message(
+                chat_id=chat_id, text="Sorry — I couldn't answer that right now.")
+            return
+
+        reply_text = result.get("reply_text") or ""
+        proposal = result.get("proposal")
+
+        if proposal:
+            change_token = proposal["change_token"]
+            ctx.pending_tokens[chat_id] = change_token
+            kb = _proposal_kb(change_token)
+            summary = proposal.get("summary", "")
+            msg = reply_text or f"Proposed change: {summary}"
+            await ctx.telegram.send_message(chat_id=chat_id, text=msg, reply_markup=kb)
+        else:
+            await ctx.telegram.send_message(chat_id=chat_id, text=reply_text or "No reply.")
+
+        # Update rolling history
+        _append_history(ctx, chat_id, text, reply_text or "")
+        return
+
+    # Backward-compat: usage_answerer (usage_chat.py path, being retired)
     if ctx.usage_answerer is not None and text and text.strip():
         try:
             answer, _usage = await ctx.usage_answerer(text)
@@ -483,6 +595,16 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
             return
         await ctx.telegram.send_message(chat_id=chat_id, text=answer)
         return
+
+    # AI features off (but the bot IS configured for agentic use): inform the user.
+    # Only show this when agent_runner is present but ai_enabled is False, so that
+    # legacy IngestContext setups (no agent_runner at all) still show the plain help.
+    if ctx.agent_runner is not None and not ctx.ai_enabled and text and text.strip():
+        await ctx.telegram.send_message(
+            chat_id=chat_id,
+            text="AI features are off — enable AI in Admin to ask questions.")
+        return
+
     await ctx.telegram.send_message(
         chat_id=chat_id, text="Send me a charge screenshot, or /test to check status.")
 
@@ -606,7 +728,13 @@ async def read_raw_credentials(sessionmaker):
     return token, openai_key, model
 
 
-def build_ingest_context(config: BotConfig, *, sessionmaker, health_check=None) -> "IngestContext":
+def build_ingest_context(
+    config: BotConfig,
+    *,
+    sessionmaker,
+    health_check=None,
+    ai_enabled: bool = False,
+) -> "IngestContext":
     from .screenshot_extraction import ExtractionResult, call_openai, extract_from_text
     from .telegram_client import TelegramClient
 
@@ -618,6 +746,8 @@ def build_ingest_context(config: BotConfig, *, sessionmaker, health_check=None) 
     async def extractor_text(text: str) -> ExtractionResult:
         return await extract_from_text(text, api_key=config.openai_key, model=config.model)
 
+    # usage_answerer is kept for backward compatibility (still wired, but the
+    # agentic loop takes priority when ai_enabled and agent_runner are set).
     async def usage_answerer(question: str):
         from datetime import date
         from .usage_stats import build_usage_snapshot
@@ -628,6 +758,32 @@ def build_ingest_context(config: BotConfig, *, sessionmaker, health_check=None) 
                 s, user_id=config.user_id, today=date.today(), distance_unit=unit)
         return await answer_usage_question(
             question, snap.to_prompt_dict(), api_key=config.openai_key, model=config.model)
+
+    # Build the agentic runner: a sessionmaker-aware wrapper around run_agent_turn
+    # that opens a session per call and passes the bound tool_runner.
+    from .bot_agent import make_tool_runner, run_agent_turn as _run_agent_turn
+
+    async def agent_runner(
+        *,
+        session,  # unused here — we open our own from sessionmaker
+        user_id: int,
+        text: str,
+        history: list,
+        api_key: str,
+        model: str,
+        **_kwargs,  # absorb any extra kwargs the caller might pass
+    ):
+        async with sessionmaker() as s:
+            tool_runner = make_tool_runner(s, user_id)
+            return await _run_agent_turn(
+                session=s,
+                user_id=user_id,
+                text=text,
+                history=history,
+                api_key=api_key,
+                model=model,
+                tool_runner=tool_runner,
+            )
 
     return IngestContext(
         telegram=telegram,
@@ -641,4 +797,8 @@ def build_ingest_context(config: BotConfig, *, sessionmaker, health_check=None) 
         health_check=health_check,
         extractor_text=extractor_text,
         usage_answerer=usage_answerer,
+        agent_runner=agent_runner,
+        ai_enabled=ai_enabled,
+        openai_key=config.openai_key,
+        openai_model=config.model,
     )
