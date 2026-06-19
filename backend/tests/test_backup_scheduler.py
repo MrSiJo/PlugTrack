@@ -92,3 +92,42 @@ async def test_backup_scheduler_present_in_app_state(app):
         # The attribute must be set (not necessarily running in test environment
         # since the DB may not be a real file), but it must not be None.
         assert scheduler is not None
+
+
+# ---------------------------------------------------------------------------
+# Test 4: lifespan boots successfully when backup_interval_hours is "0"
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_boot_with_zero_backup_interval_does_not_raise(
+    app, test_sessionmaker
+):
+    """Lifespan must not raise when backup_interval_hours is set to "0".
+
+    The clamp guard must convert the invalid "0" to 24, and the scheduler
+    wiring try/except must ensure the app boots even if APScheduler raises.
+    The key assertion is: the lifespan context enters without exception.
+    """
+    from plugtrack.settings.seeds import seed_defaults
+    from plugtrack.models.setting import Setting
+    from sqlalchemy import select as _select
+
+    # Pre-seed the DB, then override backup_interval_hours to "0".
+    async with test_sessionmaker() as session:
+        await seed_defaults(session)
+        await session.commit()
+        row = (await session.execute(
+            _select(Setting).where(Setting.key == "backup_interval_hours")
+        )).scalar_one_or_none()
+        if row is not None:
+            row.value = "0"
+        else:
+            session.add(Setting(key="backup_interval_hours", value="0"))
+        await session.commit()
+
+    # Enter the lifespan — must NOT raise.
+    async with app.router.lifespan_context(app):
+        # Scheduler should be present (clamped to 24h) or None (guard fired).
+        # Either is acceptable; the critical assertion is no exception above.
+        scheduler = getattr(app.state, "backup_scheduler", "MISSING")
+        assert scheduler != "MISSING", "app.state.backup_scheduler must be set"

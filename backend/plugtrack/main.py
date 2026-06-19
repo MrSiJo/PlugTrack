@@ -410,6 +410,12 @@ async def _lifespan(app: FastAPI):
                 _bk_interval_hours = int(_bk_interval_row.value) if _bk_interval_row and _bk_interval_row.value else 24
             except (TypeError, ValueError):
                 _bk_interval_hours = 24
+            if _bk_interval_hours < 1:
+                _log.warning(
+                    "backup_interval_hours=%r is not positive; clamping to 24.",
+                    _bk_interval_hours,
+                )
+                _bk_interval_hours = 24
 
             _bk_retention_row = (await _bk_session.execute(
                 _select(_Setting).where(_Setting.key == "backup_retention")
@@ -442,21 +448,27 @@ async def _lifespan(app: FastAPI):
                 pass  # use captured default if DB read fails
             await run_scheduled_backup(retention=retention)
 
-        _bk_scheduler = _AsyncIOScheduler()
-        _bk_scheduler.add_job(
-            _backup_job,
-            trigger=_IntervalTrigger(hours=_bk_interval_hours),
-            id="backup-scheduled",
-            replace_existing=True,
-            misfire_grace_time=300,
-        )
-        _bk_scheduler.start()
-        app.state.backup_scheduler = _bk_scheduler
-        _log.info(
-            "Backup scheduler started: interval=%dh, retention=%d.",
-            _bk_interval_hours,
-            _bk_retention,
-        )
+        try:
+            _bk_scheduler = _AsyncIOScheduler()
+            _bk_scheduler.add_job(
+                _backup_job,
+                trigger=_IntervalTrigger(hours=_bk_interval_hours),
+                id="backup-scheduled",
+                replace_existing=True,
+                misfire_grace_time=300,
+            )
+            _bk_scheduler.start()
+            app.state.backup_scheduler = _bk_scheduler
+            _log.info(
+                "Backup scheduler started: interval=%dh, retention=%d.",
+                _bk_interval_hours,
+                _bk_retention,
+            )
+        except Exception:  # noqa: BLE001
+            _log.exception(
+                "Backup scheduler failed to start — continuing without scheduled backups."
+            )
+            app.state.backup_scheduler = None
 
     try:
         yield
