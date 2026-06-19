@@ -12,11 +12,17 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 from typing import Optional
 
-from sqlalchemy import case, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Car, ChargingSession, Setting
 from . import mileage_tracking
+from .insights_stats import (
+    _base_filter,
+    _miles_driven_km,
+    home_public_split,
+    window_totals,
+)
 from .mileage_tracking import KM_PER_MILE
 from .session_metrics import compute_savings_for_sessions, petrol_pence_per_mile
 
@@ -111,13 +117,6 @@ def _window_bounds(today: date) -> list[tuple[str, Optional[date], Optional[date
     ]
 
 
-def _base_filter(user_id: int):
-    return (
-        ChargingSession.user_id == user_id,
-        ChargingSession.source != "unconfirmed",
-    )
-
-
 async def _float_setting(session: AsyncSession, key: str) -> Optional[float]:
     row = (await session.execute(select(Setting.value).where(Setting.key == key))).scalar_one_or_none()
     if row is None or row == "":
@@ -135,55 +134,6 @@ async def _petrol_ppm(session: AsyncSession) -> Optional[float]:
     if p is None or mpg is None:
         return None
     return petrol_pence_per_mile(p, mpg)
-
-
-async def _miles_driven_km(
-    session: AsyncSession, *, user_id: int, lo: Optional[date], hi: Optional[date]
-) -> Optional[float]:
-    """Distance driven in [lo, hi], summed across cars, from odometer deltas:
-    max(odo <= hi) - max(odo <= lo-1day). Lifetime (lo is None) = max - min.
-    Returns None when no car has a computable (bounded) delta."""
-    car_ids = (
-        await session.execute(
-            select(ChargingSession.car_id)
-            .where(*_base_filter(user_id), ChargingSession.odometer_at_session_km.isnot(None))
-            .distinct()
-        )
-    ).scalars().all()
-    total = 0.0
-    any_data = False
-    for car_id in car_ids:
-        end_stmt = select(func.max(ChargingSession.odometer_at_session_km)).where(
-            *_base_filter(user_id),
-            ChargingSession.car_id == car_id,
-            ChargingSession.odometer_at_session_km.isnot(None),
-        )
-        if hi is not None:
-            end_stmt = end_stmt.where(ChargingSession.date <= hi)
-        end = (await session.execute(end_stmt)).scalar_one_or_none()
-        if end is None:
-            continue
-        if lo is None:
-            start_stmt = select(func.min(ChargingSession.odometer_at_session_km)).where(
-                *_base_filter(user_id),
-                ChargingSession.car_id == car_id,
-                ChargingSession.odometer_at_session_km.isnot(None),
-            )
-        else:
-            start_stmt = select(func.max(ChargingSession.odometer_at_session_km)).where(
-                *_base_filter(user_id),
-                ChargingSession.car_id == car_id,
-                ChargingSession.odometer_at_session_km.isnot(None),
-                ChargingSession.date <= lo - timedelta(days=1),
-            )
-        start = (await session.execute(start_stmt)).scalar_one_or_none()
-        if start is None:
-            continue  # no reference reading before the window — can't attribute
-        delta = float(end) - float(start)
-        if delta >= 0:
-            total += delta
-            any_data = True
-    return total if any_data else None
 
 
 async def _petrol_saving_pence(
@@ -208,27 +158,15 @@ async def _window_stats(
     session: AsyncSession, *, user_id: int, label: str,
     lo: Optional[date], hi: Optional[date], unit: str,
 ) -> WindowStats:
-    costed_kwh = func.sum(
-        case((ChargingSession.cost_pence.isnot(None), ChargingSession.kwh_added), else_=0.0)
-    )
-    stmt = select(
-        func.coalesce(func.sum(ChargingSession.cost_pence), 0),
-        func.coalesce(func.sum(ChargingSession.kwh_added), 0.0),
-        func.count(ChargingSession.id),
-        func.coalesce(costed_kwh, 0.0),
-    ).where(*_base_filter(user_id))
-    if lo is not None:
-        stmt = stmt.where(ChargingSession.date >= lo, ChargingSession.date <= hi)
-    cost, kwh, n, kwh_costed = (await session.execute(stmt)).one()
-
+    t = await window_totals(session, user_id=user_id, lo=lo, hi=hi)
     driven_km = await _miles_driven_km(session, user_id=user_id, lo=lo, hi=hi)
     saving = await _petrol_saving_pence(session, user_id=user_id, lo=lo, hi=hi)
     return WindowStats(
         label=label,
-        spend=_gbp(int(cost or 0)),
-        energy=_kwh(float(kwh or 0.0)),
-        sessions=int(n or 0),
-        avg_p_per_kwh=_pkwh(int(cost or 0), float(kwh_costed or 0.0)),
+        spend=_gbp(t["spend_pence"]),
+        energy=_kwh(t["kwh"]),
+        sessions=t["sessions"],
+        avg_p_per_kwh=_pkwh(t["spend_pence"], t["costed_kwh"]),
         miles_driven=_dist(driven_km, unit) if driven_km is not None else None,
         vs_petrol=_vs_petrol(saving),
     )
@@ -248,20 +186,9 @@ async def _split_stats(
             stmt = stmt.where(ChargingSession.date >= lo, ChargingSession.date <= hi)
         return stmt
 
-    # home = ac, public = dc
-    type_stmt = _scoped(
-        select(
-            ChargingSession.charging_type,
-            func.coalesce(func.sum(ChargingSession.cost_pence), 0),
-            func.coalesce(func.sum(ChargingSession.kwh_added), 0.0),
-        ).group_by(ChargingSession.charging_type)
-    )
-    home_p = home_k = pub_p = pub_k = 0
-    for ctype, cost, kwh in (await session.execute(type_stmt)).all():
-        if ctype == "ac":
-            home_p, home_k = int(cost or 0), float(kwh or 0.0)
-        elif ctype == "dc":
-            pub_p, pub_k = int(cost or 0), float(kwh or 0.0)
+    split = await home_public_split(session, user_id=user_id, date_from=lo, date_to=hi)
+    home_p, home_k = split["home"]["spend_pence"], split["home"]["kwh"]
+    pub_p, pub_k = split["public"]["spend_pence"], split["public"]["kwh"]
 
     net_stmt = _scoped(
         select(
