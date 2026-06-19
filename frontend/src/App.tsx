@@ -10,6 +10,7 @@ import { ApiError, api } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { applyThemeToDocument } from '@/theme'
+import AdminPage from '@/pages/AdminPage'
 import Cars from '@/pages/Cars'
 import Dashboard from '@/pages/Dashboard'
 import Insights from '@/pages/Insights'
@@ -19,7 +20,6 @@ import LoginPage from '@/pages/LoginPage'
 import Planner from '@/pages/Planner'
 import SessionDetail from '@/pages/SessionDetail'
 import Sessions from '@/pages/Sessions'
-import SettingsPage from '@/pages/SettingsPage'
 import SetupPage from '@/pages/SetupPage'
 import AuthFailureBanner from '@/components/AuthFailureBanner'
 import CommandPalette from '@/components/CommandPalette'
@@ -115,7 +115,19 @@ function AppRoutes({ result }: { result: BootstrapResult }) {
           ) : !authed ? (
             <Navigate to="/login" replace state={{ from: location }} />
           ) : (
-            <SettingsPage />
+            <Navigate to="/admin" replace />
+          )
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          result.setupNeeded ? (
+            <Navigate to="/setup" replace />
+          ) : !authed ? (
+            <Navigate to="/login" replace state={{ from: location }} />
+          ) : (
+            <AdminPage />
           )
         }
       />
