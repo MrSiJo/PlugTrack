@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import * as settingsStoreModule from '@/stores/settingsStore'
 import { INTEGRATIONS } from '@/config/integrations'
 import AdminPage from './AdminPage'
 import type { SettingsMap } from '@/api/client'
 
-// Mock api.getOpenAiModels so ModelSelect doesn't error in tests
+// Mock api methods that panels call on mount
 vi.mock('@/api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/client')>()
   return {
@@ -15,6 +16,8 @@ vi.mock('@/api/client', async (importOriginal) => {
       ...actual.api,
       getOpenAiModels: vi.fn().mockRejectedValue(new Error('no key')),
       testTelegram: vi.fn(),
+      getLocations: vi.fn().mockResolvedValue([]),
+      getCars: vi.fn().mockResolvedValue([]),
     },
   }
 })
@@ -23,7 +26,6 @@ vi.mock('@/api/client', async (importOriginal) => {
 function makeSettings(): SettingsMap {
   const entries: SettingsMap = {}
 
-  // Integration master keys
   for (const def of INTEGRATIONS) {
     entries[def.masterKey] = {
       key: def.masterKey,
@@ -34,7 +36,6 @@ function makeSettings(): SettingsMap {
       description: null,
       is_secret: false,
     }
-    // Stub out member setting keys so IntegrationCard renders them
     for (const key of def.settingKeys) {
       entries[key] = {
         key,
@@ -51,6 +52,14 @@ function makeSettings(): SettingsMap {
   return entries
 }
 
+function renderAdminPage(initialEntry = '/admin') {
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <AdminPage />
+    </MemoryRouter>,
+  )
+}
+
 beforeEach(() => {
   vi.restoreAllMocks()
   settingsStoreModule.useSettingsStore.setState({
@@ -63,65 +72,97 @@ beforeEach(() => {
   } as unknown as Parameters<typeof settingsStoreModule.useSettingsStore.setState>[0])
 })
 
-describe('AdminPage', () => {
+describe('AdminPage — master-detail layout', () => {
   it('renders the Administration heading', () => {
-    render(
-      <MemoryRouter>
-        <AdminPage />
-      </MemoryRouter>,
-    )
-    expect(
-      screen.getByRole('heading', { name: /administration/i }),
-    ).toBeInTheDocument()
+    renderAdminPage()
+    expect(screen.getByRole('heading', { name: /administration/i })).toBeInTheDocument()
   })
 
-  it('renders one IntegrationCard per INTEGRATIONS entry', () => {
-    render(
-      <MemoryRouter>
-        <AdminPage />
-      </MemoryRouter>,
-    )
-    for (const def of INTEGRATIONS) {
-      expect(screen.getByTestId(`integration-${def.key}`)).toBeInTheDocument()
+  it('renders all 8 left-rail nav items', () => {
+    renderAdminPage()
+    const expectedKeys = ['cupra', 'telegram', 'ai', 'geocoding', 'preferences', 'maintenance', 'locations', 'cars']
+    for (const key of expectedKeys) {
+      expect(screen.getByTestId(`admin-nav-${key}`)).toBeInTheDocument()
     }
-    // Confirm all four integration keys explicitly
+  })
+
+  it('shows the cupra integration card by default (no hash)', () => {
+    renderAdminPage('/admin')
     expect(screen.getByTestId('integration-cupra')).toBeInTheDocument()
+  })
+
+  it('shows the correct integration when hash is present on mount', () => {
+    renderAdminPage('/admin#telegram')
     expect(screen.getByTestId('integration-telegram')).toBeInTheDocument()
+    expect(screen.queryByTestId('integration-cupra')).not.toBeInTheDocument()
+  })
+
+  it('switches to telegram integration when nav item is clicked', async () => {
+    const user = userEvent.setup()
+    renderAdminPage()
+
+    await user.click(screen.getByTestId('admin-nav-telegram'))
+
+    expect(screen.getByTestId('integration-telegram')).toBeInTheDocument()
+    expect(screen.queryByTestId('integration-cupra')).not.toBeInTheDocument()
+  })
+
+  it('shows only one integration card at a time', async () => {
+    const user = userEvent.setup()
+    renderAdminPage()
+
+    // Default: cupra visible, others not
+    expect(screen.getByTestId('integration-cupra')).toBeInTheDocument()
+    expect(screen.queryByTestId('integration-telegram')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('integration-ai')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('integration-geocoding')).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId('admin-nav-ai'))
     expect(screen.getByTestId('integration-ai')).toBeInTheDocument()
-    expect(screen.getByTestId('integration-geocoding')).toBeInTheDocument()
+    expect(screen.queryByTestId('integration-cupra')).not.toBeInTheDocument()
   })
 
-  it('renders a Preferences section', () => {
-    render(
-      <MemoryRouter>
-        <AdminPage />
-      </MemoryRouter>,
-    )
+  it('shows PreferencesPanel when preferences nav item is clicked', async () => {
+    const user = userEvent.setup()
+    renderAdminPage()
+
+    await user.click(screen.getByTestId('admin-nav-preferences'))
+
     expect(screen.getByTestId('preferences-panel')).toBeInTheDocument()
+    expect(screen.queryByTestId('integration-cupra')).not.toBeInTheDocument()
   })
 
-  it('renders Maintenance, Locations, and Cars section shells', () => {
-    render(
-      <MemoryRouter>
-        <AdminPage />
-      </MemoryRouter>,
-    )
-    expect(screen.getByTestId('admin-section-maintenance')).toBeInTheDocument()
-    expect(screen.getByTestId('admin-section-locations')).toBeInTheDocument()
-    expect(screen.getByTestId('admin-section-cars')).toBeInTheDocument()
+  it('shows MaintenancePanel when maintenance nav item is clicked', async () => {
+    const user = userEvent.setup()
+    renderAdminPage()
+
+    await user.click(screen.getByTestId('admin-nav-maintenance'))
+
+    expect(screen.getByTestId('maintenance-panel')).toBeInTheDocument()
+    expect(screen.queryByTestId('preferences-panel')).not.toBeInTheDocument()
   })
 
-  it('renders MaintenancePanel inside the maintenance section', () => {
-    render(
-      <MemoryRouter>
-        <AdminPage />
-      </MemoryRouter>,
-    )
-    const section = screen.getByTestId('admin-section-maintenance')
-    const panel = screen.getByTestId('maintenance-panel')
-    expect(section).toContainElement(panel)
-    expect(
-      screen.getByText('python -m plugtrack.scripts.import_mycupra_csv'),
-    ).toBeInTheDocument()
+  it('shows locations management when locations nav item is clicked', async () => {
+    const user = userEvent.setup()
+    renderAdminPage()
+
+    await user.click(screen.getByTestId('admin-nav-locations'))
+
+    expect(screen.getByTestId('locations-management')).toBeInTheDocument()
+    expect(screen.getByTestId('admin-add-location-button')).toBeInTheDocument()
+  })
+
+  it('shows cars management when cars nav item is clicked', async () => {
+    const user = userEvent.setup()
+    renderAdminPage()
+
+    await user.click(screen.getByTestId('admin-nav-cars'))
+
+    expect(screen.getByTestId('cars-management')).toBeInTheDocument()
+  })
+
+  it('falls back to cupra for an unknown hash', () => {
+    renderAdminPage('/admin#nonexistent')
+    expect(screen.getByTestId('integration-cupra')).toBeInTheDocument()
   })
 })
