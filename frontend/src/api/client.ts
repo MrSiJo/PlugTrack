@@ -553,6 +553,27 @@ export interface ChargePlan {
   is_free: boolean
 }
 
+// ---------------------------------------------------------------------------
+// File download helper — fetch with cookie credentials, convert to blob,
+// trigger an anchor-click download, then revoke the object URL.
+// ---------------------------------------------------------------------------
+
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const response = await fetch(path, { credentials: 'include' })
+  if (!response.ok) {
+    throw new ApiError(response.status, `HTTP ${response.status}`, null)
+  }
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  document.body.removeChild(anchor)
+  URL.revokeObjectURL(url)
+}
+
 export const api = {
   health: (): Promise<HealthResponse> => fetchJSON<HealthResponse>('/api/health'),
 
@@ -776,6 +797,32 @@ export const api = {
 
   getSpendTrend: (days = 30): Promise<SpendTrendDay[]> =>
     fetchJSON<SpendTrendDay[]>(`/api/dashboard/spend-trend?days=${days}`),
+
+  // ----- Maintenance: Backup & Export -----
+
+  backupNow: (): Promise<{ name: string; size_bytes: number; created_at: string }> =>
+    fetchJSON<{ name: string; size_bytes: number; created_at: string }>(
+      '/api/maintenance/backup',
+      { method: 'POST' },
+    ),
+
+  listBackups: (): Promise<{ name: string; size_bytes: number; created_at: string }[]> =>
+    fetchJSON<{ name: string; size_bytes: number; created_at: string }[]>(
+      '/api/maintenance/backups',
+    ),
+
+  /** Returns the URL for downloading a backup by name (same-origin GET, cookie auth). */
+  backupDownloadUrl: (name: string): string =>
+    `/api/maintenance/backups/${encodeURIComponent(name)}/download`,
+
+  /** Triggers a browser download of the sessions export file. */
+  exportSessions: async (format: 'csv' | 'json'): Promise<void> => {
+    const ext = format === 'json' ? 'json' : 'csv'
+    await downloadFile(
+      `/api/maintenance/export/sessions?format=${format}`,
+      `plugtrack-sessions.${ext}`,
+    )
+  },
 
   // ----- Charge Planner -----
 
