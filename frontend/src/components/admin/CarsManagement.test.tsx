@@ -159,4 +159,66 @@ describe('CarsManagement', () => {
 
     expect(api.deleteCar).not.toHaveBeenCalled()
   })
+
+  it('does NOT leak car A VIN into car B edit when A reveal resolves after switching to B', async () => {
+    vi.mocked(api.getCars).mockResolvedValue([
+      makeCar({ id: 10, vin: '········AAAAA', make: 'Car', model: 'A' }),
+      makeCar({ id: 20, vin: '········BBBBB', make: 'Car', model: 'B' }),
+    ])
+
+    // Deferred promise for car A — we control when it resolves.
+    let resolveCarA!: (v: { vin: string }) => void
+    const carAReveal = new Promise<{ vin: string }>((res) => {
+      resolveCarA = res
+    })
+    // Car B resolves immediately with its own VIN.
+    vi.mocked(api.revealCarVin).mockImplementation((id) => {
+      if (id === 10) return carAReveal
+      return Promise.resolve({ vin: 'FULL-VIN-BBBBB' })
+    })
+
+    render(
+      <MemoryRouter>
+        <CarsManagement />
+      </MemoryRouter>,
+    )
+
+    // Wait for both edit buttons to appear.
+    await waitFor(() =>
+      expect(screen.getByTestId('admin-edit-car-10')).toBeInTheDocument(),
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('admin-edit-car-20')).toBeInTheDocument(),
+    )
+
+    // Click Edit on car A — its reveal is still pending.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('admin-edit-car-10'))
+    })
+
+    // Switch to car B before car A resolves; car B's reveal is immediate.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('admin-edit-car-20'))
+    })
+
+    // Wait for car B's form + VIN to be visible.
+    await waitFor(() => {
+      const vinInput = screen.getByLabelText(
+        /VIN \(optional, encrypted at rest\)/i,
+      ) as HTMLInputElement
+      expect(vinInput.value).toBe('FULL-VIN-BBBBB')
+    })
+
+    // Now resolve car A's deferred reveal — this is the late write that must be dropped.
+    await act(async () => {
+      resolveCarA({ vin: 'FULL-VIN-AAAAA' })
+    })
+
+    // The VIN input must still show car B's VIN, NOT car A's.
+    const vinInput = screen.getByLabelText(
+      /VIN \(optional, encrypted at rest\)/i,
+    ) as HTMLInputElement
+    expect(vinInput.value).toBe('FULL-VIN-BBBBB')
+    expect(vinInput.value).not.toBe('FULL-VIN-AAAAA')
+  })
 })

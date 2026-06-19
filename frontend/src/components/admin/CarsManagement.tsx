@@ -13,7 +13,7 @@
  *   - Car display/browse cards, the Cupra "discover" flow, mileage display
  *     — those stay in Cars.tsx.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ApiError,
   api,
@@ -43,6 +43,7 @@ export function CarsManagement() {
   const [creating, setCreating] = useState(false)
   const [draft, setDraft] = useState<CarCreateRequest>(EMPTY_NEW)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const editingIdRef = useRef<number | null>(null)
   const [editDraft, setEditDraft] = useState<CarCreateRequest>(EMPTY_NEW)
   const [busy, setBusy] = useState(false)
 
@@ -62,6 +63,12 @@ export function CarsManagement() {
   useEffect(() => {
     void reload()
   }, [])
+
+  // Keep editingIdRef in sync so async closures (startEdit) can check whether
+  // the active edit has changed since the VIN reveal was dispatched.
+  useEffect(() => {
+    editingIdRef.current = editingId
+  }, [editingId])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -137,7 +144,13 @@ export function CarsManagement() {
     })
     try {
       const { vin } = await api.revealCarVin(car.id)
-      setEditDraft((prev) => ({ ...prev, vin: vin ?? '' }))
+      // Guard against cross-car VIN leak: only apply if this car is still the
+      // active edit. editingIdRef (not the closure-captured editingId, which
+      // is stale) reflects any edit change that happened while the await was
+      // in flight (e.g. user clicked Edit on a different car, or clicked Cancel).
+      setEditDraft((prev) =>
+        editingIdRef.current === car.id ? { ...prev, vin: vin ?? '' } : prev,
+      )
     } catch {
       // If reveal fails, leave draft.vin as the masked value and let the user type.
     }
