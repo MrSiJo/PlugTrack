@@ -82,3 +82,27 @@ describe('fetchJSON', () => {
     expect(result).toBeUndefined()
   })
 })
+
+describe('insights overview client', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('builds the overview query string from dates', async () => {
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({
+        granularity: 'daily', over_time: [], split: { home: {}, public: {} }, by_network: [], efficiency: [],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    await api.getInsightsOverview('2026-06-01', '2026-06-30')
+    expect(spy.mock.calls[0]![0]).toBe('/api/insights/overview?date_from=2026-06-01&date_to=2026-06-30')
+  })
+
+  it('builds the mileage query string from carId', async () => {
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ enabled: false, car_id: 7 }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }))
+    await api.getInsightsMileage(7)
+    expect(spy.mock.calls[0]![0]).toBe('/api/insights/mileage?car_id=7')
+  })
+})
