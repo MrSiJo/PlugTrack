@@ -29,8 +29,23 @@ from tests.api.conftest import csrf_headers
 #     python -c "import hashlib, json; \
 #         print(hashlib.sha256(json.dumps({'auth': sorted([...]), \
 #         'csrf': sorted([...])}, sort_keys=True).encode()).hexdigest())"
+#
+# Change log:
+#   2026-06-19 — added /mcp to auth EXEMPT_PATHS and csrf EXEMPT_PATHS.
+#                /mcp is a FastMCP streamable-HTTP sub-app mounted at /mcp
+#                with its own per-user bearer-token auth (_McpAuthMiddleware
+#                in plugtrack/mcp/server.py).  It is non-cookie-based so
+#                CSRF does not apply.  Both middlewares use prefix matching
+#                for /mcp so sub-paths (/mcp/, /mcp/messages/ etc.) are also
+#                exempt.  User gave explicit sign-off (authorised 2026-06-19).
+#   before:     auth=[/api/auth/login, /api/health, /api/setup]
+#               csrf=[/api/health]
+#               hash=df16cd6b0d4a4df287c535c46da3ecdf24891a1891c6c795930cf07901357ff0
+#   after:      auth=[/api/auth/login, /api/health, /api/setup, /mcp]
+#               csrf=[/api/health, /mcp]
+#               hash=a1298edd5255fc08a51417d4ed7efcb49f5197764e5a2d5e92bdca91fae90e81
 EXPECTED_EXEMPT_HASH = (
-    "df16cd6b0d4a4df287c535c46da3ecdf24891a1891c6c795930cf07901357ff0"
+    "a1298edd5255fc08a51417d4ed7efcb49f5197764e5a2d5e92bdca91fae90e81"
 )
 
 
