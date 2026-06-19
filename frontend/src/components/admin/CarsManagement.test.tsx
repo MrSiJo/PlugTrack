@@ -160,6 +160,31 @@ describe('CarsManagement', () => {
     expect(api.deleteCar).not.toHaveBeenCalled()
   })
 
+  it('clears VIN field when revealCarVin fails (masked sentinel must not be saved)', async () => {
+    vi.mocked(api.getCars).mockResolvedValue([makeCar({ id: 5, vin: '········12345' })])
+    vi.mocked(api.revealCarVin).mockRejectedValue(new Error('network error'))
+
+    render(
+      <MemoryRouter>
+        <CarsManagement />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('admin-edit-car-5')).toBeInTheDocument(),
+    )
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('admin-edit-car-5'))
+    })
+
+    // After a failed reveal the VIN input must be empty — NOT the masked value.
+    await waitFor(() => {
+      const vinInput = screen.getByLabelText(/VIN \(optional, encrypted at rest\)/i) as HTMLInputElement
+      expect(vinInput.value).toBe('')
+    })
+  })
+
   it('does NOT leak car A VIN into car B edit when A reveal resolves after switching to B', async () => {
     vi.mocked(api.getCars).mockResolvedValue([
       makeCar({ id: 10, vin: '········AAAAA', make: 'Car', model: 'A' }),

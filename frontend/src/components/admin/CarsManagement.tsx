@@ -152,7 +152,11 @@ export function CarsManagement() {
         editingIdRef.current === car.id ? { ...prev, vin: vin ?? '' } : prev,
       )
     } catch {
-      // If reveal fails, leave draft.vin as the masked value and let the user type.
+      // Clear VIN on reveal failure so the masked sentinel can't be saved back.
+      // The user can type the correct VIN manually.
+      setEditDraft((prev) =>
+        editingIdRef.current === car.id ? { ...prev, vin: '' } : prev,
+      )
     }
   }
 

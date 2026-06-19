@@ -336,7 +336,13 @@ async def update_car(
 
     data = body.model_dump(exclude_unset=True)
     if "vin" in data:
-        car.vin = data.pop("vin")  # property setter encrypts
+        incoming_vin = data.pop("vin")
+        if incoming_vin is not None and "·" in incoming_vin:
+            raise HTTPException(
+                status_code=400,
+                detail="VIN contains mask characters; reveal the full VIN before editing",
+            )
+        car.vin = incoming_vin  # property setter encrypts
     for k, v in data.items():
         setattr(car, k, v)
 
