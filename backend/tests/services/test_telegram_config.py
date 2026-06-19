@@ -58,3 +58,23 @@ async def test_valid_config(test_sessionmaker, seeded_user_car):
     assert cfg.token == "tok" and cfg.openai_key == "sk-x"
     assert cfg.model == "gpt-5-mini" and cfg.allowed == {111}
     assert cfg.car_id == car_id and cfg.user_id == user_id
+
+
+@pytest.mark.asyncio
+async def test_ai_enabled_true(test_sessionmaker, seeded_user_car):
+    from plugtrack.services.telegram_ingest import load_bot_config, BotConfig
+    _user_id, car_id = seeded_user_car
+    await _seed(test_sessionmaker, telegram_default_car_id=str(car_id), ai_enabled="true")
+    cfg = await load_bot_config(test_sessionmaker)
+    assert isinstance(cfg, BotConfig)
+    assert cfg.ai_enabled is True
+
+
+@pytest.mark.asyncio
+async def test_ai_enabled_false(test_sessionmaker, seeded_user_car):
+    from plugtrack.services.telegram_ingest import load_bot_config, BotConfig
+    _user_id, car_id = seeded_user_car
+    await _seed(test_sessionmaker, telegram_default_car_id=str(car_id), ai_enabled="false")
+    cfg = await load_bot_config(test_sessionmaker)
+    assert isinstance(cfg, BotConfig)
+    assert cfg.ai_enabled is False

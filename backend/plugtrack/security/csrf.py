@@ -25,7 +25,15 @@ CSRF_HEADER_NAME = "X-CSRF-Token"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 # Adding a path here weakens CSRF — requires explicit user sign-off.
-EXEMPT_PATHS: frozenset[str] = frozenset({"/api/health"})
+# /mcp is exempt because it is a bearer-token–authenticated ASGI sub-app;
+# it is non-cookie-based so the double-submit CSRF pattern does not apply.
+EXEMPT_PATHS: frozenset[str] = frozenset({"/api/health", "/mcp"})
+
+# Prefix-based exemptions for mounted sub-apps. Any path that starts with
+# one of these strings (or equals it) bypasses CSRF checking. Required
+# because the MCP streamable-HTTP transport uses sub-paths like /mcp/,
+# /mcp/messages/ etc. (added 2026-06-19, user-authorised).
+_CSRF_EXEMPT_PREFIXES: tuple[str, ...] = ("/mcp",)
 
 
 def _generate_token() -> str:
@@ -52,7 +60,13 @@ class CsrfMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         method = request.method.upper()
         path = request.url.path
-        is_exempt = path in self.exempt_paths
+        is_exempt = (
+            path in self.exempt_paths
+            or any(
+                path == prefix or path.startswith(prefix + "/")
+                for prefix in _CSRF_EXEMPT_PREFIXES
+            )
+        )
 
         if method not in SAFE_METHODS and not is_exempt:
             cookie_token = request.cookies.get(self.cookie_name)

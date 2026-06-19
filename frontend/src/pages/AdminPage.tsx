@@ -14,11 +14,12 @@ import { PreferencesPanel } from '@/components/admin/PreferencesPanel'
 import { MaintenancePanel } from '@/components/admin/MaintenancePanel'
 import { LocationsManagement } from '@/components/admin/LocationsManagement'
 import { CarsManagement } from '@/components/admin/CarsManagement'
+import { McpTokens } from '@/components/admin/McpTokens'
 import { useSettingsStore } from '@/stores/settingsStore'
 
 /** All valid section keys in order. */
 const INTEGRATION_KEYS = INTEGRATIONS.map((d) => d.key)
-const TOP_LEVEL_KEYS = ['preferences', 'maintenance', 'locations', 'cars'] as const
+const TOP_LEVEL_KEYS = ['preferences', 'maintenance', 'locations', 'cars', 'mcp'] as const
 type TopLevelKey = (typeof TOP_LEVEL_KEYS)[number]
 type SectionKey = string // integration key or top-level key
 
@@ -102,6 +103,7 @@ export default function AdminPage() {
                 { key: 'maintenance', label: 'Maintenance' },
                 { key: 'locations', label: 'Locations' },
                 { key: 'cars', label: 'Cars' },
+                { key: 'mcp', label: 'MCP / API tokens' },
               ] satisfies { key: TopLevelKey; label: string }[]
             ).map(({ key, label }) => (
               <li key={key}>
@@ -132,6 +134,8 @@ export default function AdminPage() {
           {activeSection === 'locations' && <LocationsManagement />}
 
           {activeSection === 'cars' && <CarsManagement />}
+
+          {activeSection === 'mcp' && <McpTokens />}
         </div>
       </div>
     </main>
