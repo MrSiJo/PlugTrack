@@ -377,3 +377,47 @@ def test_mask_vin_standard_17_char_vin():
     assert len(result) == 17
     # First 12 chars must all be the middle dot (·, U+00B7).
     assert result[:12] == "·" * 12
+
+
+# ---------------------------------------------------------------------------
+# Defense-in-depth: reject mask characters in VIN update payload
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_car_rejects_masked_vin(authed_client, test_sessionmaker):
+    """PUT /api/cars/{id} with a mask-character VIN must return 400
+    and must NOT overwrite the stored VIN."""
+    from plugtrack.models import Car
+    from sqlalchemy import select
+
+    # Create a car with a known full VIN.
+    plain_vin = "VSSZZZK1ZNP999999"
+    r = await authed_client.post(
+        "/api/cars",
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "vin": plain_vin,
+            "battery_kwh": 77.0,
+            "nominal_efficiency_mi_per_kwh": 3.6,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    car_id = r.json()["id"]
+
+    # Attempt to update with a VIN that contains the mask character (·, U+00B7).
+    masked_vin = "············99999"
+    r = await authed_client.put(
+        f"/api/cars/{car_id}",
+        json={"vin": masked_vin},
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 400, r.text
+    assert "mask" in r.json()["detail"].lower()
+
+    # The stored VIN must still be the original plaintext.
+    async with test_sessionmaker() as session:
+        car = (await session.execute(select(Car).where(Car.id == car_id))).scalar_one()
+        assert car.vin == plain_vin
