@@ -21,7 +21,7 @@ async def test_reconcile_starts_and_stops(monkeypatch, test_sessionmaker):
         return state["cfg"]
     monkeypatch.setattr("plugtrack.services.telegram_manager.load_bot_config", fake_load)
     monkeypatch.setattr("plugtrack.services.telegram_manager.build_ingest_context",
-                        lambda c, *, sessionmaker, health_check: object())
+                        lambda c, *, sessionmaker, health_check, ai_enabled: object())
 
     mgr = TelegramBotManager(test_sessionmaker)
     await mgr.reconcile()
@@ -45,12 +45,21 @@ async def test_reconcile_idempotent_no_restart(monkeypatch, test_sessionmaker):
     monkeypatch.setattr("plugtrack.services.telegram_manager.load_bot_config",
                         lambda sm: _coro(cfg))
     monkeypatch.setattr("plugtrack.services.telegram_manager.build_ingest_context",
-                        lambda c, *, sessionmaker, health_check: object())
+                        lambda c, *, sessionmaker, health_check, ai_enabled: object())
     mgr = TelegramBotManager(test_sessionmaker)
     await mgr.reconcile()
     await mgr.reconcile()  # unchanged fingerprint -> no new task
     assert runs["n"] == 1
     await mgr.stop()
+
+
+def test_fingerprint_differs_on_ai_enabled():
+    from plugtrack.services.telegram_manager import _fingerprint
+    base = BotConfig(token="t", openai_key="k", model="m", allowed={1}, car_id=1, user_id=1,
+                     ai_enabled=False)
+    enabled = BotConfig(token="t", openai_key="k", model="m", allowed={1}, car_id=1, user_id=1,
+                        ai_enabled=True)
+    assert _fingerprint(base) != _fingerprint(enabled)
 
 
 async def _coro(v):
