@@ -22,9 +22,16 @@ import {
 import {
   ApiError,
   api,
+  type CarPayload,
   type InsightsByLocationResponse,
   type InsightsLocationRow,
+  type InsightsOverviewResponse,
 } from '@/api/client'
+import { OverTimeChart } from '@/components/insights/OverTimeChart'
+import { HomePublicSplit } from '@/components/insights/HomePublicSplit'
+import { NetworkBreakdown } from '@/components/insights/NetworkBreakdown'
+import { EfficiencyChart } from '@/components/insights/EfficiencyChart'
+import { MileageAllowance } from '@/components/insights/MileageAllowance'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { GradientNumber } from '@/components/ui/GradientNumber'
@@ -78,6 +85,9 @@ export default function Insights() {
   const [customTo, setCustomTo] = useState<string>(todayIso())
   const [sort, setSort] = useState<SortField>('spend_pence')
   const [dir, setDir] = useState<SortDir>('desc')
+  const [overview, setOverview] = useState<InsightsOverviewResponse | null>(null)
+  const [cars, setCars] = useState<CarPayload[]>([])
+  const [selectedCarId, setSelectedCarId] = useState<number | null>(null)
 
   const isCustom = range === 'custom'
   const invalidCustom = isCustom && customFrom > customTo
@@ -89,9 +99,13 @@ export default function Insights() {
       try {
         setLoading(true)
         const { from, to } = rangeBounds(range, customFrom, customTo)
-        const result = await api.getInsightsByLocation(from, to)
+        const [byLocation, ov] = await Promise.all([
+          api.getInsightsByLocation(from, to),
+          api.getInsightsOverview(from, to),
+        ])
         if (!cancelled) {
-          setData(result)
+          setData(byLocation)
+          setOverview(ov)
           setError(null)
         }
       } catch (err) {
@@ -106,6 +120,24 @@ export default function Insights() {
       cancelled = true
     }
   }, [range, customFrom, customTo, invalidCustom])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const list = await api.getCars()
+        if (cancelled) return
+        const active = list.filter((c) => c.active)
+        setCars(active)
+        setSelectedCarId((prev) => prev ?? active[0]?.id ?? null)
+      } catch {
+        /* mileage module simply won't render without cars */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   function handleSort(field: SortField) {
     if (field === sort) {
@@ -359,6 +391,52 @@ export default function Insights() {
           </table>
         </Card>
       )}
+
+      <section className="mt-8">
+        <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-100">
+          Spend &amp; energy over time
+        </h2>
+        {overview && (
+          <OverTimeChart data={overview.over_time} granularity={overview.granularity} currency={currency} />
+        )}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-100">Home vs public</h2>
+        {overview && <HomePublicSplit split={overview.split} currency={currency} />}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-100">Network breakdown</h2>
+        {overview && <NetworkBreakdown rows={overview.by_network} currency={currency} />}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-100">
+          Efficiency &amp; cost per mile
+        </h2>
+        {overview && <EfficiencyChart data={overview.efficiency} />}
+      </section>
+
+      <section className="mt-8">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Mileage allowance</h2>
+          {cars.length > 1 && (
+            <select
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+              value={selectedCarId ?? ''}
+              onChange={(e) => setSelectedCarId(Number(e.target.value))}
+            >
+              {cars.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.make} {c.model}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        {selectedCarId != null && <MileageAllowance carId={selectedCarId} />}
+      </section>
     </div>
   )
 }
