@@ -5,8 +5,8 @@ from plugtrack.settings.seeds import seed_defaults
 
 NEW = {
     "public_base_url": ("string", "display"),
-    "openai_input_price_per_1k_pence": ("float", "openai"),
-    "openai_output_price_per_1k_pence": ("float", "openai"),
+    "openai_input_price_per_1k_pence": ("float", "ai"),
+    "openai_output_price_per_1k_pence": ("float", "ai"),
 }
 
 
