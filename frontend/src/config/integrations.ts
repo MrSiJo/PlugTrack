@@ -54,7 +54,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
       'telegram_allowed_user_ids',
       'telegram_default_car_id',
     ],
-    hint: 'Requires AI enabled for screenshot extraction.',
+    hint: 'Screenshot extraction needs an OpenAI key set in the AI integration.',
     actions: ['testTelegram'],
   },
   {
