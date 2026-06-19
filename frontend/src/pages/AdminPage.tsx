@@ -13,6 +13,8 @@ import { useEffect } from 'react'
 import { INTEGRATIONS } from '@/config/integrations'
 import { IntegrationCard } from '@/components/admin/IntegrationCard'
 import { PreferencesPanel } from '@/components/admin/PreferencesPanel'
+import { LocationsManagement } from '@/components/admin/LocationsManagement'
+import { CarsManagement } from '@/components/admin/CarsManagement'
 import { useSettingsStore } from '@/stores/settingsStore'
 
 export default function AdminPage() {
@@ -69,7 +71,7 @@ export default function AdminPage() {
         </p>
       </section>
 
-      {/* Locations management — placeholder for Phase B */}
+      {/* Locations management */}
       <section
         className="mb-10"
         aria-labelledby="section-locations-heading"
@@ -81,12 +83,10 @@ export default function AdminPage() {
         >
           Locations
         </h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          Location management coming soon.
-        </p>
+        <LocationsManagement />
       </section>
 
-      {/* Cars management — placeholder for Phase B */}
+      {/* Cars management */}
       <section
         className="mb-10"
         aria-labelledby="section-cars-heading"
@@ -98,9 +98,7 @@ export default function AdminPage() {
         >
           Cars
         </h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          Car management coming soon.
-        </p>
+        <CarsManagement />
       </section>
     </main>
   )
