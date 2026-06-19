@@ -19,8 +19,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
-from ...models import Car, ChargingSession, Location, Setting
-from ...services.cost import compute_session_cost
+from ...models import Car, ChargingSession, Location
+from ...services.cost_apply import apply_cost
 from ...services.session_metrics import (
     compute_savings_for_sessions,
     compute_session_metrics,
@@ -283,65 +283,6 @@ async def _get_owned_location(
     return loc
 
 
-async def _home_rate(session: AsyncSession) -> float:
-    result = await session.execute(
-        select(Setting).where(Setting.key == "default_home_rate_p_per_kwh")
-    )
-    row = result.scalar_one_or_none()
-    if row is None or row.value is None:
-        return 0.0
-    try:
-        return float(row.value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-async def _apply_cost(
-    session: AsyncSession,
-    cs: ChargingSession,
-    user_id: int,
-    *,
-    first_compute: bool = True,
-    override_changed: bool = False,
-) -> None:
-    """Resolve cost, honouring the freeze invariant.
-
-    On an EDIT of an existing rate-derived session (`home_rate`,
-    `location_rate`, `location_free`) where no override field changed and a
-    tariff is already stored, re-scale at that frozen tariff — a global /
-    location config change never silently re-rates a stored charge.
-
-    Otherwise (create/confirm; an explicit override change; an override
-    basis; or no stored tariff — the legacy guard) derive from source via
-    the cost-precedence rule. Override bases re-derive from their own frozen
-    override columns, which is correct.
-    """
-    rate_derived = cs.cost_basis in ("home_rate", "location_rate", "location_free")
-    if (
-        not first_compute
-        and not override_changed
-        and rate_derived
-        and cs.tariff_p_per_kwh is not None
-    ):
-        cs.cost_pence = round(cs.kwh_added * cs.tariff_p_per_kwh)
-        return
-
-    location = await _get_owned_location(session, cs.location_id, user_id)
-    home_rate = await _home_rate(session)
-    cost_pence, cost_basis, tariff = compute_session_cost(
-        kwh_added=cs.kwh_added,
-        location=location,
-        session_overrides={
-            "cost_per_kwh_override_p": cs.cost_per_kwh_override_p,
-            "total_cost_pence_override": cs.total_cost_pence_override,
-        },
-        settings_default_home_rate_p_per_kwh=home_rate,
-    )
-    cs.cost_pence = cost_pence
-    cs.cost_basis = cost_basis
-    cs.tariff_p_per_kwh = tariff
-
-
 # Canonical session sources (see ChargingSession.source). 'cariad' is the
 # deprecated legacy synthesis source — dropped from the filter allow-list as it
 # is no longer offered in the UI; 'telegram'/'import' are the standalone-pivot
@@ -506,7 +447,7 @@ async def create_session(
         source="manual",
     )
     await _derive_kwh_calculated(session, cs)
-    await _apply_cost(session, cs, user_id)
+    await apply_cost(session, cs)
     session.add(cs)
     await session.commit()
     await session.refresh(cs)
@@ -575,8 +516,8 @@ async def update_session(
     if soc_dirty:
         await _derive_kwh_calculated(session, cs)
     if cost_dirty:
-        await _apply_cost(
-            session, cs, user_id, first_compute=False, override_changed=override_changed
+        await apply_cost(
+            session, cs, first_compute=False, override_changed=override_changed
         )
 
     await session.commit()
@@ -676,7 +617,7 @@ async def confirm_session(
         cs.notes = provenance
 
     # Run cost-precedence against the final state.
-    await _apply_cost(session, cs, user_id)
+    await apply_cost(session, cs)
 
     # Promote: unconfirmed -> manual.
     cs.source = "manual"
