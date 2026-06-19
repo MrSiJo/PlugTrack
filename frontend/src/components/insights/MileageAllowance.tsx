@@ -87,7 +87,9 @@ export function MileageAllowance({ carId }: MileageAllowanceProps) {
   const kpis: { label: string; value: string; tone?: string }[] = [
     { label: 'Used', value: fmtDist(data.used_km, unit) },
     { label: 'Allowance', value: fmtDist(data.target_km, unit) },
-    { label: 'Remaining', value: fmtDist(data.remaining_km, unit) },
+    data.remaining_km != null && data.remaining_km < 0
+      ? { label: 'Over by', value: fmtDist(-data.remaining_km, unit), tone: 'text-amber-600 dark:text-amber-300' }
+      : { label: 'Remaining', value: fmtDist(data.remaining_km, unit) },
     { label: 'Projected year-end use', value: fmtDist(
         data.projected_year_end_km != null && data.opening_km != null
           ? data.projected_year_end_km - data.opening_km

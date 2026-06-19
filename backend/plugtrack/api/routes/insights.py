@@ -6,7 +6,7 @@ GET /api/insights/by-location
 """
 from __future__ import annotations
 
-from datetime import date as date_cls
+from datetime import date as date_cls, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -98,7 +98,7 @@ async def get_overview(
 ) -> JSONResponse:
     user_id = _user_id(request)
     lo, hi = await _effective_bounds(session, user_id, date_from, date_to)
-    granularity = resolve_granularity(lo, hi) if lo and hi else "daily"
+    granularity = resolve_granularity(lo, hi) if lo is not None and hi is not None else "daily"
 
     over_time = await spend_energy_over_time(
         session, user_id=user_id, date_from=date_from, date_to=date_to, granularity=granularity)
@@ -126,5 +126,5 @@ async def get_mileage(
 ) -> JSONResponse:
     user_id = _user_id(request)
     view = await mileage_allowance_view(
-        session, user_id=user_id, car_id=car_id, today=date_cls.today())
+        session, user_id=user_id, car_id=car_id, today=datetime.now(timezone.utc).date())
     return JSONResponse(content=view)
