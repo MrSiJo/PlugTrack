@@ -535,6 +535,7 @@ def create_app() -> FastAPI:
     from .api.routes import setup as setup_routes
     from .api.routes import sync as sync_routes
     from .api.routes import telegram as telegram_routes
+    from .api.routes import mcp_tokens as mcp_tokens_routes
 
     app.include_router(health_routes.router)
     app.include_router(setup_routes.router)
@@ -550,6 +551,7 @@ def create_app() -> FastAPI:
     app.include_router(charge_plan_routes.router)
     app.include_router(telegram_routes.router)
     app.include_router(maintenance_routes.router)
+    app.include_router(mcp_tokens_routes.router)
 
     # MCP streamable-HTTP server — mounted at /mcp with its own bearer-token
     # auth middleware. The session-cookie auth + CSRF middlewares above exempt
