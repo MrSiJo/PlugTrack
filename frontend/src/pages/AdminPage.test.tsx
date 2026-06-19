@@ -110,4 +110,18 @@ describe('AdminPage', () => {
     expect(screen.getByTestId('admin-section-locations')).toBeInTheDocument()
     expect(screen.getByTestId('admin-section-cars')).toBeInTheDocument()
   })
+
+  it('renders MaintenancePanel inside the maintenance section', () => {
+    render(
+      <MemoryRouter>
+        <AdminPage />
+      </MemoryRouter>,
+    )
+    const section = screen.getByTestId('admin-section-maintenance')
+    const panel = screen.getByTestId('maintenance-panel')
+    expect(section).toContainElement(panel)
+    expect(
+      screen.getByText('python -m plugtrack.scripts.import_mycupra_csv'),
+    ).toBeInTheDocument()
+  })
 })
