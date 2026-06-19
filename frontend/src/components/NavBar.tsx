@@ -1,17 +1,14 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Search, Zap } from 'lucide-react'
+import { Search, Settings, Zap } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { Button } from '@/components/ui/button'
 import { useCommandPalette } from '@/components/CommandPalette'
 
 const links = [
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/insights', label: 'Insights' },
-  { to: '/cars', label: 'Cars' },
   { to: '/sessions', label: 'Sessions' },
+  { to: '/insights', label: 'Insights' },
   { to: '/locations', label: 'Locations' },
-  { to: '/planner', label: 'Planner' },
-  { to: '/settings', label: 'Settings' },
 ]
 
 export default function NavBar() {
@@ -64,6 +61,13 @@ export default function NavBar() {
               ⌘K
             </kbd>
           </Button>
+          <NavLink
+            to="/admin"
+            aria-label="Administration"
+            className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            <Settings className="h-4 w-4" aria-hidden />
+          </NavLink>
           <button
             type="button"
             onClick={handleLogout}
