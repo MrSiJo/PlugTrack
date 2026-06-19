@@ -82,12 +82,24 @@ class CarUpdateRequest(BaseModel):
     active: Optional[bool] = None
 
 
+def _mask_vin(vin: str | None) -> str | None:
+    """Return VIN with all but the last 5 characters replaced by · (U+00B7).
+
+    The masked form is shown in list/get payloads. The full VIN is only
+    returned by the owner-gated ``GET /api/cars/{id}/vin`` endpoint.
+    """
+    if not vin:
+        return None
+    tail = vin[-5:]
+    return "·" * max(0, len(vin) - 5) + tail
+
+
 def _to_payload(car: Car) -> CarPayload:
     return CarPayload(
         id=car.id,
         make=car.make,
         model=car.model,
-        vin=car.vin,  # property — decrypts on the fly
+        vin=_mask_vin(car.vin),  # masked — full VIN via GET /{id}/vin
         battery_kwh=car.battery_kwh,
         nominal_efficiency_mi_per_kwh=car.nominal_efficiency_mi_per_kwh,
         provider=car.provider,
@@ -243,6 +255,22 @@ async def _get_owned(session: AsyncSession, car_id: int, user_id: int) -> Car:
     if car is None:
         raise HTTPException(status_code=404, detail="car not found")
     return car
+
+
+@router.get("/{car_id}/vin")
+async def reveal_vin(
+    car_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return the full plaintext VIN for a car the caller owns.
+
+    Only the authenticated owner can retrieve the full VIN; cross-user
+    requests return 404 (via ``_get_owned``).
+    """
+    user_id = _user_id(request)
+    car = await _get_owned(session, car_id, user_id)
+    return {"vin": car.vin}
 
 
 @router.get("/{car_id}/image")
