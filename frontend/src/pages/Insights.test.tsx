@@ -19,6 +19,23 @@ function makeResponse(): InsightsByLocationResponse {
   }
 }
 
+const EMPTY_OVERVIEW = {
+  granularity: 'daily' as const,
+  over_time: [],
+  split: {
+    home: { spend_pence: 0, kwh: 0, sessions: 0, avg_p_per_kwh: null },
+    public: { spend_pence: 0, kwh: 0, sessions: 0, avg_p_per_kwh: null },
+  },
+  by_network: [],
+  efficiency: [],
+}
+
+const DISABLED_MILEAGE = {
+  enabled: false, car_id: 1, period_start: null, period_end: null, opening_km: null,
+  current_km: null, target_km: null, used_km: null, remaining_km: null,
+  days_elapsed: null, days_total: null, projected_year_end_km: null, pace: null,
+}
+
 describe('Insights page', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -28,6 +45,8 @@ describe('Insights page', () => {
 
   it('renders the breakdown table; labelled row links, Unassigned does not', async () => {
     vi.spyOn(api, 'getInsightsByLocation').mockResolvedValue(makeResponse())
+    vi.spyOn(api, 'getInsightsOverview').mockResolvedValue(EMPTY_OVERVIEW)
+    vi.spyOn(api, 'getCars').mockResolvedValue([])
 
     render(
       <MemoryRouter>
@@ -48,6 +67,8 @@ describe('Insights page', () => {
     const spy = vi
       .spyOn(api, 'getInsightsByLocation')
       .mockResolvedValue(makeResponse())
+    vi.spyOn(api, 'getInsightsOverview').mockResolvedValue(EMPTY_OVERVIEW)
+    vi.spyOn(api, 'getCars').mockResolvedValue([])
 
     render(
       <MemoryRouter>
@@ -62,5 +83,34 @@ describe('Insights page', () => {
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2))
     // Second call carries a date_from bound.
     expect(spy.mock.calls[1]![0]).toBeTruthy()
+  })
+
+  it('renders the additional insight modules', async () => {
+    vi.spyOn(api, 'getInsightsByLocation').mockResolvedValue({
+      rows: [], totals: { spend_pence: 0, kwh: 0, sessions: 0 },
+    })
+    vi.spyOn(api, 'getInsightsOverview').mockResolvedValue({
+      granularity: 'daily',
+      over_time: [{ period: '2026-06-01', spend_pence: 200, kwh: 10, sessions: 1 }],
+      split: {
+        home: { spend_pence: 200, kwh: 10, sessions: 1, avg_p_per_kwh: 20 },
+        public: { spend_pence: 0, kwh: 0, sessions: 0, avg_p_per_kwh: null },
+      },
+      by_network: [{ network: 'Tesla', spend_pence: 200, kwh: 10, sessions: 1, avg_p_per_kwh: 20 }],
+      efficiency: [{ period: '2026-06-01', observed_mi_per_kwh: null, cost_per_mile_p: null }],
+    })
+    vi.spyOn(api, 'getCars').mockResolvedValue([
+      { id: 1, make: 'Cupra', model: 'Born', vin: null, battery_kwh: 58,
+        nominal_efficiency_mi_per_kwh: 4.2, provider: 'manual', provider_vehicle_id: null, active: true },
+    ])
+    vi.spyOn(api, 'getInsightsMileage').mockResolvedValue(DISABLED_MILEAGE)
+
+    render(<MemoryRouter><Insights /></MemoryRouter>)
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: /spend & energy over time/i })).toBeInTheDocument())
+    expect(screen.getByRole('heading', { name: /home vs public/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /network breakdown/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /efficiency & cost per mile/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /mileage allowance/i })).toBeInTheDocument()
   })
 })
