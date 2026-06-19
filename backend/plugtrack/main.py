@@ -14,6 +14,7 @@ The lifespan handler:
 from __future__ import annotations
 
 import asyncio as _asyncio
+import contextlib
 import logging
 import os
 import sys
@@ -387,6 +388,19 @@ async def _lifespan(app: FastAPI):
     app.state.telegram_manager = TelegramBotManager(db_module.SessionLocal)
     await app.state.telegram_manager.reconcile()
 
+    # MCP FastMCP session manager — must be started after the app is wired but
+    # before requests are served.  The session manager is stored in
+    # mcp_server._mcp_session_manager by build_mcp_app() (called at the bottom
+    # of create_app()).  We start it here in the lifespan so it is running
+    # during the `yield` that serves requests.  Uses an AsyncExitStack so we
+    # can enter it unconditionally (even if None, we just skip it).
+    from .mcp import server as _mcp_server_module
+    _mcp_sm = getattr(_mcp_server_module, "_mcp_session_manager", None)
+    _mcp_stack = contextlib.AsyncExitStack()
+    if _mcp_sm is not None:
+        await _mcp_stack.enter_async_context(_mcp_sm.run())
+        _log.info("MCP session manager started.")
+
     # ---------------------------------------------------------------------------
     # Backup scheduler — independent of the pycupra sync stack.
     # Starts whenever `backup_enabled` is true (default: true).
@@ -485,6 +499,11 @@ async def _lifespan(app: FastAPI):
                 bk_scheduler.shutdown(wait=False)
             except Exception:  # noqa: BLE001
                 pass
+        # Stop the MCP session manager (if it was started)
+        try:
+            await _mcp_stack.aclose()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def create_app() -> FastAPI:
@@ -531,5 +550,18 @@ def create_app() -> FastAPI:
     app.include_router(charge_plan_routes.router)
     app.include_router(telegram_routes.router)
     app.include_router(maintenance_routes.router)
+
+    # MCP streamable-HTTP server — mounted at /mcp with its own bearer-token
+    # auth middleware. The session-cookie auth + CSRF middlewares above exempt
+    # /mcp (prefix match) because the MCP sub-app carries its own auth layer.
+    #
+    # build_mcp_app() registers tools and returns the wrapped ASGI app. It also
+    # stores the FastMCP session_manager in mcp_server._mcp_session_manager so
+    # the lifespan above can start/stop it.  The session_manager lifespan is
+    # managed by passing it through the _McpAuthMiddleware lifespan scope, which
+    # the Starlette inner app's lifespan handler handles natively.
+    from .mcp.server import build_mcp_app
+    mcp_asgi_app = build_mcp_app(db_module.SessionLocal)
+    app.mount("/mcp", mcp_asgi_app)
 
     return app

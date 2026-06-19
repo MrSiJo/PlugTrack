@@ -23,8 +23,15 @@ SESSION_SALT = "session"
 
 # Adding a path here weakens auth — requires explicit user sign-off.
 EXEMPT_PATHS: frozenset[str] = frozenset(
-    {"/api/health", "/api/setup", "/api/auth/login"}
+    {"/api/health", "/api/setup", "/api/auth/login", "/mcp"}
 )
+
+# Paths in EXEMPT_PREFIX carry their own auth (e.g. the MCP bearer-token
+# middleware) and must also bypass CSRF because they are not cookie-based.
+# Matching is prefix: any request path that starts with one of these strings
+# (or equals it exactly) is exempt. This is required because a mounted ASGI
+# sub-app may receive sub-paths like /mcp/, /mcp/messages/ etc.
+_EXEMPT_PREFIXES: tuple[str, ...] = ("/mcp",)
 
 
 def make_serializer(secret_key: str) -> URLSafeSerializer:
@@ -63,7 +70,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        is_exempt = path in self.exempt_paths
+        is_exempt = (
+            path in self.exempt_paths
+            or any(
+                path == prefix or path.startswith(prefix + "/")
+                for prefix in _EXEMPT_PREFIXES
+            )
+        )
 
         user_id = self._read_user_id(request)
         if user_id is not None:
