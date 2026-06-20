@@ -8,6 +8,12 @@ from __future__ import annotations
 
 _KM_PER_MILE = 1.609344
 
+_CURRENCY_SYMBOLS: dict[str, str] = {
+    "GBP": "£",
+    "EUR": "€",
+    "USD": "$",
+}
+
 
 def km_to_mi(km: float) -> float:
     """Convert kilometres to miles."""
@@ -26,3 +32,18 @@ def format_distance(km: float, unit: str) -> str:
     else:
         value = km_to_mi(km)
     return f"{round(value)} {unit}"
+
+
+def format_currency(pence: int, currency: str = "GBP") -> str:
+    """Format a pence integer as a human-readable currency string.
+
+    Examples::
+
+        format_currency(4210)          -> "£42.10"
+        format_currency(0)             -> "£0.00"
+        format_currency(4210, "EUR")   -> "€42.10"
+        format_currency(4210, "USD")   -> "$42.10"
+        format_currency(4210, "JPY")   -> "42.10"  # unknown currency, no symbol
+    """
+    symbol = _CURRENCY_SYMBOLS.get(currency, "")
+    return f"{symbol}{pence / 100:.2f}"

@@ -18,10 +18,12 @@ async def test_get_settings_requires_auth(seeded_client):
 
 @pytest.mark.asyncio
 async def test_get_settings_returns_catalogue_keys(authed_client):
+    from plugtrack.api.routes.settings import _HIDDEN_KEYS
+
     r = await authed_client.get("/api/settings")
     assert r.status_code == 200, r.text
     body = r.json()
-    expected_keys = {entry.key for entry in CATALOGUE}
+    expected_keys = {entry.key for entry in CATALOGUE} - _HIDDEN_KEYS
     assert set(body.keys()) == expected_keys
 
 
@@ -131,6 +133,32 @@ async def test_put_setting_encrypts_secret(authed_client, test_sessionmaker):
             row.value, "test-secret-key-for-tests-only-padding-padding"
         )
         assert decrypted == plain
+
+
+@pytest.mark.asyncio
+async def test_get_settings_excludes_hidden_marker_keys(authed_client):
+    """digest_last_weekly_sent and digest_last_monthly_sent must NOT appear
+    in the GET /api/settings response, even though they are seeded normally."""
+    r = await authed_client.get("/api/settings")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "digest_last_weekly_sent" not in body, (
+        "digest_last_weekly_sent is an internal marker and must be hidden"
+    )
+    assert "digest_last_monthly_sent" not in body, (
+        "digest_last_monthly_sent is an internal marker and must be hidden"
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_settings_includes_digest_toggle_keys(authed_client):
+    """The three visible digest settings must appear in GET /api/settings."""
+    r = await authed_client.get("/api/settings")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "digest_weekly_enabled" in body
+    assert "digest_monthly_enabled" in body
+    assert "digest_send_hour" in body
 
 
 @pytest.mark.asyncio
