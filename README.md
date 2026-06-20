@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/PlugTrack_Banner.png" alt="PlugTrack" width="640">
+</p>
+
 # PlugTrack
 
 **PlugTrack is a self-hosted EV charging tracker you feed by screenshot.** You charge, screenshot the charging app — Tesla, Osprey, Electroverse, My Cupra, a home granny charger, anything — and send it to a **Telegram bot**. An AI vision model reads the energy, cost, location, state-of-charge and times off the image, merges multiple screenshots of the same charge into one record, and you confirm it with a single tap. Everything you charge ends up in one place: a clean web dashboard with spend, efficiency, mileage and per-car history.
@@ -60,7 +64,27 @@ You don't need to think about it day-to-day — it fits the habit you already ha
 
 ## Screenshots
 
-The dashboard answers "where's my battery and what did I last spend?" in one glance — a hero per-car card, a 30-day spend chart, lifetime KPIs, recent sessions, and top locations. Session detail is built around the charge-power curve. Locations is a real OpenStreetMap-tiled map with cost-banded markers (green = free, cyan = ~home rate, amber = expensive, red = very expensive).
+> The screenshots below use a **fictional demo dataset** (invented car, networks and places), generated with the tooling described in [INSTALL.md → Regenerating screenshots](INSTALL.md#regenerating-screenshots) — no real data.
+
+**Dashboard** — "where's my battery and what did I last spend?" in one glance: a hero per-car card, a 30-day spend chart, lifetime KPIs, and recent sessions.
+
+![Dashboard](assets/screenshots/dashboard.png)
+
+**Insights** — spend by location, home-vs-public, network breakdown, efficiency, seasonal range and an indicative battery-health trend — all filterable to one car.
+
+![Insights](assets/screenshots/insights.png)
+
+**Planner** — a multi-scenario table comparing your real home power against 7/11 kW AC and 50/150 kW / car-max DC, each with a confidence tag.
+
+![Charge planner](assets/screenshots/planner.png)
+
+**Session detail** — built around the AC/DC charge-power curve, with cost, SoC, range added and a petrol comparison.
+
+![Session detail](assets/screenshots/session-detail.png)
+
+**Locations** — a real OpenStreetMap map with cost-banded markers (green = free, cyan = ~home rate, amber = expensive, red = very expensive).
+
+![Locations map](assets/screenshots/locations.png)
 
 ## Documentation
 
