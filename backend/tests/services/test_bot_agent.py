@@ -258,7 +258,7 @@ def test_build_tool_catalogue_contains_all_tools():
     from plugtrack.services.bot_agent import build_tool_catalogue
 
     catalogue = build_tool_catalogue()
-    names = {t["function"]["name"] for t in catalogue}
+    names = {t["name"] for t in catalogue}
 
     expected = {
         "find_charges",
@@ -270,12 +270,16 @@ def test_build_tool_catalogue_contains_all_tools():
         "commit_change",
     }
     assert expected.issubset(names), f"Missing tools: {expected - names}"
-    # Each entry must be of type "function"
+    # The Responses API requires the FLAT function-tool shape:
+    #   {"type": "function", "name": ..., "description": ..., "parameters": {...}}
+    # NOT the Chat Completions nested {"type": "function", "function": {...}} shape.
+    # (A nested shape 400s with "Missing required parameter: 'tools[0].name'".)
     for t in catalogue:
         assert t.get("type") == "function"
-        assert "function" in t
-        assert "name" in t["function"]
-        assert "description" in t["function"]
+        assert "function" not in t, "tool must be flat, not nested under 'function'"
+        assert "name" in t
+        assert "description" in t
+        assert "parameters" in t
 
 
 @pytest.mark.asyncio
