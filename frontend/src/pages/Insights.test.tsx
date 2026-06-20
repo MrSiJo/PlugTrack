@@ -76,8 +76,8 @@ describe('Insights page', () => {
       </MemoryRouter>,
     )
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
-    // First call is all-time (no bounds).
-    expect(spy.mock.calls[0]).toEqual([undefined, undefined])
+    // First call is all-time (no bounds, no car filter).
+    expect(spy.mock.calls[0]).toEqual([undefined, undefined, undefined])
 
     fireEvent.click(screen.getByTestId('insights-range-last_30'))
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2))

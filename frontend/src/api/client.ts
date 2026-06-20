@@ -227,6 +227,21 @@ export interface CarCreateRequest {
 
 export type CarUpdateRequest = Partial<CarCreateRequest>
 
+export interface CarLifetimeHomepublic {
+  home: InsightsSplitBucket
+  public: InsightsSplitBucket
+}
+
+export interface CarLifetimePayload {
+  ownership_span: { first: string | null; last: string | null }
+  total_sessions: number
+  total_kwh: number
+  total_cost_pence: number
+  lifetime_avg_p_per_kwh: number | null
+  lifetime_mi_per_kwh: number | null
+  home_public: CarLifetimeHomepublic
+}
+
 // ---------------------------------------------------------------------------
 // Mileage tracking
 // ---------------------------------------------------------------------------
@@ -650,6 +665,9 @@ export const api = {
   clearCarMileage: (carId: number): Promise<void> =>
     fetchJSON<void>(`/api/cars/${carId}/mileage`, { method: 'DELETE' }),
 
+  getCarLifetime: (id: number): Promise<CarLifetimePayload> =>
+    fetchJSON<CarLifetimePayload>(`/api/cars/${id}/lifetime`),
+
   // ----- Sessions -----
 
   getSessions: (
@@ -735,10 +753,12 @@ export const api = {
   getInsightsByLocation: (
     dateFrom?: string,
     dateTo?: string,
+    carId?: number,
   ): Promise<InsightsByLocationResponse> => {
     const params = new URLSearchParams()
     if (dateFrom) params.set('date_from', dateFrom)
     if (dateTo) params.set('date_to', dateTo)
+    if (carId != null) params.set('car_id', String(carId))
     const qs = params.toString()
     return fetchJSON<InsightsByLocationResponse>(
       `/api/insights/by-location${qs ? `?${qs}` : ''}`,
@@ -748,10 +768,12 @@ export const api = {
   getInsightsOverview: (
     dateFrom?: string,
     dateTo?: string,
+    carId?: number,
   ): Promise<InsightsOverviewResponse> => {
     const params = new URLSearchParams()
     if (dateFrom) params.set('date_from', dateFrom)
     if (dateTo) params.set('date_to', dateTo)
+    if (carId != null) params.set('car_id', String(carId))
     const qs = params.toString()
     return fetchJSON<InsightsOverviewResponse>(
       `/api/insights/overview${qs ? `?${qs}` : ''}`,
