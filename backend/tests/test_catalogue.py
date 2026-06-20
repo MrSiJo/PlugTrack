@@ -87,6 +87,78 @@ def test_charge_loss_factor_in_catalogue():
     assert entry.group_name == "charging"
 
 
+def test_digest_catalogue_entries_present_with_correct_types():
+    """The five digest settings keys must exist with correct types and defaults."""
+    from plugtrack.settings.catalogue import CATALOGUE
+
+    by_key = {e.key: e for e in CATALOGUE}
+
+    # digest_weekly_enabled
+    assert "digest_weekly_enabled" in by_key
+    entry = by_key["digest_weekly_enabled"]
+    assert entry.value_type == "bool"
+    assert entry.group_name == "telegram"
+    assert entry.default_value == "false"
+    assert entry.label == "Weekly digest"
+
+    # digest_monthly_enabled
+    assert "digest_monthly_enabled" in by_key
+    entry = by_key["digest_monthly_enabled"]
+    assert entry.value_type == "bool"
+    assert entry.group_name == "telegram"
+    assert entry.default_value == "false"
+    assert entry.label == "Monthly digest"
+
+    # digest_send_hour
+    assert "digest_send_hour" in by_key
+    entry = by_key["digest_send_hour"]
+    assert entry.value_type == "int"
+    assert entry.group_name == "telegram"
+    assert entry.default_value == "8"
+    assert entry.label == "Digest send hour"
+
+    # digest_last_weekly_sent — internal marker, default None
+    assert "digest_last_weekly_sent" in by_key
+    entry = by_key["digest_last_weekly_sent"]
+    assert entry.value_type == "string"
+    assert entry.group_name == "telegram"
+    assert entry.default_value is None
+
+    # digest_last_monthly_sent — internal marker, default None
+    assert "digest_last_monthly_sent" in by_key
+    entry = by_key["digest_last_monthly_sent"]
+    assert entry.value_type == "string"
+    assert entry.group_name == "telegram"
+    assert entry.default_value is None
+
+
+@pytest.mark.asyncio
+async def test_seed_defaults_seeds_digest_marker_keys(test_sessionmaker):
+    """digest_last_weekly_sent and digest_last_monthly_sent must be seeded
+    even though they are hidden from the list endpoint."""
+    from plugtrack.models import Setting
+    from plugtrack.settings.seeds import seed_defaults
+
+    async with test_sessionmaker() as session:
+        await seed_defaults(session)
+        await session.commit()
+
+    async with test_sessionmaker() as session:
+        result = await session.execute(
+            select(Setting).where(Setting.key == "digest_last_weekly_sent")
+        )
+        row = result.scalar_one_or_none()
+        assert row is not None, "digest_last_weekly_sent must be seeded"
+        assert row.value is None  # default is None
+
+        result = await session.execute(
+            select(Setting).where(Setting.key == "digest_last_monthly_sent")
+        )
+        row = result.scalar_one_or_none()
+        assert row is not None, "digest_last_monthly_sent must be seeded"
+        assert row.value is None  # default is None
+
+
 @pytest.mark.asyncio
 async def test_seed_defaults_does_not_overwrite_user_values(test_sessionmaker):
     from plugtrack.models import Setting

@@ -31,8 +31,11 @@ export const INTEGRATIONS: IntegrationDef[] = [
     settingKeys: [
       'telegram_bot_token',
       'telegram_allowed_user_ids',
+      'digest_weekly_enabled',
+      'digest_monthly_enabled',
+      'digest_send_hour',
     ],
-    hint: 'Screenshot extraction needs an OpenAI key set in the AI integration.',
+    hint: 'Screenshot extraction needs an OpenAI key set in the AI integration. Weekly and monthly digests are sent at the configured hour (Europe/London time).',
     actions: ['testTelegram'],
   },
   {
