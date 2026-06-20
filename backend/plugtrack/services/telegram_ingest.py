@@ -465,7 +465,6 @@ def _extraction_to_edit_kwargs(extraction: "Extraction") -> dict[str, Any]:
 
     Only includes fields that are not None. Date and notes are never set from
     a screenshot (updating an existing session shouldn't move its date).
-    Odometer is not a propose_edit_charge field — ignored.
     Cost: prefer total_cost_p when has_cost+cost_total_pence; else per-kwh rate.
     """
     kwargs: dict[str, Any] = {}
@@ -481,6 +480,10 @@ def _extraction_to_edit_kwargs(extraction: "Extraction") -> dict[str, Any]:
         kwargs["end_soc"] = extraction.soc_end
     if extraction.network is not None:
         kwargs["network"] = extraction.network
+    if extraction.odometer is not None:
+        kwargs["odometer"] = extraction.odometer
+        if extraction.odometer_unit is not None:
+            kwargs["odometer_unit"] = extraction.odometer_unit
     return kwargs
 
 

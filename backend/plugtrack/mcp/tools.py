@@ -54,6 +54,9 @@ from ..services.location_clustering import find_or_create_location
 # (grounding discipline) instead of converting pence itself.
 # ---------------------------------------------------------------------------
 
+_KM_PER_MI = 1.609344
+
+
 def _format_gbp(pence) -> Optional[str]:
     if pence is None:
         return None
@@ -171,7 +174,15 @@ async def _get_owned_location(
     return result.scalar_one_or_none()
 
 
-def _session_to_dict(cs: ChargingSession, *, location_name: Optional[str] = None) -> dict:
+def _format_odometer(km: Optional[float], unit: str) -> Optional[str]:
+    if km is None:
+        return None
+    if unit == "km":
+        return f"{round(km):,} km"
+    return f"{round(km / _KM_PER_MI):,} mi"
+
+
+def _session_to_dict(cs: ChargingSession, *, location_name: Optional[str] = None, distance_unit: str = "mi") -> dict:
     return {
         "id": cs.id,
         "date": cs.date,
@@ -188,6 +199,8 @@ def _session_to_dict(cs: ChargingSession, *, location_name: Optional[str] = None
         "tariff_p_per_kwh": cs.tariff_p_per_kwh,
         "notes": cs.notes,
         "charging_type": cs.charging_type,
+        "odometer_km": cs.odometer_at_session_km,
+        "odometer": _format_odometer(cs.odometer_at_session_km, distance_unit),
     }
 
 
@@ -212,6 +225,11 @@ async def find_charges(
     The `query` param is reserved for future text search; currently ignored.
     """
     try:
+        dist_unit_row = (await session.execute(
+            select(Setting).where(Setting.key == "distance_unit")
+        )).scalar_one_or_none()
+        dist_unit = (dist_unit_row.value if dist_unit_row else None) or "mi"
+
         stmt = (
             select(ChargingSession, Location.name)
             .join(Location, ChargingSession.location_id == Location.id, isouter=True)
@@ -227,7 +245,7 @@ async def find_charges(
         stmt = stmt.limit(limit)
 
         rows = (await session.execute(stmt)).all()
-        return [_session_to_dict(cs, location_name=loc_name) for cs, loc_name in rows]
+        return [_session_to_dict(cs, location_name=loc_name, distance_unit=dist_unit) for cs, loc_name in rows]
     except Exception as exc:
         return [{"error": str(exc)}]
 
@@ -250,7 +268,12 @@ async def get_charge(
             if loc is not None:
                 loc_name = loc.name
 
-        return _session_to_dict(cs, location_name=loc_name)
+        dist_unit_row = await session.execute(
+            select(Setting).where(Setting.key == "distance_unit")
+        )
+        dist_unit_row = dist_unit_row.scalar_one_or_none()
+        dist_unit = (dist_unit_row.value if dist_unit_row else None) or "mi"
+        return _session_to_dict(cs, location_name=loc_name, distance_unit=dist_unit)
     except Exception as exc:
         return {"error": str(exc)}
 
@@ -455,6 +478,8 @@ async def propose_edit_charge(
     date: Optional[dt.date] = None,
     network: Optional[str] = None,
     notes: Optional[str] = None,
+    odometer: Optional[float] = None,
+    odometer_unit: Optional[str] = None,
 ) -> dict:
     """Propose editing fields on a charge session.
 
@@ -493,6 +518,20 @@ async def propose_edit_charge(
         if notes is not None:
             data["notes"] = notes
             changes.append(f"notes → {notes!r}")
+
+        if odometer is not None:
+            # Resolve unit: use odometer_unit if given, else read distance_unit setting
+            unit = (odometer_unit or "").lower().strip()
+            if unit not in ("mi", "km"):
+                # Read from Setting table
+                result = await session.execute(
+                    select(Setting).where(Setting.key == "distance_unit")
+                )
+                setting_row = result.scalar_one_or_none()
+                unit = (setting_row.value if setting_row else None) or "mi"
+            odometer_km = odometer if unit == "km" else odometer * _KM_PER_MI
+            data["odometer_km"] = odometer_km
+            changes.append(f"odometer → {odometer} {unit}")
 
         if not changes:
             return {"error": "no changes specified"}
@@ -659,6 +698,9 @@ async def _apply_edit_charge(
 
     if "notes" in data:
         cs.notes = data["notes"]
+
+    if "odometer_km" in data:
+        cs.odometer_at_session_km = data["odometer_km"]
 
     if cost_dirty:
         await apply_cost(session, cs, first_compute=False, override_changed=override_changed)
