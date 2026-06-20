@@ -446,7 +446,20 @@ async def _lifespan(app: FastAPI):
     from sqlalchemy import select as _select
     from .models import Setting as _Setting
 
+    # ---------------------------------------------------------------------------
+    # Unified app-level scheduler.
+    # One AsyncIOScheduler is always created so the digest-tick job runs
+    # regardless of whether backups are enabled.  The backup job is added
+    # conditionally inside the same scheduler when backup_enabled=true.
+    # ---------------------------------------------------------------------------
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler as _AsyncIOScheduler
+    from apscheduler.triggers.interval import IntervalTrigger as _IntervalTrigger
+
+    app.state.scheduler = None
+    # Keep backward-compat alias so existing code / tests that check
+    # app.state.backup_scheduler still work.
     app.state.backup_scheduler = None
+
     async with db_module.SessionLocal() as _bk_session:
         backup_enabled = await _read_bool_setting(_bk_session, "backup_enabled", True)
         _bk_interval_hours = 24
@@ -474,50 +487,65 @@ async def _lifespan(app: FastAPI):
             except (TypeError, ValueError):
                 _bk_retention = 7
 
-    if backup_enabled:
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler as _AsyncIOScheduler
-        from apscheduler.triggers.interval import IntervalTrigger as _IntervalTrigger
+    try:
+        _scheduler = _AsyncIOScheduler()
 
-        _bk_retention_default = _bk_retention  # capture for closure fallback
+        # ── Digest tick (always) ─────────────────────────────────────────────
+        async def _digest_job() -> None:
+            await run_digest_tick()
 
-        async def _backup_job() -> None:
-            # Read retention fresh each run so setting changes apply without restart.
-            retention = _bk_retention_default
-            try:
-                async with db_module.SessionLocal() as _s:
-                    _ret_row = (await _s.execute(
-                        _select(_Setting).where(_Setting.key == "backup_retention")
-                    )).scalar_one_or_none()
-                    if _ret_row and _ret_row.value:
-                        try:
-                            retention = int(_ret_row.value)
-                        except (TypeError, ValueError):
-                            pass
-            except Exception:  # noqa: BLE001
-                pass  # use captured default if DB read fails
-            await run_scheduled_backup(retention=retention)
+        _scheduler.add_job(
+            _digest_job,
+            trigger=_IntervalTrigger(hours=1),
+            id="digest-tick",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
 
-        try:
-            _bk_scheduler = _AsyncIOScheduler()
-            _bk_scheduler.add_job(
+        # ── Backup job (conditional) ─────────────────────────────────────────
+        if backup_enabled:
+            _bk_retention_default = _bk_retention  # capture for closure fallback
+
+            async def _backup_job() -> None:
+                # Read retention fresh each run so setting changes apply without restart.
+                retention = _bk_retention_default
+                try:
+                    async with db_module.SessionLocal() as _s:
+                        _ret_row = (await _s.execute(
+                            _select(_Setting).where(_Setting.key == "backup_retention")
+                        )).scalar_one_or_none()
+                        if _ret_row and _ret_row.value:
+                            try:
+                                retention = int(_ret_row.value)
+                            except (TypeError, ValueError):
+                                pass
+                except Exception:  # noqa: BLE001
+                    pass  # use captured default if DB read fails
+                await run_scheduled_backup(retention=retention)
+
+            _scheduler.add_job(
                 _backup_job,
                 trigger=_IntervalTrigger(hours=_bk_interval_hours),
                 id="backup-scheduled",
                 replace_existing=True,
                 misfire_grace_time=300,
             )
-            _bk_scheduler.start()
-            app.state.backup_scheduler = _bk_scheduler
-            _log.info(
-                "Backup scheduler started: interval=%dh, retention=%d.",
-                _bk_interval_hours,
-                _bk_retention,
-            )
-        except Exception:  # noqa: BLE001
-            _log.exception(
-                "Backup scheduler failed to start — continuing without scheduled backups."
-            )
-            app.state.backup_scheduler = None
+
+        _scheduler.start()
+        app.state.scheduler = _scheduler
+        # Backward-compat: expose the backup scheduler under its old name too.
+        if backup_enabled:
+            app.state.backup_scheduler = _scheduler
+        _log.info(
+            "App scheduler started: digest-tick=1h%s.",
+            f", backup-scheduled={_bk_interval_hours}h" if backup_enabled else "",
+        )
+    except Exception:  # noqa: BLE001
+        _log.exception(
+            "App scheduler failed to start — continuing without scheduled jobs."
+        )
+        app.state.scheduler = None
+        app.state.backup_scheduler = None
 
     try:
         yield
@@ -525,10 +553,10 @@ async def _lifespan(app: FastAPI):
         mgr = getattr(app.state, "telegram_manager", None)
         if mgr is not None:
             await mgr.stop()
-        bk_scheduler = getattr(app.state, "backup_scheduler", None)
-        if bk_scheduler is not None:
+        _app_scheduler = getattr(app.state, "scheduler", None)
+        if _app_scheduler is not None:
             try:
-                bk_scheduler.shutdown(wait=False)
+                _app_scheduler.shutdown(wait=False)
             except Exception:  # noqa: BLE001
                 pass
         # Stop the MCP session manager (if it was started)
