@@ -335,6 +335,35 @@ describe('CarsManagement', () => {
     expect(api.updateCar).toHaveBeenCalledWith(5, { active: true })
   })
 
+  it('Edit form seeds max_ac_kw and max_dc_kw from the car payload', async () => {
+    vi.mocked(api.getCars).mockResolvedValue([
+      makeCar({ id: 9, max_ac_kw: 11, max_dc_kw: 165 }),
+    ])
+    vi.mocked(api.revealCarVin).mockResolvedValue({ vin: 'VSSZZZK1ZNP123456' })
+
+    render(
+      <MemoryRouter>
+        <CarsManagement />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('admin-edit-car-9')).toBeInTheDocument(),
+    )
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('admin-edit-car-9'))
+    })
+
+    // Both capacity inputs must show the saved values immediately (before/after reveal)
+    await waitFor(() => {
+      const acInput = screen.getByPlaceholderText(/3-phase Type-2/i) as HTMLInputElement
+      const dcInput = screen.getByPlaceholderText(/CCS fast-charge/i) as HTMLInputElement
+      expect(acInput.value).toBe('11')
+      expect(dcInput.value).toBe('165')
+    })
+  })
+
   it('409 delete shows server detail message', async () => {
     vi.mocked(api.getCars).mockResolvedValue([makeCar({ id: 6 })])
     vi.mocked(api.deleteCar).mockRejectedValue(
