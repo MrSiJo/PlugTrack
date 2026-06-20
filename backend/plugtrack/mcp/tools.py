@@ -47,6 +47,45 @@ from ..services.location_clustering import find_or_create_location
 
 
 # ---------------------------------------------------------------------------
+# Money formatting (display convention for the conversational layer)
+#   - totals / spend / per-charge cost → pounds, "£X.XX"
+#   - per-kWh rates / unit prices       → pence,  "N.Np/kWh"
+# Tool outputs carry pre-formatted strings so the agent restates them verbatim
+# (grounding discipline) instead of converting pence itself.
+# ---------------------------------------------------------------------------
+
+def _format_gbp(pence) -> Optional[str]:
+    if pence is None:
+        return None
+    return f"£{pence / 100:.2f}"
+
+
+def _format_rate(p) -> Optional[str]:
+    if p is None:
+        return None
+    return f"{p:.1f}p/kWh"
+
+
+def _annotate_money(obj):
+    """Recursively add display-formatted money fields to a tool-result structure.
+
+    For any dict carrying `spend_pence` add a pounds string `spend`; for any
+    dict carrying `avg_p_per_kwh` add a pence-rate string `avg_price`.
+    """
+    if isinstance(obj, dict):
+        if isinstance(obj.get("spend_pence"), (int, float)):
+            obj["spend"] = _format_gbp(obj["spend_pence"])
+        if isinstance(obj.get("avg_p_per_kwh"), (int, float)):
+            obj["avg_price"] = _format_rate(obj["avg_p_per_kwh"])
+        for v in obj.values():
+            _annotate_money(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            _annotate_money(v)
+    return obj
+
+
+# ---------------------------------------------------------------------------
 # Change-token store
 # ---------------------------------------------------------------------------
 
@@ -137,13 +176,15 @@ def _session_to_dict(cs: ChargingSession, *, location_name: Optional[str] = None
         "id": cs.id,
         "date": cs.date,
         "kwh": cs.kwh_added,
-        "cost": cs.cost_pence,
+        "cost": _format_gbp(cs.cost_pence),       # pounds, e.g. "£9.85"
+        "cost_pence": cs.cost_pence,              # raw, for reference
         "soc": {"start": cs.start_soc, "end": cs.end_soc},
         "location_id": cs.location_id,
         "location_name": location_name,
         "network": cs.charge_network,
         "source": cs.source,
         "cost_basis": cs.cost_basis,
+        "tariff": _format_rate(cs.tariff_p_per_kwh),  # pence rate, e.g. "7.5p/kWh"
         "tariff_p_per_kwh": cs.tariff_p_per_kwh,
         "notes": cs.notes,
         "charging_type": cs.charging_type,
@@ -246,13 +287,13 @@ async def get_insights(
             granularity=granularity,
         )
 
-        return {
+        return _annotate_money({
             "totals": totals,
             "home_public_split": split,
             "network_breakdown": networks,
             "spend_energy_over_time": over_time,
             "granularity": granularity,
-        }
+        })
     except Exception as exc:
         return {"error": str(exc)}
 

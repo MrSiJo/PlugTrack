@@ -49,7 +49,12 @@ AGENT_SYSTEM_PROMPT = (
     "If the user asks for a change (add location, edit a charge), use the propose_* tools "
     "to prepare the change — the user must confirm with Save before anything is written. "
     "Be concise, friendly, and use plain text (no Markdown, no asterisks). "
-    "Dates are YYYY-MM-DD. Costs are in pence (£ = pence / 100). "
+    "Dates are YYYY-MM-DD.\n"
+    "MONEY FORMATTING: present totals and spend amounts in POUNDS as £X.XX "
+    "(e.g. £9.85) — never quote the raw pence figure for a total. Present "
+    "per-kWh rates and unit prices in PENCE (e.g. 7.5p/kWh). Tool results "
+    "include pre-formatted fields for this — prefer 'spend' (pounds), 'cost' "
+    "(pounds), 'avg_price' and 'tariff' (pence/kWh) over the raw *_pence fields.\n"
     "If a tool returns an error, tell the user plainly and offer alternatives."
 )
 

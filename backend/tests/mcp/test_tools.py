@@ -223,6 +223,46 @@ async def test_find_charges_result_shape(test_sessionmaker):
         assert field in r, f"Missing field: {field}"
 
 
+@pytest.mark.asyncio
+async def test_find_charges_formats_money(test_sessionmaker):
+    """Per-charge cost is shown in pounds (£X.XX); tariff in pence (Np/kWh)."""
+    from plugtrack.mcp.tools import find_charges
+
+    user_id = await _seed_user(test_sessionmaker, "alice_money")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    await _seed_session(
+        test_sessionmaker, user_id, car_id, cost_pence=985, tariff_p_per_kwh=7.5
+    )
+
+    async with test_sessionmaker() as session:
+        r = (await find_charges(session, user_id))[0]
+
+    assert r["cost"] == "£9.85", r["cost"]      # total in pounds
+    assert r["cost_pence"] == 985               # raw still available
+    assert r["tariff"] == "7.5p/kWh", r["tariff"]  # rate in pence
+
+
+@pytest.mark.asyncio
+async def test_get_insights_formats_spend_in_pounds(test_sessionmaker):
+    """get_insights totals carry a pounds-formatted `spend` alongside spend_pence."""
+    from plugtrack.mcp.tools import get_insights
+
+    user_id = await _seed_user(test_sessionmaker, "alice_insights_money")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    await _seed_session(test_sessionmaker, user_id, car_id, cost_pence=985)
+
+    async with test_sessionmaker() as session:
+        ins = await get_insights(session, user_id)
+
+    totals = ins["totals"]
+    assert "spend_pence" in totals
+    assert totals.get("spend") == _format_gbp_expected(totals["spend_pence"])
+
+
+def _format_gbp_expected(pence) -> str:
+    return f"£{pence / 100:.2f}"
+
+
 # ---------------------------------------------------------------------------
 # get_charge tests
 # ---------------------------------------------------------------------------
