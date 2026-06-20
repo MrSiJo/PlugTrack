@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.0](https://github.com/MrSiJo/PlugTrack/compare/v3.2.0...v3.3.0) (2026-06-20)
+
+
+### Features
+
+* proactive summaries — scheduled Telegram digest ([#27](https://github.com/MrSiJo/PlugTrack/issues/27)) ([c78773f](https://github.com/MrSiJo/PlugTrack/commit/c78773f3175a4721ebc2d4258fd9014134bd6d87))
+
 ## [3.2.0](https://github.com/MrSiJo/PlugTrack/compare/v3.1.0...v3.2.0) (2026-06-20)
 
 
