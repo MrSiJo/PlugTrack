@@ -192,77 +192,97 @@ async def run_digest_tick(
 
         client = client_factory(token)
 
+        # ── Delivery semantics (at-least-once) ───────────────────────────────
+        # Send failure  → marker NOT advanced → tick retried next hourly run.
+        #   A duplicate digest is possible if Telegram errors then recovers —
+        #   this is acceptable for a low-frequency digest.
+        # Empty period  → builder returns None → marker IS advanced immediately
+        #   (no send, but no retry either — nothing to send).
+        # The two periods are fully independent: a monthly failure must NOT
+        # prevent the weekly marker from being committed, and vice-versa.
+        # Each period runs inside its own try/except so neither can poison the
+        # other; the outer try/except guards only the shared setup above.
+
         # ── WEEKLY ───────────────────────────────────────────────────────
-        if _truthy(rows.get("digest_weekly_enabled")):
-            # The anchor is: Monday of the current ISO week at send_hour.
-            # It has passed when:
-            #   - weekday > 0 (Tue–Sun, anchor was earlier this week), OR
-            #   - weekday == 0 AND hour >= send_hour (Mon at or after send_hour)
-            weekday = now_local.weekday()  # 0=Mon, 6=Sun
-            weekly_anchor_passed = (weekday > 0) or (weekday == 0 and now_local.hour >= send_hour)
+        try:
+            if _truthy(rows.get("digest_weekly_enabled")):
+                # The anchor is: Monday of the current ISO week at send_hour.
+                # It has passed when:
+                #   - weekday > 0 (Tue–Sun, anchor was earlier this week), OR
+                #   - weekday == 0 AND hour >= send_hour (Mon at or after send_hour)
+                weekday = now_local.weekday()  # 0=Mon, 6=Sun
+                weekly_anchor_passed = (weekday > 0) or (weekday == 0 and now_local.hour >= send_hour)
 
-            last_weekly = rows.get("digest_last_weekly_sent") or ""
+                last_weekly = rows.get("digest_last_weekly_sent") or ""
 
-            if weekly_anchor_passed and last_weekly != current_iso_week:
-                async with sessionmaker() as session:
-                    text = await _weekly_builder(session, user_id=user_id, now=now_local)
+                if weekly_anchor_passed and last_weekly != current_iso_week:
+                    async with sessionmaker() as session:
+                        text = await _weekly_builder(session, user_id=user_id, now=now_local)
 
-                if text is not None:
-                    await client.send_message(chat_id=chat_id, text=text)
+                    if text is not None:
+                        # Failure here raises → marker NOT committed → retried next tick.
+                        await client.send_message(chat_id=chat_id, text=text)
 
-                # Always set the marker — even on empty skip — to avoid retry.
-                async with sessionmaker() as session:
-                    marker_row = (await session.execute(
-                        _select(_Setting).where(_Setting.key == "digest_last_weekly_sent")
-                    )).scalar_one_or_none()
-                    if marker_row is None:
-                        session.add(_Setting(
-                            key="digest_last_weekly_sent",
-                            value=current_iso_week,
-                            value_type="string",
-                            group_name="telegram",
-                            label="(internal) last weekly digest",
-                            description="",
-                            default_value=None,
-                        ))
-                    else:
-                        marker_row.value = current_iso_week
-                    await session.commit()
+                    # Marker committed only after successful send (or empty period).
+                    async with sessionmaker() as session:
+                        marker_row = (await session.execute(
+                            _select(_Setting).where(_Setting.key == "digest_last_weekly_sent")
+                        )).scalar_one_or_none()
+                        if marker_row is None:
+                            session.add(_Setting(
+                                key="digest_last_weekly_sent",
+                                value=current_iso_week,
+                                value_type="string",
+                                group_name="telegram",
+                                label="(internal) last weekly digest",
+                                description="",
+                                default_value=None,
+                            ))
+                        else:
+                            marker_row.value = current_iso_week
+                        await session.commit()
+        except Exception:  # noqa: BLE001
+            _log.exception("run_digest_tick: weekly period failed — swallowed; will retry next tick.")
 
         # ── MONTHLY ──────────────────────────────────────────────────────
-        if _truthy(rows.get("digest_monthly_enabled")):
-            # Anchor: 1st of current month at send_hour.
-            # Passed when: day > 1, OR (day == 1 AND hour >= send_hour)
-            monthly_anchor_passed = (now_local.day > 1) or (
-                now_local.day == 1 and now_local.hour >= send_hour
-            )
+        try:
+            if _truthy(rows.get("digest_monthly_enabled")):
+                # Anchor: 1st of current month at send_hour.
+                # Passed when: day > 1, OR (day == 1 AND hour >= send_hour)
+                monthly_anchor_passed = (now_local.day > 1) or (
+                    now_local.day == 1 and now_local.hour >= send_hour
+                )
 
-            last_monthly = rows.get("digest_last_monthly_sent") or ""
+                last_monthly = rows.get("digest_last_monthly_sent") or ""
 
-            if monthly_anchor_passed and last_monthly != current_month:
-                async with sessionmaker() as session:
-                    text = await _monthly_builder(session, user_id=user_id, now=now_local)
+                if monthly_anchor_passed and last_monthly != current_month:
+                    async with sessionmaker() as session:
+                        text = await _monthly_builder(session, user_id=user_id, now=now_local)
 
-                if text is not None:
-                    await client.send_message(chat_id=chat_id, text=text)
+                    if text is not None:
+                        # Failure here raises → marker NOT committed → retried next tick.
+                        await client.send_message(chat_id=chat_id, text=text)
 
-                async with sessionmaker() as session:
-                    marker_row = (await session.execute(
-                        _select(_Setting).where(_Setting.key == "digest_last_monthly_sent")
-                    )).scalar_one_or_none()
-                    if marker_row is None:
-                        session.add(_Setting(
-                            key="digest_last_monthly_sent",
-                            value=current_month,
-                            value_type="string",
-                            group_name="telegram",
-                            label="(internal) last monthly digest",
-                            description="",
-                            default_value=None,
-                        ))
-                    else:
-                        marker_row.value = current_month
-                    await session.commit()
+                    # Marker committed only after successful send (or empty period).
+                    async with sessionmaker() as session:
+                        marker_row = (await session.execute(
+                            _select(_Setting).where(_Setting.key == "digest_last_monthly_sent")
+                        )).scalar_one_or_none()
+                        if marker_row is None:
+                            session.add(_Setting(
+                                key="digest_last_monthly_sent",
+                                value=current_month,
+                                value_type="string",
+                                group_name="telegram",
+                                label="(internal) last monthly digest",
+                                description="",
+                                default_value=None,
+                            ))
+                        else:
+                            marker_row.value = current_month
+                        await session.commit()
+        except Exception:  # noqa: BLE001
+            _log.exception("run_digest_tick: monthly period failed — swallowed; will retry next tick.")
 
     except Exception:  # noqa: BLE001
         _log.exception("run_digest_tick failed — swallowed to protect scheduler.")

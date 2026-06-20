@@ -35,6 +35,11 @@ SECOND         = dt.datetime(2026, 7,  2,  9,  0, tzinfo=LONDON)   # 2nd, anchor
 WEEK_MARKER   = "2026-W26"
 MONTH_MARKER  = "2026-07"
 
+# ISO week for SECOND (2026-07-02 is Thursday of W27)
+WEEK_MARKER_W27 = "2026-W27"
+# Month for SECOND
+MONTH_MARKER_JUL = "2026-07"
+
 # Bot creds
 FAKE_TOKEN     = "faketoken123"
 FAKE_CHAT_ID   = 99999
@@ -53,6 +58,19 @@ class FakeTelegramClient:
     ) -> Optional[int]:
         self.calls.append({"chat_id": chat_id, "text": text, "reply_markup": reply_markup})
         return 1  # fake message_id
+
+
+class FailingTelegramClient:
+    """Always raises on send_message — simulates a Telegram network error."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def send_message(
+        self, *, chat_id: int, text: str, reply_markup: Optional[dict] = None
+    ) -> Optional[int]:
+        self.calls.append({"chat_id": chat_id, "text": text, "reply_markup": reply_markup})
+        raise RuntimeError("Telegram network error (simulated)")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -244,7 +262,7 @@ async def test_weekly_not_sent_before_send_hour(test_sessionmaker):
 
     assert len(fake.calls) == 0
     marker = await _get_marker(test_sessionmaker, "digest_last_weekly_sent")
-    assert marker is None or marker != WEEK_MARKER
+    assert marker is None
 
 
 @pytest.mark.asyncio
@@ -417,7 +435,7 @@ async def test_monthly_not_sent_before_send_hour(test_sessionmaker):
 
     assert len(fake.calls) == 0
     marker = await _get_marker(test_sessionmaker, "digest_last_monthly_sent")
-    assert marker is None or marker != MONTH_MARKER
+    assert marker is None
 
 
 @pytest.mark.asyncio
@@ -449,3 +467,131 @@ async def test_both_weekly_and_monthly_fire_together(test_sessionmaker):
     assert "weekly text" in texts
     assert "monthly text" in texts
     assert len(fake.calls) == 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Hardening tests (Tests 3–5): send-failure retry + period independence
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_send_failure_no_marker_written(test_sessionmaker):
+    """Test 3: send_message raises → marker NOT written → will retry next tick.
+
+    Delivery semantics: send failure → marker NOT advanced → at-least-once
+    retry. A duplicate is possible if Telegram errors then recovers, but that
+    is acceptable for a low-frequency digest.
+    """
+    await _seed_user(test_sessionmaker)
+    await _seed_bot_settings(test_sessionmaker, weekly=True, monthly=False)
+
+    failing = FailingTelegramClient()
+
+    async def _fake_weekly(session, *, user_id, now):
+        return "weekly content"  # non-empty → send will be attempted
+
+    async def _fake_monthly(session, *, user_id, now):
+        return None
+
+    # Must NOT raise (exception swallowed by per-period try/except)
+    await run_digest_tick(
+        now=MONDAY_AFTER,
+        sessionmaker=test_sessionmaker,
+        client_factory=lambda token: failing,
+        _weekly_builder=_fake_weekly,
+        _monthly_builder=_fake_monthly,
+    )
+
+    # Send was attempted
+    assert len(failing.calls) == 1
+
+    # But marker must NOT have been committed → retry on next tick
+    marker = await _get_marker(test_sessionmaker, "digest_last_weekly_sent")
+    assert marker is None
+
+
+@pytest.mark.asyncio
+async def test_monthly_failure_does_not_prevent_weekly_marker(test_sessionmaker):
+    """Test 4: weekly succeeds + monthly fails → weekly marker IS written, monthly is NOT.
+
+    Independence test: the two periods must not contaminate each other.
+    A monthly send failure must not roll back or skip the already-committed
+    weekly marker.
+    """
+    await _seed_user(test_sessionmaker)
+    # Both periods enabled; SECOND (2026-07-02) has both anchors passed.
+    await _seed_bot_settings(test_sessionmaker, weekly=True, monthly=True)
+
+    class _MixedClient:
+        """Succeeds on first call (weekly), raises on second (monthly)."""
+        def __init__(self):
+            self.calls: list[dict[str, Any]] = []
+
+        async def send_message(self, *, chat_id: int, text: str, reply_markup: Optional[dict] = None):
+            self.calls.append({"chat_id": chat_id, "text": text})
+            if len(self.calls) == 1:
+                return 1  # weekly succeeds
+            raise RuntimeError("Monthly Telegram send failed (simulated)")
+
+    mixed = _MixedClient()
+
+    async def _fake_weekly(session, *, user_id, now):
+        return "weekly text"
+
+    async def _fake_monthly(session, *, user_id, now):
+        return "monthly text"
+
+    # Must NOT raise (both exceptions swallowed)
+    await run_digest_tick(
+        now=SECOND,
+        sessionmaker=test_sessionmaker,
+        client_factory=lambda token: mixed,
+        _weekly_builder=_fake_weekly,
+        _monthly_builder=_fake_monthly,
+    )
+
+    # Weekly message was sent
+    assert any(c["text"] == "weekly text" for c in mixed.calls)
+
+    # Weekly marker IS committed (weekly succeeded before monthly even ran)
+    weekly_marker = await _get_marker(test_sessionmaker, "digest_last_weekly_sent")
+    assert weekly_marker == WEEK_MARKER_W27
+
+    # Monthly marker is NOT committed (send failed)
+    monthly_marker = await _get_marker(test_sessionmaker, "digest_last_monthly_sent")
+    assert monthly_marker is None
+
+
+@pytest.mark.asyncio
+async def test_both_succeed_markers_set_to_correct_values(test_sessionmaker):
+    """Test 5: both weekly+monthly fire and succeed → BOTH markers set to correct period values.
+
+    Verifies the exact ISO-week and YYYY-MM strings, not just that 2 sends happened.
+    SECOND = 2026-07-02 (Thursday of W27, month=2026-07).
+    """
+    await _seed_user(test_sessionmaker)
+    await _seed_bot_settings(test_sessionmaker, weekly=True, monthly=True)
+
+    fake = FakeTelegramClient()
+
+    async def _fake_weekly(session, *, user_id, now):
+        return "weekly text"
+
+    async def _fake_monthly(session, *, user_id, now):
+        return "monthly text"
+
+    await run_digest_tick(
+        now=SECOND,
+        sessionmaker=test_sessionmaker,
+        client_factory=lambda token: fake,
+        _weekly_builder=_fake_weekly,
+        _monthly_builder=_fake_monthly,
+    )
+
+    assert len(fake.calls) == 2
+
+    # SECOND is 2026-07-02 → ISO week W27, month 2026-07
+    weekly_marker = await _get_marker(test_sessionmaker, "digest_last_weekly_sent")
+    assert weekly_marker == WEEK_MARKER_W27  # "2026-W27"
+
+    monthly_marker = await _get_marker(test_sessionmaker, "digest_last_monthly_sent")
+    assert monthly_marker == MONTH_MARKER_JUL  # "2026-07"
