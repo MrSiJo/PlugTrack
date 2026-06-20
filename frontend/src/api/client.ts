@@ -244,6 +244,8 @@ export interface CarLifetimePayload {
   lifetime_avg_p_per_kwh: number | null
   lifetime_mi_per_kwh: number | null
   home_public: CarLifetimeHomepublic
+  estimated_usable_kwh: number | null
+  seasonal_range_span: { min_km: number | null; max_km: number | null; avg_km: number | null } | null
 }
 
 // ---------------------------------------------------------------------------
