@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.4.0](https://github.com/MrSiJo/PlugTrack/compare/v3.3.0...v3.4.0) (2026-06-20)
+
+
+### Features
+
+* long-term ownership trends — seasonal efficiency & battery health ([#29](https://github.com/MrSiJo/PlugTrack/issues/29)) ([aaa4e12](https://github.com/MrSiJo/PlugTrack/commit/aaa4e12ed31e38f1444ba3976c7c0732afe79f24))
+
 ## [3.3.0](https://github.com/MrSiJo/PlugTrack/compare/v3.2.0...v3.3.0) (2026-06-20)
 
 
