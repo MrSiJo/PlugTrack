@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { SeasonalEfficiencyChart } from './SeasonalEfficiencyChart'
+import { SeasonalEfficiencyChart, ChartTooltip } from './SeasonalEfficiencyChart'
 
 const SAMPLE_DATA = [
   { period: '2026-01', mi_per_kwh: 3.2, derived_range_km: 168, low_confidence: false },
@@ -60,5 +60,27 @@ describe('SeasonalEfficiencyChart', () => {
     })
     render(<SeasonalEfficiencyChart data={SAMPLE_DATA} data-testid="sec" />)
     expect(screen.getByText('Range (km)')).toBeInTheDocument()
+  })
+
+  it('tooltip shows derived_range_km converted to km (100 km → "100 km")', () => {
+    useSettingsStore.setState({
+      settings: { distance_unit: { key: 'distance_unit', value: 'km', value_type: 'enum', group_name: '', label: '', description: null, is_secret: false } },
+      loaded: true,
+    })
+    const point = { period: '2026-06', mi_per_kwh: 4.1, derived_range_km: 100, low_confidence: false }
+    const payload = [{ payload: point, name: 'derived_range_display', value: 100 }]
+    render(<ChartTooltip active={true} payload={payload} />)
+    // formatDistance(100, 'km') → { value: 100, unit: 'km' } → "100 km"
+    expect(screen.getByText(/100 km/i)).toBeInTheDocument()
+  })
+
+  it('tooltip shows derived_range_km converted to mi (160.9344 km → "100 mi")', () => {
+    // Default distance_unit is 'mi'
+    useSettingsStore.setState({ settings: {}, loaded: true })
+    const point = { period: '2026-06', mi_per_kwh: 4.1, derived_range_km: 160.9344, low_confidence: false }
+    const payload = [{ payload: point, name: 'derived_range_display', value: 100 }]
+    render(<ChartTooltip active={true} payload={payload} />)
+    // formatDistance(160.9344, 'mi') → { value: 100, unit: 'mi' } → "100 mi"
+    expect(screen.getByText(/100 mi/i)).toBeInTheDocument()
   })
 })

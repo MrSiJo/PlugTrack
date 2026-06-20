@@ -162,6 +162,7 @@ describe('Insights page', () => {
       capacity_trend: [],
     })
     vi.spyOn(api, 'getCars').mockResolvedValue([])
+    vi.spyOn(api, 'getInsightsMileage').mockResolvedValue(DISABLED_MILEAGE)
 
     render(<MemoryRouter><Insights /></MemoryRouter>)
 
@@ -190,6 +191,7 @@ describe('Insights page', () => {
       ],
     })
     vi.spyOn(api, 'getCars').mockResolvedValue([])
+    vi.spyOn(api, 'getInsightsMileage').mockResolvedValue(DISABLED_MILEAGE)
 
     render(<MemoryRouter><Insights /></MemoryRouter>)
 

@@ -6,7 +6,6 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-  Legend,
 } from 'recharts'
 import type { SeasonalEfficiencyPoint } from '@/api/client'
 import { formatDistance } from '@/stores/settingsStore'
@@ -22,7 +21,7 @@ interface TooltipProps {
   payload?: { payload?: SeasonalEfficiencyPoint; name?: string; value?: number | null }[]
 }
 
-function ChartTooltip({ active, payload }: TooltipProps) {
+export function ChartTooltip({ active, payload }: TooltipProps) {
   const point = payload?.[0]?.payload
   if (!active || !point) return null
   const rangeDisplay =
@@ -144,12 +143,6 @@ export function SeasonalEfficiencyChart({
               }}
             />
             <Tooltip content={<ChartTooltip />} />
-            <Legend
-              wrapperStyle={{ fontSize: 10 }}
-              formatter={(value: string) =>
-                value === 'mi_per_kwh' ? 'mi/kWh' : rangeLabel
-              }
-            />
             <Line
               yAxisId="eff"
               type="monotone"

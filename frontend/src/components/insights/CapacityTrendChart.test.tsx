@@ -33,11 +33,9 @@ describe('CapacityTrendChart', () => {
 
   it('shows AC and DC in a legend or label', () => {
     render(<CapacityTrendChart data={SAMPLE_DATA} data-testid="ctc" />)
-    // The custom legend spans render "AC" and "DC" as plain text nodes.
-    const acElements = screen.getAllByText(/^AC$/)
-    expect(acElements.length).toBeGreaterThan(0)
-    const dcElements = screen.getAllByText(/^DC$/)
-    expect(dcElements.length).toBeGreaterThan(0)
+    // The custom DOM legend renders "AC" and "DC" as plain text nodes (single instance each).
+    expect(screen.getByText('AC')).toBeInTheDocument()
+    expect(screen.getByText('DC')).toBeInTheDocument()
   })
 
   it('shows kWh in the chart or surrounding text', () => {

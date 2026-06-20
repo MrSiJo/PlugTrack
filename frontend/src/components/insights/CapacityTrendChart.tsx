@@ -6,7 +6,6 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-  Legend,
 } from 'recharts'
 import type { CapacityTrendPoint } from '@/api/client'
 
@@ -122,12 +121,6 @@ export function CapacityTrendChart({
               }}
             />
             <Tooltip content={<ChartTooltip />} />
-            <Legend
-              wrapperStyle={{ fontSize: 10 }}
-              formatter={(value: string) =>
-                value === 'usable_kwh_ac' ? 'AC' : 'DC'
-              }
-            />
             <Line
               type="monotone"
               dataKey="usable_kwh_ac"
