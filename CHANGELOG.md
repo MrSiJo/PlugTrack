@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.0](https://github.com/MrSiJo/PlugTrack/compare/v3.0.0...v3.1.0) (2026-06-20)
+
+
+### Features
+
+* multi-car support (names, archive, per-charge targeting, lifetime review) ([#23](https://github.com/MrSiJo/PlugTrack/issues/23)) ([7794b63](https://github.com/MrSiJo/PlugTrack/commit/7794b630f7240fa8ce1b6b7a310e4e4db0f8234a))
+
 ## [3.0.0](https://github.com/MrSiJo/PlugTrack/compare/v2.11.1...v3.0.0) (2026-06-20)
 
 
