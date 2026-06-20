@@ -136,6 +136,8 @@ async def _apply_additive_migrations(conn) -> None:
         ("screenshot_import", "input_tokens", "INTEGER"),
         ("screenshot_import", "output_tokens", "INTEGER"),
         ("screenshot_import", "reasoning_tokens", "INTEGER"),
+        # multi-car: friendly name (nullable, falls back to "{make} {model}")
+        ("car", "name", "VARCHAR(64)"),
     )
     for table, column, ddl in additions:
         cols = (await conn.execute(_text(f"PRAGMA table_info({table})"))).all()

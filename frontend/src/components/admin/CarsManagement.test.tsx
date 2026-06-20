@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { api, type CarPayload } from '@/api/client'
+import { ApiError, api, type CarPayload } from '@/api/client'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { CarsManagement } from './CarsManagement'
 
@@ -28,6 +28,8 @@ function makeCar(over: Partial<CarPayload> = {}): CarPayload {
     id: 1,
     make: 'Cupra',
     model: 'Born',
+    name: null,
+    display_name: 'Cupra Born',
     vin: '········12345',
     battery_kwh: 58,
     nominal_efficiency_mi_per_kwh: 3.5,
@@ -187,8 +189,8 @@ describe('CarsManagement', () => {
 
   it('does NOT leak car A VIN into car B edit when A reveal resolves after switching to B', async () => {
     vi.mocked(api.getCars).mockResolvedValue([
-      makeCar({ id: 10, vin: '········AAAAA', make: 'Car', model: 'A' }),
-      makeCar({ id: 20, vin: '········BBBBB', make: 'Car', model: 'B' }),
+      makeCar({ id: 10, vin: '········AAAAA', make: 'Car', model: 'A', display_name: 'Car A' }),
+      makeCar({ id: 20, vin: '········BBBBB', make: 'Car', model: 'B', display_name: 'Car B' }),
     ])
 
     // Deferred promise for car A — we control when it resolves.
@@ -245,5 +247,117 @@ describe('CarsManagement', () => {
     ) as HTMLInputElement
     expect(vinInput.value).toBe('FULL-VIN-BBBBB')
     expect(vinInput.value).not.toBe('FULL-VIN-AAAAA')
+  })
+
+  // ── New tests for Task 8 ────────────────────────────────────────────────────
+
+  it('shows Archived pill for inactive car and Restore button', async () => {
+    vi.mocked(api.getCars).mockResolvedValue([
+      makeCar({ id: 2, active: false, display_name: 'Archived Car' }),
+    ])
+
+    render(
+      <MemoryRouter>
+        <CarsManagement />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId('admin-car-row').length).toBe(1),
+    )
+
+    expect(screen.getByText('Archived')).toBeInTheDocument()
+    expect(screen.getByTestId('admin-restore-car-2')).toBeInTheDocument()
+    expect(screen.queryByTestId('admin-archive-car-2')).not.toBeInTheDocument()
+  })
+
+  it('shows Archive button for active car, no Restore', async () => {
+    vi.mocked(api.getCars).mockResolvedValue([
+      makeCar({ id: 1, active: true, display_name: 'Active Car' }),
+    ])
+
+    render(
+      <MemoryRouter>
+        <CarsManagement />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId('admin-car-row').length).toBe(1),
+    )
+
+    expect(screen.getByTestId('admin-archive-car-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('admin-restore-car-1')).not.toBeInTheDocument()
+    expect(screen.queryByText('Archived')).not.toBeInTheDocument()
+  })
+
+  it('clicking Archive calls updateCar with active: false', async () => {
+    vi.mocked(api.getCars).mockResolvedValue([makeCar({ id: 4, active: true })])
+    vi.mocked(api.updateCar).mockResolvedValue(makeCar({ id: 4, active: false }))
+
+    render(
+      <MemoryRouter>
+        <CarsManagement />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('admin-archive-car-4')).toBeInTheDocument(),
+    )
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('admin-archive-car-4'))
+    })
+
+    expect(api.updateCar).toHaveBeenCalledWith(4, { active: false })
+  })
+
+  it('clicking Restore calls updateCar with active: true', async () => {
+    vi.mocked(api.getCars).mockResolvedValue([makeCar({ id: 5, active: false })])
+    vi.mocked(api.updateCar).mockResolvedValue(makeCar({ id: 5, active: true }))
+
+    render(
+      <MemoryRouter>
+        <CarsManagement />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('admin-restore-car-5')).toBeInTheDocument(),
+    )
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('admin-restore-car-5'))
+    })
+
+    expect(api.updateCar).toHaveBeenCalledWith(5, { active: true })
+  })
+
+  it('409 delete shows server detail message', async () => {
+    vi.mocked(api.getCars).mockResolvedValue([makeCar({ id: 6 })])
+    vi.mocked(api.deleteCar).mockRejectedValue(
+      new ApiError(409, 'This car has 3 charges. Archive it instead of deleting.', {
+        detail: 'This car has 3 charges. Archive it instead of deleting.',
+      }),
+    )
+    vi.stubGlobal('confirm', vi.fn(() => true))
+
+    render(
+      <MemoryRouter>
+        <CarsManagement />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('admin-delete-car-6')).toBeInTheDocument(),
+    )
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('admin-delete-car-6'))
+    })
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent('This car has 3 charges'),
+    )
   })
 })

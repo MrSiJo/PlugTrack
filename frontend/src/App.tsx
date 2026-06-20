@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { applyThemeToDocument } from '@/theme'
 import AdminPage from '@/pages/AdminPage'
+import CarDetail from '@/pages/CarDetail'
 import Cars from '@/pages/Cars'
 import Dashboard from '@/pages/Dashboard'
 import Insights from '@/pages/Insights'
@@ -198,6 +199,18 @@ function AppRoutes({ result }: { result: BootstrapResult }) {
             <Navigate to="/login" replace state={{ from: location }} />
           ) : (
             <Cars />
+          )
+        }
+      />
+      <Route
+        path="/cars/:id"
+        element={
+          result.setupNeeded ? (
+            <Navigate to="/setup" replace />
+          ) : !authed ? (
+            <Navigate to="/login" replace state={{ from: location }} />
+          ) : (
+            <CarDetail />
           )
         }
       />

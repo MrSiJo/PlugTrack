@@ -863,3 +863,169 @@ async def test_moving_charge_to_another_location_keeps_frozen_cost(
     assert body["cost_basis"] == "location_rate"  # basis frozen
     assert body["tariff_p_per_kwh"] == 20.0  # still A's frozen rate, NOT 60
     assert body["cost_pence"] == 200  # unchanged, NOT round(10 * 60)
+
+
+# ---------------------------------------------------------------------------
+# Session reassignment — car_id on SessionUpdateRequest (Task 4)
+# ---------------------------------------------------------------------------
+
+
+async def _create_car_archived(client) -> int:
+    """Create a car and immediately archive it (active=False)."""
+    car_id = await _create_car(client)
+    r = await client.put(
+        f"/api/cars/{car_id}",
+        json={"active": False},
+        headers=csrf_headers(client),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["active"] is False
+    return car_id
+
+
+@pytest.mark.asyncio
+async def test_reassign_session_to_another_active_owned_car(authed_client):
+    """PUT /api/sessions/{id} with car_id reassigns to a different active car."""
+    original_car_id = await _create_car(authed_client)
+    new_car_id = await _create_car(authed_client)
+
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": original_car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert create.status_code == 201, create.text
+    sid = create.json()["id"]
+    assert create.json()["car_id"] == original_car_id
+
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"car_id": new_car_id},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200, upd.text
+    assert upd.json()["car_id"] == new_car_id
+
+
+@pytest.mark.asyncio
+async def test_reassign_session_to_archived_owned_car(authed_client):
+    """PUT /api/sessions/{id} with an archived (active=False) car_id → 200."""
+    original_car_id = await _create_car(authed_client)
+    archived_car_id = await _create_car_archived(authed_client)
+
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": original_car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert create.status_code == 201, create.text
+    sid = create.json()["id"]
+
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"car_id": archived_car_id},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200, upd.text
+    assert upd.json()["car_id"] == archived_car_id
+
+
+@pytest.mark.asyncio
+async def test_reassign_session_to_other_users_car_returns_404(
+    authed_client, app, test_sessionmaker
+):
+    """PUT /api/sessions/{id} with a car owned by a different user → 404."""
+    from plugtrack.models import Car, User
+    from plugtrack.security.crypto import hash_password
+
+    # Create a car for the primary user.
+    my_car_id = await _create_car(authed_client)
+
+    # Create a second user and add a car for them directly in DB.
+    async with test_sessionmaker() as s:
+        other = User(
+            username="other_user_task4",
+            password_hash=hash_password("test-password-12chars"),
+        )
+        s.add(other)
+        await s.commit()
+        await s.refresh(other)
+        other_car = Car(
+            user_id=other.id,
+            make="Tesla",
+            model="Model 3",
+            battery_kwh=75.0,
+            nominal_efficiency_mi_per_kwh=4.0,
+        )
+        s.add(other_car)
+        await s.commit()
+        await s.refresh(other_car)
+        other_car_id = other_car.id
+
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": my_car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert create.status_code == 201, create.text
+    sid = create.json()["id"]
+
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"car_id": other_car_id},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 404, upd.text
+
+
+@pytest.mark.asyncio
+async def test_reassign_session_car_only_does_not_alter_cost(authed_client):
+    """Reassigning car_id alone must not trigger cost recomputation."""
+    original_car_id = await _create_car(authed_client)
+    new_car_id = await _create_car(authed_client)
+
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": original_car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+            "cost_per_kwh_override_p": 50.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert create.status_code == 201, create.text
+    sid = create.json()["id"]
+    original_cost = create.json()["cost_pence"]
+    original_basis = create.json()["cost_basis"]
+    assert original_basis == "override_per_kwh"
+
+    upd = await authed_client.put(
+        f"/api/sessions/{sid}",
+        json={"car_id": new_car_id},
+        headers=csrf_headers(authed_client),
+    )
+    assert upd.status_code == 200, upd.text
+    assert upd.json()["car_id"] == new_car_id
+    assert upd.json()["cost_pence"] == original_cost
+    assert upd.json()["cost_basis"] == original_basis

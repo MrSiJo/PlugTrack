@@ -15,6 +15,7 @@ import {
   type LocationListPayload,
   type SessionCreateRequest,
 } from '@/api/client'
+import CarPicker from '@/components/cars/CarPicker'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -380,6 +381,20 @@ export default function Sessions() {
   const [reloadToken, setReloadToken] = useState(0)
   const currency = useSetting<string>('currency') ?? 'GBP'
 
+  // Car filter
+  const [carFilterId, setCarFilterId] = useState<number | null>(null)
+  const [filterCars, setFilterCars] = useState<CarPayload[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    void api.getCars().then((cars) => {
+      if (!cancelled) setFilterCars(cars)
+    }).catch(() => {
+      // Non-fatal — filter just won't show cars.
+    })
+    return () => { cancelled = true }
+  }, [])
+
   const isCustom = dateRange === 'custom'
   const invalidCustom = isCustom && customFrom > customTo
 
@@ -401,6 +416,7 @@ export default function Sessions() {
         }
         params.set('sort', sort)
         params.set('dir', dir)
+        if (carFilterId !== null) params.set('car_id', String(carFilterId))
         const qs = params.toString()
         const data = await api.getSessions(qs ? `?${qs}` : undefined)
         if (!cancelled) {
@@ -432,6 +448,7 @@ export default function Sessions() {
     isCustom,
     invalidCustom,
     reloadToken,
+    carFilterId,
   ])
 
   function handleSort(field: SortField) {
@@ -512,6 +529,20 @@ export default function Sessions() {
           }}
           onCancel={() => setCreating(false)}
         />
+      )}
+
+      {filterCars.length > 0 && (
+        <div className="mb-3 flex items-center gap-2">
+          <span className="text-xs text-slate-500 dark:text-slate-400">Car:</span>
+          <CarPicker
+            value={carFilterId}
+            onChange={(id) => setCarFilterId(id)}
+            cars={filterCars}
+            includeArchived
+            allowAll
+            data-testid="car-filter-picker"
+          />
+        </div>
       )}
 
       <div className="mb-4 flex flex-wrap gap-2" data-testid="source-tabs">

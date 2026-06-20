@@ -183,14 +183,6 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         description="Comma-separated numeric Telegram user IDs permitted to feed the bot.",
         default_value=None,
     ),
-    CatalogueEntry(
-        key="telegram_default_car_id",
-        value_type="int",
-        group_name="telegram",
-        label="Default car for imports",
-        description="Car ID that imported charging sessions are attached to.",
-        default_value=None,
-    ),
     # AI — master switch + provider, plus OpenAI-specific keys (grouped under "ai")
     CatalogueEntry(
         key="ai_enabled",

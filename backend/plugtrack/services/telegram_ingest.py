@@ -34,7 +34,7 @@ class IngestContext:
     telegram: Any                                  # TelegramClient-shaped
     sessionmaker: Any                              # async_sessionmaker
     extractor: Callable[[bytes], Awaitable[Any]]   # -> ExtractionResult
-    resolve_target: Callable[[], tuple[int, int]]  # -> (user_id, car_id)
+    resolve_target: Callable[[], tuple[int, Optional[int]]]  # -> (user_id, car_id|None)
     allowed_user_ids: set[int]
     public_base_url: Optional[str] = None
     input_price_p: Optional[float] = None
@@ -61,6 +61,10 @@ class IngestContext:
     # Set by handle_text when user says "update session N from the next screenshot".
     # Consumed (single-use, 10-min expiry) by the next handle_photo for that chat.
     pending_edit_target: dict[int, tuple[int, float]] = field(default_factory=dict)
+    # chat_id -> car_id selected by the user from an inline keyboard prompt.
+    # Written by handle_callback when the user taps a "choose car" button;
+    # consumed (single-use) by the next handle_photo for that chat.
+    pending_car_choice: dict[int, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -69,7 +73,6 @@ class BotConfig:
     openai_key: str
     model: str
     allowed: set[int]
-    car_id: int
     user_id: int
     public_base_url: Optional[str] = None
     input_price_p: Optional[float] = None
@@ -219,6 +222,101 @@ def _parse_pending_screenshot_edit(text: str) -> Optional[int]:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Car resolution — per-message, multi-car aware
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CarResolution:
+    """Result of resolve_car_for_message.
+
+    kind values:
+      "auto"    — exactly one active car; car_id is set.
+      "matched" — caption uniquely identified a car (active-preferred, then archived); car_id is set.
+      "prompt"  — 2+ active cars and no unique caption match; active_cars lists them for the user.
+      "none"    — zero active cars and no unique caption match; nothing can be done.
+    """
+    kind: str                                    # "auto" | "matched" | "prompt" | "none"
+    car_id: Optional[int] = None                 # set for "auto" and "matched"
+    active_cars: list[Any] = field(default_factory=list)  # set for "prompt" (list[Car])
+
+
+def _car_matches_caption(car, caption_lower: str) -> bool:
+    """Return True if the car's name or 'make model' appears on word boundaries
+    in caption_lower (already lower-cased by the caller).
+
+    Matching rule: each candidate (name, or "make model") is matched against
+    the caption using \\b word-boundary anchors so that a car named "Born" does
+    NOT match "airborne" but DOES match "Born home 12000mi".  Multi-word
+    candidates ("Cupra Born") match when those words appear consecutively.
+    Matching is case-insensitive (caption_lower is already lowered; candidates
+    are lowered here).
+    """
+    candidates: list[str] = []
+    if car.name:
+        candidates.append(car.name.lower())
+    candidates.append(f"{car.make} {car.model}".lower())
+    return any(
+        bool(re.search(r"\b" + re.escape(c) + r"\b", caption_lower))
+        for c in candidates
+    )
+
+
+async def resolve_car_for_message(
+    session,
+    *,
+    user_id: int,
+    caption: Optional[str],
+) -> CarResolution:
+    """Determine which car a Telegram-ingested charge belongs to.
+
+    Rules (applied in order):
+    1. Exactly one ACTIVE car → Auto(car_id).
+    2. Caption provided and exactly one ACTIVE car matches → Matched(car_id).
+    3. Caption provided and zero active matches but exactly one ARCHIVED car
+       matches → Matched(car_id) [overlap-correction path].
+    4. 2+ active cars and no unique caption match → Prompt(active_cars).
+    5. Zero active cars → NoActiveCar (kind="none").
+
+    Matching is case-insensitive substring: a car matches if its ``name``
+    or its ``"make model"`` string appears anywhere in the caption text.
+    """
+    from sqlalchemy import select as _select
+    from ..models import Car as _Car
+
+    rows = (
+        await session.execute(_select(_Car).where(_Car.user_id == user_id))
+    ).scalars().all()
+
+    active = [c for c in rows if c.active is True]
+    archived = [c for c in rows if not (c.active is True)]
+
+    # Rule 1: single active car → auto (caption irrelevant)
+    if len(active) == 1:
+        return CarResolution(kind="auto", car_id=active[0].id)
+
+    # Rules 2-3: try caption matching
+    if caption:
+        cap_lower = caption.lower()
+        active_matches = [c for c in active if _car_matches_caption(c, cap_lower)]
+        if len(active_matches) == 1:
+            return CarResolution(kind="matched", car_id=active_matches[0].id)
+        # No unique active match — try archived (overlap correction)
+        if len(active_matches) == 0:
+            archived_matches = [c for c in archived if _car_matches_caption(c, cap_lower)]
+            if len(archived_matches) == 1:
+                return CarResolution(kind="matched", car_id=archived_matches[0].id)
+        # Falls through to rule 4 if 0 or 2+ matches in active and archived cases
+        # (ambiguous active match also falls through to prompt)
+
+    # Rule 4: 2+ active cars, no unique caption match → prompt
+    if len(active) >= 2:
+        return CarResolution(kind="prompt", active_cars=active)
+
+    # Rule 5: zero active cars
+    return CarResolution(kind="none")
+
+
 _PENDING_EDIT_TTL = 600  # 10 minutes
 
 
@@ -235,6 +333,16 @@ def _kb() -> dict[str, Any]:
             {"text": "✓ Save", "callback_data": "save"},
             {"text": "🗑️ Discard", "callback_data": "discard"},
         ]]
+    }
+
+
+def _carpick_kb(active_cars: list[Any]) -> dict[str, Any]:
+    """Build an inline keyboard with one button per active car for car selection."""
+    return {
+        "inline_keyboard": [
+            [{"text": car.display_name, "callback_data": f"carpick:{car.id}"}]
+            for car in active_cars
+        ]
     }
 
 
@@ -375,14 +483,17 @@ async def _send_or_edit_card(ctx: IngestContext, *, chat_id: int, text: str) -> 
 
 
 async def _stage_and_card(
-    ctx: IngestContext, *, user_id, chat_id, extraction, usage,
-    telegram_file_id, message_id, sha,
+    ctx: IngestContext, *, user_id, car_id: Optional[int] = None, chat_id, extraction, usage,
+    telegram_file_id, message_id, sha, send_card: bool = True,
 ) -> None:
     """Single dedupe authority. By (user_id, sha) — which is UNIQUE:
       - committed  -> warn, don't touch the saved row (commit guard also blocks dupes).
       - staged     -> already in the current batch; re-show the card, no duplicate row.
       - discarded  -> re-stage by REUSING the row (can't insert a 2nd same-sha row).
       - none       -> insert a fresh staged row.
+
+    When ``send_card=False`` the screenshot is staged but the confirm card is
+    not sent — used when the car has not been chosen yet (carpick flow).
     """
     prefix = ""
     unit = "mi"
@@ -428,7 +539,6 @@ async def _stage_and_card(
         merged, unplaceable = correlate_batch([parse_extraction(r.extracted) for r in staged])
         # Preview what Save will produce (kWh + home/location-rate cost) so the
         # card shows real figures, not "£?". Best-effort — never block the card.
-        _uid, car_id = ctx.resolve_target()
         unit = await _distance_unit_for(s)
         from datetime import date as _date
         projected: list[dict] = []
@@ -450,6 +560,8 @@ async def _stage_and_card(
                 projected.append(entry)
             except Exception:  # noqa: BLE001
                 projected.append({})
+    if not send_card:
+        return
     text = prefix + _summarise(merged, projected=projected, unit=unit)
     if unplaceable:
         text += (
@@ -458,6 +570,57 @@ async def _stage_and_card(
             "so I can place them."
         )
     await _send_or_edit_card(ctx, chat_id=chat_id, text=text)
+
+
+async def _resolve_and_stage(
+    ctx: IngestContext,
+    *,
+    user_id: int,
+    chat_id: int,
+    extraction: "Extraction",
+    usage: "Any",
+    telegram_file_id: Optional[str],
+    message_id: Optional[int],
+    sha: str,
+    caption: Optional[str] = None,
+) -> None:
+    """Shared car-resolution + staging for both photo and text paths.
+
+    Mirrors the block in handle_photo (lines 738-770) so that handle_text
+    goes through identical logic instead of calling _stage_and_card directly
+    with car_id=None.
+    """
+    resolved_car_id: Optional[int] = ctx.pending_car_choice.get(chat_id)
+    if resolved_car_id is None:
+        async with ctx.sessionmaker() as _res_session:
+            resolution = await resolve_car_for_message(
+                _res_session, user_id=user_id, caption=caption)
+        if resolution.kind == "none":
+            await ctx.telegram.send_message(
+                chat_id=chat_id,
+                text="No active car — add or restore one first.")
+            return
+        if resolution.kind == "prompt":
+            # Stage without showing the confirm card yet; send the carpick keyboard.
+            await _stage_and_card(
+                ctx, user_id=user_id, chat_id=chat_id, extraction=extraction,
+                usage=usage, telegram_file_id=telegram_file_id, message_id=message_id, sha=sha,
+                send_card=False,
+            )
+            await ctx.telegram.send_message(
+                chat_id=chat_id,
+                text="Which car is this charge for?",
+                reply_markup=_carpick_kb(resolution.active_cars),
+            )
+            return
+        # kind == "auto" or "matched"
+        resolved_car_id = resolution.car_id
+        ctx.pending_car_choice[chat_id] = resolved_car_id
+
+    await _stage_and_card(
+        ctx, user_id=user_id, car_id=resolved_car_id, chat_id=chat_id, extraction=extraction,
+        usage=usage, telegram_file_id=telegram_file_id, message_id=message_id, sha=sha,
+    )
 
 
 def _extraction_to_edit_kwargs(extraction: "Extraction") -> dict[str, Any]:
@@ -614,9 +777,15 @@ async def handle_photo(
             repl["odometer_unit"] = odo_unit
     if repl:
         extraction = dataclasses.replace(extraction, **repl)
-    await _stage_and_card(
+
+    # -------------------------------------------------------------------
+    # Car resolution + staging — delegated to shared helper so that
+    # handle_text goes through identical logic.
+    # -------------------------------------------------------------------
+    await _resolve_and_stage(
         ctx, user_id=user_id, chat_id=chat_id, extraction=extraction,
         usage=result.usage, telegram_file_id=file_id, message_id=message_id, sha=sha,
+        caption=caption,
     )
 
 
@@ -664,8 +833,77 @@ async def handle_callback(
         return
 
     # -----------------------------------------------------------------------
+    # Car-pick callback: user tapped a car button to resolve a multi-car prompt.
+    # -----------------------------------------------------------------------
+    if data.startswith("carpick:"):
+        chosen_car_id = int(data[len("carpick:"):])
+        ctx.pending_car_choice[chat_id] = chosen_car_id
+        await ctx.telegram.answer_callback(callback_id, "Car selected")
+        # Show the confirm card for the already-staged screenshot(s) targeting chosen car.
+        async with ctx.sessionmaker() as s:
+            staged = (
+                await s.execute(
+                    select(ScreenshotImport).where(
+                        ScreenshotImport.user_id == user_id,
+                        ScreenshotImport.status == "staged",
+                    )
+                )
+            ).scalars().all()
+            merged, unplaceable = correlate_batch(
+                [parse_extraction(r.extracted) for r in staged])
+            from datetime import date as _date
+            unit = await _distance_unit_for(s)
+            projected: list[dict] = []
+            for m in merged:
+                try:
+                    cs = await preview_merged_session(
+                        s, user_id=user_id, car_id=chosen_car_id, merged=m)
+                    entry: dict[str, Any] = {
+                        "kwh_added": cs.kwh_added,
+                        "cost_pence": cs.cost_pence,
+                        "cost_basis": cs.cost_basis,
+                    }
+                    if cs.odometer_at_session_km is not None:
+                        existing_max = await _max_odo_at_or_before(
+                            s, user_id=user_id, car_id=chosen_car_id,
+                            on_or_before=_date.today())
+                        entry["odometer_km"] = cs.odometer_at_session_km
+                        if existing_max is not None and cs.odometer_at_session_km < existing_max:
+                            entry["odometer_regressed"] = True
+                            entry["existing_max_km"] = existing_max
+                    projected.append(entry)
+                except Exception:  # noqa: BLE001
+                    projected.append({})
+        text = _summarise(merged, projected=projected, unit=unit)
+        if unplaceable:
+            text += (
+                f"\n⚠️ {len(unplaceable)} reading(s) have no date — send the app "
+                "screenshot (MyCupra/network) for that charge, or include a date, "
+                "so I can place them."
+            )
+        await _send_or_edit_card(ctx, chat_id=chat_id, text=text)
+        return
+
+    # -----------------------------------------------------------------------
     # Existing Save / Discard (screenshot batch) paths — UNCHANGED
     # -----------------------------------------------------------------------
+    # Resolve car_id: prefer pending_car_choice (set by resolve_car_for_message
+    # or carpick callback); fall back to the static config car_id.
+    car_id = ctx.pending_car_choice.get(chat_id, car_id)
+    # I1: pending_car_choice lost on bot restart — re-resolve if still None.
+    if car_id is None and data == "save":
+        async with ctx.sessionmaker() as _re_s:
+            _re = await resolve_car_for_message(_re_s, user_id=user_id, caption=None)
+        if _re.kind in ("auto", "matched"):
+            car_id = _re.car_id
+        else:
+            await ctx.telegram.answer_callback(callback_id, "No car")
+            await ctx.telegram.send_message(
+                chat_id=chat_id,
+                text="Couldn't determine which car — open the app to set one.",
+            )
+            return
+
     async with ctx.sessionmaker() as s:
         staged = (
             await s.execute(
@@ -680,6 +918,7 @@ async def handle_callback(
                 r.status = "discarded"
             await s.commit()
             ctx.card_ids.pop(chat_id, None)  # batch closed -> next charge gets a fresh card
+            ctx.pending_car_choice.pop(chat_id, None)
             await ctx.telegram.answer_callback(callback_id, "Discarded")
             await ctx.telegram.send_message(chat_id=chat_id, text="Discarded staged screenshots.")
             return
@@ -703,6 +942,7 @@ async def handle_callback(
             row.status = "committed"
         await s.commit()
         ctx.card_ids.pop(chat_id, None)  # batch saved -> next charge gets a fresh card
+        ctx.pending_car_choice.pop(chat_id, None)
         # Reset rolling history on a new charge save (fresh conversation context)
         ctx.rolling_context.pop(chat_id, None)
 
@@ -797,10 +1037,12 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
         if usable:
             import hashlib as _hashlib
             sha = _hashlib.sha256(("text:" + text.strip().lower()).encode()).hexdigest()
-            user_id, _car_id = ctx.resolve_target()
-            await _stage_and_card(ctx, user_id=user_id, chat_id=chat_id, extraction=e,
-                                  usage=result.usage, telegram_file_id=None,
-                                  message_id=None, sha=sha)
+            user_id, _ = ctx.resolve_target()
+            await _resolve_and_stage(
+                ctx, user_id=user_id, chat_id=chat_id, extraction=e,
+                usage=result.usage, telegram_file_id=None, message_id=None, sha=sha,
+                caption=text,
+            )
             return
     # -----------------------------------------------------------------------
     # Agentic loop (Task 4) — replaces usage_answerer for non-charge messages.
@@ -921,7 +1163,7 @@ async def load_bot_config(sessionmaker):
     """Read+decrypt settings into BotConfig, or ConfigProblem(reasons)."""
     from sqlalchemy import select as _select
     from ..bootstrap import get_settings
-    from ..models import Car, Setting
+    from ..models import Setting, User
     from ..security.crypto import decrypt_secret
 
     async with sessionmaker() as s:
@@ -937,25 +1179,21 @@ async def load_bot_config(sessionmaker):
     allowed = _parse_ids(rows.get("telegram_allowed_user_ids"))
     if not allowed:
         reasons.append("no allowed Telegram user IDs")
-    car_id = int(rows["telegram_default_car_id"]) if rows.get("telegram_default_car_id") else None
-    if car_id is None:
-        reasons.append("telegram_default_car_id not set")
     if reasons:
         return ConfigProblem(reasons=reasons)
 
     secret = get_settings().app_secret_key
     async with sessionmaker() as s:
-        car = (await s.execute(_select(Car).where(Car.id == car_id))).scalar_one_or_none()
-    if car is None:
-        return ConfigProblem(reasons=[f"car {car_id} not found"])
+        user = (await s.execute(_select(User))).scalar_one_or_none()
+    if user is None:
+        return ConfigProblem(reasons=["no user account exists"])
 
     return BotConfig(
         token=decrypt_secret(rows["telegram_bot_token"], secret),
         openai_key=decrypt_secret(rows["openai_api_key"], secret),
         model=rows.get("openai_model") or "gpt-5-mini",
         allowed=allowed,
-        car_id=car_id,
-        user_id=car.user_id,
+        user_id=user.id,
         public_base_url=(rows.get("public_base_url") or None),
         input_price_p=_to_float(rows.get("openai_input_price_per_1k_pence")),
         output_price_p=_to_float(rows.get("openai_output_price_per_1k_pence")),
@@ -1047,7 +1285,7 @@ def build_ingest_context(
         telegram=telegram,
         sessionmaker=sessionmaker,
         extractor=extractor,
-        resolve_target=lambda: (config.user_id, config.car_id),
+        resolve_target=lambda: (config.user_id, None),
         allowed_user_ids=config.allowed,
         public_base_url=config.public_base_url,
         input_price_p=config.input_price_p,

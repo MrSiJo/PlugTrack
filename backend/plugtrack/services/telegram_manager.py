@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def _fingerprint(cfg: BotConfig) -> tuple:
-    return (cfg.token, cfg.openai_key, cfg.model, cfg.car_id, cfg.user_id,
+    return (cfg.token, cfg.openai_key, cfg.model, cfg.user_id,
             frozenset(cfg.allowed), cfg.ai_enabled)
 
 

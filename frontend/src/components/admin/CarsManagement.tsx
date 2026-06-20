@@ -6,7 +6,8 @@
  *   - Add car (CarFields + api.createCar)
  *   - Edit car — calls api.revealCarVin(car.id) to seed the full VIN BEFORE
  *     rendering CarFields, then api.updateCar
- *   - Delete car (confirm + api.deleteCar)
+ *   - Delete car (confirm + api.deleteCar) — blocked by server on cars with charges (409)
+ *   - Archive / Restore (active toggle via api.updateCar)
  *   - Mileage-tracking setup (CarMileageSection per car)
  *
  * Does NOT handle:
@@ -24,10 +25,12 @@ import { CarFields } from '@/components/cars/CarFields'
 import { CarMileageSection } from '@/components/cars/CarMileageSection'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/Card'
+import { Pill } from '@/components/ui/Pill'
 
 const EMPTY_NEW: CarCreateRequest = {
   make: '',
   model: '',
+  name: null,
   vin: '',
   battery_kwh: NaN,
   nominal_efficiency_mi_per_kwh: NaN,
@@ -110,13 +113,26 @@ export function CarsManagement() {
   }
 
   async function handleDelete(id: number) {
-    if (!window.confirm('Delete this car? Charging sessions will remain but lose their car link.')) {
+    if (!window.confirm('Delete this car? Only allowed when it has no charges — otherwise archive it instead.')) {
       return
     }
     setBusy(true)
     setError(null)
     try {
       await api.deleteCar(id)
+      await reload()
+    } catch (err) {
+      setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleArchive(id: number, active: boolean) {
+    setBusy(true)
+    setError(null)
+    try {
+      await api.updateCar(id, { active })
       await reload()
     } catch (err) {
       setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err))
@@ -135,6 +151,7 @@ export function CarsManagement() {
     setEditDraft({
       make: car.make,
       model: car.model,
+      name: car.name,
       vin: car.vin ?? '',
       battery_kwh: car.battery_kwh,
       nominal_efficiency_mi_per_kwh: car.nominal_efficiency_mi_per_kwh,
@@ -240,8 +257,9 @@ export function CarsManagement() {
               <Card variant="hero" className="p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      {car.make} {car.model}
+                    <p className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {car.display_name}
+                      {!car.active && <Pill tone="slate">Archived</Pill>}
                     </p>
                     {car.vin && (
                       <p className="mt-0.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">
@@ -262,6 +280,27 @@ export function CarsManagement() {
                     >
                       Edit
                     </Button>
+                    {car.active ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handleArchive(car.id, false)}
+                        data-testid={`admin-archive-car-${car.id}`}
+                      >
+                        Archive
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handleArchive(car.id, true)}
+                        data-testid={`admin-restore-car-${car.id}`}
+                      >
+                        Restore
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       size="sm"

@@ -31,7 +31,6 @@ export const INTEGRATIONS: IntegrationDef[] = [
     settingKeys: [
       'telegram_bot_token',
       'telegram_allowed_user_ids',
-      'telegram_default_car_id',
     ],
     hint: 'Screenshot extraction needs an OpenAI key set in the AI integration.',
     actions: ['testTelegram'],

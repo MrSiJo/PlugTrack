@@ -104,9 +104,8 @@ async def build_health_report(
     else:
         checks.append(Check("OpenAI", False, "API key not set"))
 
-    # Default car + allowlist (only meaningful once the full config assembled).
+    # Allowlist (only meaningful once the full config assembled).
     if config:
-        checks.append(Check("Default car", True, f"car id {config.car_id}"))
         # A web/UI caller has no Telegram identity, so requesting_user_id is
         # None there and we only confirm the allowlist is configured. The
         # in-chat /test command passes the real Telegram from_id for a true

@@ -76,13 +76,39 @@ describe('Insights page', () => {
       </MemoryRouter>,
     )
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
-    // First call is all-time (no bounds).
-    expect(spy.mock.calls[0]).toEqual([undefined, undefined])
+    // First call is all-time (no bounds, no car filter).
+    expect(spy.mock.calls[0]).toEqual([undefined, undefined, undefined])
 
     fireEvent.click(screen.getByTestId('insights-range-last_30'))
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2))
     // Second call carries a date_from bound.
     expect(spy.mock.calls[1]![0]).toBeTruthy()
+  })
+
+  it('threads car_id into API calls when ?car= deep-link is present', async () => {
+    const locationSpy = vi
+      .spyOn(api, 'getInsightsByLocation')
+      .mockResolvedValue({ rows: [], totals: { spend_pence: 0, kwh: 0, sessions: 0 } })
+    const overviewSpy = vi
+      .spyOn(api, 'getInsightsOverview')
+      .mockResolvedValue(EMPTY_OVERVIEW)
+    vi.spyOn(api, 'getCars').mockResolvedValue([
+      { id: 5, make: 'Cupra', model: 'Born', name: null, display_name: 'Cupra Born', vin: null,
+        battery_kwh: 58, nominal_efficiency_mi_per_kwh: 4.2, provider: 'manual',
+        provider_vehicle_id: null, active: true },
+    ])
+
+    render(
+      <MemoryRouter initialEntries={['/insights?car=5']}>
+        <Insights />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(locationSpy).toHaveBeenCalledTimes(1))
+    // Both endpoints must receive car_id=5 as the third argument.
+    // Use mock.calls to inspect exact args (expect.anything() excludes undefined).
+    expect(locationSpy.mock.calls[0]![2]).toBe(5)
+    expect(overviewSpy.mock.calls[0]![2]).toBe(5)
   })
 
   it('renders the additional insight modules', async () => {
@@ -100,7 +126,7 @@ describe('Insights page', () => {
       efficiency: [{ period: '2026-06-01', observed_mi_per_kwh: null, cost_per_mile_p: null }],
     })
     vi.spyOn(api, 'getCars').mockResolvedValue([
-      { id: 1, make: 'Cupra', model: 'Born', vin: null, battery_kwh: 58,
+      { id: 1, make: 'Cupra', model: 'Born', name: null, display_name: 'Cupra Born', vin: null, battery_kwh: 58,
         nominal_efficiency_mi_per_kwh: 4.2, provider: 'manual', provider_vehicle_id: null, active: true },
     ])
     vi.spyOn(api, 'getInsightsMileage').mockResolvedValue(DISABLED_MILEAGE)

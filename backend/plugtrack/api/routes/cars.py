@@ -17,12 +17,13 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
-from ...models import Car
+from ...models import Car, CarMileageYear, ChargingSession
 from ...services import mileage_tracking
+from ...services.car_lifetime import compute_car_lifetime
 
 
 # pycupra hard-codes images at `<base>/pycupra/image_<vin>_<view>.png`
@@ -64,6 +65,8 @@ class CarPayload(BaseModel):
     id: int
     make: str
     model: str
+    name: Optional[str] = None
+    display_name: str
     vin: Optional[str] = None
     battery_kwh: float
     nominal_efficiency_mi_per_kwh: float
@@ -75,6 +78,7 @@ class CarPayload(BaseModel):
 class CarCreateRequest(BaseModel):
     make: str = Field(min_length=1, max_length=64)
     model: str = Field(min_length=1, max_length=64)
+    name: Optional[str] = Field(default=None, max_length=64)
     vin: Optional[str] = Field(default=None, max_length=32)
     battery_kwh: float = Field(gt=0, lt=1000)
     nominal_efficiency_mi_per_kwh: float = Field(gt=0, lt=20)
@@ -88,6 +92,7 @@ class CarCreateRequest(BaseModel):
 class CarUpdateRequest(BaseModel):
     make: Optional[str] = Field(default=None, min_length=1, max_length=64)
     model: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    name: Optional[str] = Field(default=None, max_length=64)
     vin: Optional[str] = Field(default=None, max_length=32)
     battery_kwh: Optional[float] = Field(default=None, gt=0, lt=1000)
     nominal_efficiency_mi_per_kwh: Optional[float] = Field(default=None, gt=0, lt=20)
@@ -119,6 +124,8 @@ def _to_payload(car: Car) -> CarPayload:
         id=car.id,
         make=car.make,
         model=car.model,
+        name=car.name,
+        display_name=car.display_name,
         vin=_mask_vin(car.vin),  # masked — full VIN via GET /{id}/vin
         battery_kwh=car.battery_kwh,
         nominal_efficiency_mi_per_kwh=car.nominal_efficiency_mi_per_kwh,
@@ -158,6 +165,7 @@ async def create_car(
         user_id=user_id,
         make=body.make,
         model=body.model,
+        name=body.name,
         battery_kwh=body.battery_kwh,
         nominal_efficiency_mi_per_kwh=body.nominal_efficiency_mi_per_kwh,
         provider=body.provider,
@@ -238,6 +246,22 @@ async def get_car_image(
     )
 
 
+@router.get("/{car_id}/lifetime")
+async def get_car_lifetime(
+    car_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return lifetime statistics for a car the caller owns.
+
+    Works for both active and archived cars. Returns 404 when the car
+    does not belong to the authenticated user.
+    """
+    user_id = _user_id(request)
+    await _get_owned(session, car_id, user_id)
+    return await compute_car_lifetime(session, user_id=user_id, car_id=car_id)
+
+
 @router.get("/{car_id}", response_model=CarPayload)
 async def get_car(
     car_id: int,
@@ -284,6 +308,28 @@ async def delete_car(
 ) -> Response:
     user_id = _user_id(request)
     car = await _get_owned(session, car_id, user_id)
+
+    # Refuse to delete a car that has charging history.
+    count_result = await session.execute(
+        select(func.count()).where(
+            ChargingSession.car_id == car_id,
+            ChargingSession.user_id == user_id,
+        )
+    )
+    n = count_result.scalar_one()
+    if n > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This car has {n} charges. Archive it instead of deleting.",
+        )
+
+    # No sessions — clean up mileage-year rows then delete the car.
+    await session.execute(
+        delete(CarMileageYear).where(
+            CarMileageYear.car_id == car_id,
+            CarMileageYear.user_id == user_id,
+        )
+    )
     await session.delete(car)
     await session.commit()
     return Response(status_code=204)
