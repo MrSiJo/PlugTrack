@@ -92,6 +92,61 @@ scripts/deploy.ps1     # PowerShell on Windows
 scripts/deploy.sh      # bash on Linux / macOS / WSL
 ```
 
+## Setting up the Telegram bot & OpenAI
+
+The bot and the AI vision extraction are the heart of PlugTrack. Both are configured in **Admin → Integrations** after first-run setup; nothing here touches the `.env` file. Secrets are encrypted at rest with your `APP_SECRET_KEY`.
+
+### 1. Create your Telegram bot
+
+PlugTrack talks to Telegram through a bot you own.
+
+1. In Telegram, open a chat with **[@BotFather](https://t.me/BotFather)** (the official bot factory) and send `/newbot`.
+2. Follow the prompts: give it a **display name** (anything, e.g. "My PlugTrack") and a **username** that must end in `bot` (e.g. `my_plugtrack_bot`).
+3. BotFather replies with an **HTTP API token** that looks like `123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`. Copy it — this is your **bot token**.
+
+### 2. Find your Telegram user ID
+
+PlugTrack only accepts messages from user IDs you allow-list (so a stranger who finds your bot can't feed it data).
+
+1. In Telegram, open **[@userinfobot](https://t.me/userinfobot)** (or `@RawDataBot`) and send it any message.
+2. It replies with your numeric **Id** (e.g. `123456789`). Copy it.
+
+### 3. Get an OpenAI API key
+
+The vision model that reads your screenshots runs on the OpenAI API.
+
+1. Sign in at **[platform.openai.com](https://platform.openai.com)** (this is the developer platform — a paid, pay-as-you-go API, **separate from a ChatGPT Plus subscription**).
+2. Add a payment method / credits under **Settings → Billing** (the API won't work without billing set up).
+3. Under **API keys**, create a new secret key — it starts with `sk-…`. Copy it now; you can't view it again later.
+
+> **Cost:** extraction is cheap — a screenshot is a few hundred tokens, so reading a charge costs a fraction of a penny. You can cap spend with a monthly usage limit in the OpenAI dashboard.
+
+### 4. Enter everything in PlugTrack Admin → Integrations
+
+| Card | Field (Admin label) | Value |
+| --- | --- | --- |
+| **Telegram** | Telegram bot token | the BotFather token from step 1 |
+| **Telegram** | Allowed Telegram user IDs | your numeric ID from step 2 (comma-separate multiple) |
+| **Telegram** | Telegram bot enabled | **on** |
+| **AI** | OpenAI API key | the `sk-…` key from step 3 |
+| **AI** | OpenAI vision model | leave the default (`gpt-5.5`) unless you want another vision-capable model |
+| **AI** | AI features enabled | **on** (master switch for extraction + the conversational bot) |
+
+Optional:
+
+- **AI → OpenAI input/output price (pence / 1k tokens):** fill these to see a £ cost per extraction; leave blank to show token counts only.
+- **Display → Public base URL:** your externally reachable UI URL (e.g. `http://your-host:9279`) so the bot's confirm cards can deep-link back to the saved session. Leave blank to omit the link.
+
+The bot reconciles **live** when you save these — no redeploy needed. It runs as an always-on long-poll task gated by `telegram_bot_enabled` / `ai_enabled`.
+
+### 5. Start the bot and verify
+
+1. In Telegram, open a chat with **your** bot (search its `@username`) and send it any message — Telegram requires you to message a bot first before it can reply to you.
+2. Send **`/test`**: the bot replies with a health report (token + key validity, config completeness). A green report means you're ready.
+3. Send a charge screenshot. The bot extracts it, shows a confirm card with the projected kWh and cost, and one tap saves it to your dashboard.
+
+If `/test` reports a problem, re-check the token (no stray spaces), that your user ID is in the allow-list, that both **Telegram bot enabled** and **AI features enabled** are on, and that your OpenAI key has billing/credit.
+
 ## Configuration
 
 All configuration lives in two places.
