@@ -61,6 +61,10 @@ class IngestContext:
     # Set by handle_text when user says "update session N from the next screenshot".
     # Consumed (single-use, 10-min expiry) by the next handle_photo for that chat.
     pending_edit_target: dict[int, tuple[int, float]] = field(default_factory=dict)
+    # chat_id -> car_id selected by the user from an inline keyboard prompt.
+    # Written by handle_callback when the user taps a "choose car" button;
+    # consumed (single-use) by the next handle_photo for that chat.
+    pending_car_choice: dict[int, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -217,6 +221,97 @@ def _parse_pending_screenshot_edit(text: str) -> Optional[int]:
             return int(m2.group(1))
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Car resolution — per-message, multi-car aware
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CarResolution:
+    """Result of resolve_car_for_message.
+
+    kind values:
+      "auto"    — exactly one active car; car_id is set.
+      "matched" — caption uniquely identified a car (active-preferred, then archived); car_id is set.
+      "prompt"  — 2+ active cars and no unique caption match; active_cars lists them for the user.
+      "none"    — zero active cars and no unique caption match; nothing can be done.
+    """
+    kind: str                               # "auto" | "matched" | "prompt" | "none"
+    car_id: Optional[int] = None            # set for "auto" and "matched"
+    active_cars: list = field(default_factory=list)  # set for "prompt" (list[Car])
+
+
+def _car_matches_caption(car, caption_lower: str) -> bool:
+    """Return True if the car's name or 'make model' appears as a
+    case-insensitive substring in caption_lower.
+
+    Matching rule: we lower-case the candidate token and check whether it is
+    a substring of the already-lower-cased caption.  This is deliberately
+    simple and deterministic — no tokenisation boundary requirements — so
+    "Born" matches "Cupra Born home 80%" and "Cupra Born" also matches.
+    """
+    from ..models import Car as _Car  # local import to avoid circular at module level
+    candidates: list[str] = []
+    if car.name:
+        candidates.append(car.name.lower())
+    candidates.append(f"{car.make} {car.model}".lower())
+    return any(c in caption_lower for c in candidates)
+
+
+async def resolve_car_for_message(
+    session,
+    *,
+    user_id: int,
+    caption: Optional[str],
+) -> CarResolution:
+    """Determine which car a Telegram-ingested charge belongs to.
+
+    Rules (applied in order):
+    1. Exactly one ACTIVE car → Auto(car_id).
+    2. Caption provided and exactly one ACTIVE car matches → Matched(car_id).
+    3. Caption provided and zero active matches but exactly one ARCHIVED car
+       matches → Matched(car_id) [overlap-correction path].
+    4. 2+ active cars and no unique caption match → Prompt(active_cars).
+    5. Zero active cars → NoActiveCar (kind="none").
+
+    Matching is case-insensitive substring: a car matches if its ``name``
+    or its ``"make model"`` string appears anywhere in the caption text.
+    """
+    from sqlalchemy import select as _select
+    from ..models import Car as _Car
+
+    rows = (
+        await session.execute(_select(_Car).where(_Car.user_id == user_id))
+    ).scalars().all()
+
+    active = [c for c in rows if c.active is True]
+    archived = [c for c in rows if not (c.active is True)]
+
+    # Rule 1: single active car → auto (caption irrelevant)
+    if len(active) == 1:
+        return CarResolution(kind="auto", car_id=active[0].id)
+
+    # Rules 2-3: try caption matching
+    if caption:
+        cap_lower = caption.lower()
+        active_matches = [c for c in active if _car_matches_caption(c, cap_lower)]
+        if len(active_matches) == 1:
+            return CarResolution(kind="matched", car_id=active_matches[0].id)
+        # No unique active match — try archived (overlap correction)
+        if len(active_matches) == 0:
+            archived_matches = [c for c in archived if _car_matches_caption(c, cap_lower)]
+            if len(archived_matches) == 1:
+                return CarResolution(kind="matched", car_id=archived_matches[0].id)
+        # Falls through to rule 4 if 0 or 2+ matches in active and archived cases
+        # (ambiguous active match also falls through to prompt)
+
+    # Rule 4: 2+ active cars, no unique caption match → prompt
+    if len(active) >= 2:
+        return CarResolution(kind="prompt", active_cars=active)
+
+    # Rule 5: zero active cars
+    return CarResolution(kind="none")
 
 
 _PENDING_EDIT_TTL = 600  # 10 minutes
