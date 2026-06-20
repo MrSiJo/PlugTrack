@@ -12,7 +12,7 @@ import { Card } from '@/components/ui/Card'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Pill } from '@/components/ui/Pill'
 import { formatCurrency } from '@/utils/currency'
-import { useSetting } from '@/stores/settingsStore'
+import { formatDistance, useSetting } from '@/stores/settingsStore'
 
 export default function CarDetail() {
   const { id } = useParams<{ id: string }>()
@@ -133,6 +133,15 @@ export default function CarDetail() {
         />
       </div>
 
+      {/* Battery health & seasonal range — only when estimated_usable_kwh is present */}
+      {lifetime.estimated_usable_kwh != null && (
+        <BatteryHealthCard
+          estimatedUsableKwh={lifetime.estimated_usable_kwh}
+          nominalKwh={car.battery_kwh}
+          seasonalRangeSpan={lifetime.seasonal_range_span}
+        />
+      )}
+
       {/* Home vs Public breakdown */}
       <Card className="mb-6">
         <p className="mb-3 text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">Home vs public charging</p>
@@ -169,5 +178,90 @@ function HomePublicTile({ label, bucket, currency }: {
         <div><dt className="text-[10px] uppercase tracking-[0.1em]">Avg p/kWh</dt><dd className="font-medium">{bucket.avg_p_per_kwh !== null ? `${bucket.avg_p_per_kwh.toFixed(1)}p` : '—'}</dd></div>
       </dl>
     </div>
+  )
+}
+
+function BatteryHealthCard({ estimatedUsableKwh, nominalKwh, seasonalRangeSpan }: {
+  estimatedUsableKwh: number
+  nominalKwh: number
+  seasonalRangeSpan: { min_km: number | null; max_km: number | null; avg_km: number | null } | null
+}) {
+  // Degradation vs nominal — guard against negative values (estimated > nominal edge case)
+  let degradationText: string
+  if (nominalKwh > 0) {
+    const rawPct = (1 - estimatedUsableKwh / nominalKwh) * 100
+    if (rawPct < 0) {
+      degradationText = '—'
+    } else {
+      degradationText = `${rawPct.toFixed(1)}%`
+    }
+  } else {
+    degradationText = '—'
+  }
+
+  // Seasonal range span — convert km to user unit; both min and max must be present
+  let seasonalSpanText: string
+  if (
+    seasonalRangeSpan != null &&
+    seasonalRangeSpan.min_km != null &&
+    seasonalRangeSpan.max_km != null
+  ) {
+    const { value: minVal, unit } = formatDistance(seasonalRangeSpan.min_km)
+    const { value: maxVal } = formatDistance(seasonalRangeSpan.max_km)
+    seasonalSpanText = `${Math.round(minVal)}–${Math.round(maxVal)} ${unit}`
+  } else {
+    seasonalSpanText = '—'
+  }
+
+  return (
+    <Card className="mb-6">
+      <p className="mb-3 text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+        Battery health &amp; seasonal range
+      </p>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {/* Estimated usable capacity */}
+        <div>
+          <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">Estimated usable</dt>
+          <dd
+            className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+            data-testid="tile-estimated-usable"
+          >
+            {estimatedUsableKwh.toFixed(1)} kWh
+          </dd>
+          <p
+            className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500"
+            data-testid="tile-estimated-usable-caveat"
+          >
+            Indicative, not a certified SoH
+          </p>
+        </div>
+
+        {/* Degradation vs nominal */}
+        <div>
+          <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
+            vs {nominalKwh} kWh nominal
+          </dt>
+          <dd
+            className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+            data-testid="tile-degradation"
+          >
+            {degradationText}
+          </dd>
+          <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">degradation</p>
+        </div>
+
+        {/* Seasonal range span */}
+        <div>
+          <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">Seasonal range span</dt>
+          <dd
+            className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+            data-testid="tile-seasonal-span"
+          >
+            {seasonalSpanText}
+          </dd>
+          <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">worst–best range</p>
+        </div>
+      </div>
+    </Card>
   )
 }
