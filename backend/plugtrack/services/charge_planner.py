@@ -648,6 +648,9 @@ def build_scenario_table(
 # DB-backed inputs resolver
 # ---------------------------------------------------------------------------
 
+# Fallback AC ceiling when neither car.max_ac_kw nor observed data is available.
+_DEFAULT_AC_CEILING_KW = 7.4
+
 
 @dataclass
 class PlanInputs:
@@ -660,6 +663,11 @@ class PlanInputs:
     window_minutes: int
     home_rate_p_per_kwh: float
     is_free: bool
+    # Extended fields for scenario table (Task 4)
+    ac_ceiling_kw: float
+    dc_capability: DcCapability
+    dc_ceiling: float
+    loss_factor: float
 
 
 async def _get_setting(session: AsyncSession, key: str, default: str) -> str:
@@ -674,9 +682,10 @@ async def resolve_plan_inputs(
     car: Car,
     user_id: int,
 ) -> PlanInputs:
-    """Read settings, home location, and recent home AC sessions from the DB.
+    """Read settings, home location, recent home AC sessions, and DC sessions.
 
-    Returns a `PlanInputs` with everything `compute_charge_plan` needs.
+    Returns a `PlanInputs` with everything needed by both `compute_charge_plan`
+    and `build_scenario_table`.
     Raises `ValueError` with a human-readable message when required inputs
     are missing or invalid (the route maps these to 400 HTTPExceptions).
     """
@@ -698,6 +707,15 @@ async def resolve_plan_inputs(
         fallback_kw = float(fallback_kw_str)
     except (TypeError, ValueError):
         fallback_kw = 7.4
+
+    # Loss factor
+    loss_factor_str = await _get_setting(session, "charge_loss_factor", "0.90")
+    try:
+        loss_factor = float(loss_factor_str)
+    except (TypeError, ValueError):
+        loss_factor = 0.90
+    if loss_factor <= 0 or loss_factor > 1.0:
+        loss_factor = 0.90
 
     # window_minutes — crosses midnight so end < start; add 1440 to normalise.
     def _parse(s: str) -> int:
@@ -784,6 +802,59 @@ async def resolve_plan_inputs(
     if power_kw <= 0:
         raise ValueError("resolved charging power is 0 or negative")
 
+    # ---- Observed AC max → ac_ceiling_kw ----
+    observed_ac_max: Optional[float] = max(effective_kws) if effective_kws else None
+    if car.max_ac_kw is not None:
+        ac_ceiling_kw = float(car.max_ac_kw)
+    elif observed_ac_max is not None:
+        ac_ceiling_kw = observed_ac_max
+    else:
+        ac_ceiling_kw = _DEFAULT_AC_CEILING_KW
+
+    # ---- DC sessions ----
+    dc_stmt = (
+        select(ChargingSession)
+        .where(
+            ChargingSession.user_id == user_id,
+            ChargingSession.car_id == car.id,
+            ChargingSession.charging_type == "dc",
+            ChargingSession.start_soc.is_not(None),
+            ChargingSession.end_soc.is_not(None),
+            ChargingSession.kwh_added > 0,
+        )
+        .order_by(desc(ChargingSession.date), desc(ChargingSession.id))
+    )
+    dc_result = await session.execute(dc_stmt)
+    raw_dc_sessions = dc_result.scalars().all()
+
+    dc_sessions: list[DcSession] = []
+    for rdc in raw_dc_sessions:
+        # Compute wall_seconds from charge_start_at/charge_end_at when available.
+        if rdc.charge_start_at is not None and rdc.charge_end_at is not None:
+            wall_secs = int((rdc.charge_end_at - rdc.charge_start_at).total_seconds())
+            wall_secs = wall_secs if wall_secs > 0 else None
+        else:
+            wall_secs = None
+
+        dc_sessions.append(
+            DcSession(
+                start_soc=int(rdc.start_soc),
+                end_soc=int(rdc.end_soc),
+                kwh_added=float(rdc.kwh_added),
+                actual_charge_seconds=rdc.actual_charge_seconds,
+                wall_seconds=wall_secs,
+                power_curve=rdc.power_curve,
+            )
+        )
+
+    # ---- Build DC capability ----
+    dc_capability = build_dc_capability(
+        battery_kwh=battery_kwh,
+        dc_sessions=dc_sessions,
+        max_dc_kw=car.max_dc_kw,
+    )
+    dc_ceiling = dc_capability.ceiling
+
     return PlanInputs(
         battery_kwh=battery_kwh,
         power_kw=round(power_kw, 2),
@@ -794,4 +865,8 @@ async def resolve_plan_inputs(
         window_minutes=window_minutes,
         home_rate_p_per_kwh=home_rate_p_per_kwh,
         is_free=is_free,
+        ac_ceiling_kw=ac_ceiling_kw,
+        dc_capability=dc_capability,
+        dc_ceiling=dc_ceiling,
+        loss_factor=loss_factor,
     )
