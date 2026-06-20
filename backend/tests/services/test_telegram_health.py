@@ -34,37 +34,38 @@ async def _ok_validate(key, *, client=None):
     return True, "12 models"
 
 
-def _cfg(car_id, user_id, **kw):
+def _cfg(user_id, **kw):
     return BotConfig(
         token="t", openai_key="k", model="gpt-5-mini",
-        allowed={111}, car_id=car_id, user_id=user_id, **kw,
+        allowed={111}, user_id=user_id, **kw,
     )
 
 
 @pytest.mark.asyncio
 async def test_all_ok_report(test_sessionmaker, seeded_user_car):
-    user_id, car_id = seeded_user_car
+    user_id, _car_id = seeded_user_car
     now = dt.datetime(2026, 6, 17, tzinfo=dt.timezone.utc)
     r = await build_health_report(
         token="t", openai_key="k", model="gpt-5-mini",
         make_telegram_client=_factory(FakeTg()),
-        openai_validate=_ok_validate, config_or_problem=_cfg(car_id, user_id),
+        openai_validate=_ok_validate, config_or_problem=_cfg(user_id),
         sessionmaker=test_sessionmaker, is_running=True,
         requesting_user_id=111, now=now,
     )
     assert isinstance(r, HealthReport) and r.all_ok
     names = {c.name for c in r.checks}
-    assert {"Telegram", "OpenAI", "Default car", "Allowlist", "Bot running"} <= names
+    assert {"Telegram", "OpenAI", "Allowlist", "Bot running"} <= names
+    assert "Default car" not in names
 
 
 @pytest.mark.asyncio
 async def test_telegram_failure_marks_not_ok(test_sessionmaker, seeded_user_car):
-    user_id, car_id = seeded_user_car
+    user_id, _car_id = seeded_user_car
     now = dt.datetime(2026, 6, 17, tzinfo=dt.timezone.utc)
     r = await build_health_report(
         token="t", openai_key="k", model="gpt-5-mini",
         make_telegram_client=_factory(FakeTg(fail=True)),
-        openai_validate=_ok_validate, config_or_problem=_cfg(car_id, user_id),
+        openai_validate=_ok_validate, config_or_problem=_cfg(user_id),
         sessionmaker=test_sessionmaker, is_running=True,
         requesting_user_id=111, now=now,
     )
@@ -122,12 +123,12 @@ async def test_allowlist_configured_when_no_requesting_user(test_sessionmaker, s
     """UI button passes requesting_user_id=None (a web login has no Telegram
     id) -> 'configured', not a bogus membership test against the app user id.
     """
-    user_id, car_id = seeded_user_car
+    user_id, _car_id = seeded_user_car
     now = dt.datetime(2026, 6, 17, tzinfo=dt.timezone.utc)
     r = await build_health_report(
         token="t", openai_key="k", model="m",
         make_telegram_client=_factory(FakeTg()),
-        openai_validate=_ok_validate, config_or_problem=_cfg(car_id, user_id),
+        openai_validate=_ok_validate, config_or_problem=_cfg(user_id),
         sessionmaker=test_sessionmaker, is_running=True,
         requesting_user_id=None, now=now,
     )
@@ -138,7 +139,7 @@ async def test_allowlist_configured_when_no_requesting_user(test_sessionmaker, s
 @pytest.mark.asyncio
 async def test_usage_summary_sums_month_with_cost(test_sessionmaker, seeded_user_car):
     from plugtrack.models import ScreenshotImport
-    user_id, car_id = seeded_user_car
+    user_id, _car_id = seeded_user_car
     now = dt.datetime(2026, 6, 17, tzinfo=dt.timezone.utc)
     async with test_sessionmaker() as s:
         s.add(ScreenshotImport(
@@ -146,7 +147,7 @@ async def test_usage_summary_sums_month_with_cost(test_sessionmaker, seeded_user
             input_tokens=2000, output_tokens=500, reasoning_tokens=0,
             created_at=dt.datetime(2026, 6, 5, tzinfo=dt.timezone.utc)))
         await s.commit()
-    cfg = _cfg(car_id, user_id, input_price_p=50.0, output_price_p=100.0)
+    cfg = _cfg(user_id, input_price_p=50.0, output_price_p=100.0)
     r = await build_health_report(
         token="t", openai_key="k", model="m",
         make_telegram_client=_factory(FakeTg()),

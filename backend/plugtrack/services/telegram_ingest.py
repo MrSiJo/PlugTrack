@@ -34,7 +34,7 @@ class IngestContext:
     telegram: Any                                  # TelegramClient-shaped
     sessionmaker: Any                              # async_sessionmaker
     extractor: Callable[[bytes], Awaitable[Any]]   # -> ExtractionResult
-    resolve_target: Callable[[], tuple[int, int]]  # -> (user_id, car_id)
+    resolve_target: Callable[[], tuple[int, Optional[int]]]  # -> (user_id, car_id|None)
     allowed_user_ids: set[int]
     public_base_url: Optional[str] = None
     input_price_p: Optional[float] = None
@@ -73,7 +73,6 @@ class BotConfig:
     openai_key: str
     model: str
     allowed: set[int]
-    car_id: int
     user_id: int
     public_base_url: Optional[str] = None
     input_price_p: Optional[float] = None
@@ -1130,7 +1129,7 @@ async def load_bot_config(sessionmaker):
     """Read+decrypt settings into BotConfig, or ConfigProblem(reasons)."""
     from sqlalchemy import select as _select
     from ..bootstrap import get_settings
-    from ..models import Car, Setting
+    from ..models import Setting, User
     from ..security.crypto import decrypt_secret
 
     async with sessionmaker() as s:
@@ -1146,25 +1145,21 @@ async def load_bot_config(sessionmaker):
     allowed = _parse_ids(rows.get("telegram_allowed_user_ids"))
     if not allowed:
         reasons.append("no allowed Telegram user IDs")
-    car_id = int(rows["telegram_default_car_id"]) if rows.get("telegram_default_car_id") else None
-    if car_id is None:
-        reasons.append("telegram_default_car_id not set")
     if reasons:
         return ConfigProblem(reasons=reasons)
 
     secret = get_settings().app_secret_key
     async with sessionmaker() as s:
-        car = (await s.execute(_select(Car).where(Car.id == car_id))).scalar_one_or_none()
-    if car is None:
-        return ConfigProblem(reasons=[f"car {car_id} not found"])
+        user = (await s.execute(_select(User))).scalar_one_or_none()
+    if user is None:
+        return ConfigProblem(reasons=["no user account exists"])
 
     return BotConfig(
         token=decrypt_secret(rows["telegram_bot_token"], secret),
         openai_key=decrypt_secret(rows["openai_api_key"], secret),
         model=rows.get("openai_model") or "gpt-5-mini",
         allowed=allowed,
-        car_id=car_id,
-        user_id=car.user_id,
+        user_id=user.id,
         public_base_url=(rows.get("public_base_url") or None),
         input_price_p=_to_float(rows.get("openai_input_price_per_1k_pence")),
         output_price_p=_to_float(rows.get("openai_output_price_per_1k_pence")),
@@ -1256,7 +1251,7 @@ def build_ingest_context(
         telegram=telegram,
         sessionmaker=sessionmaker,
         extractor=extractor,
-        resolve_target=lambda: (config.user_id, config.car_id),
+        resolve_target=lambda: (config.user_id, None),
         allowed_user_ids=config.allowed,
         public_base_url=config.public_base_url,
         input_price_p=config.input_price_p,

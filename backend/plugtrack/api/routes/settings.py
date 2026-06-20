@@ -35,7 +35,6 @@ _RECONCILE_KEYS = {
     "telegram_bot_enabled",
     "telegram_bot_token",
     "telegram_allowed_user_ids",
-    "telegram_default_car_id",
     "openai_api_key",
     "openai_model",
 }
