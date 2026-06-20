@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.10.2](https://github.com/MrSiJo/PlugTrack/compare/v2.10.1...v2.10.2) (2026-06-20)
+
+
+### Bug Fixes
+
+* **bot:** money totals in pounds, rates in pence ([cb21211](https://github.com/MrSiJo/PlugTrack/commit/cb212112f94b4f26ed4500c6d85de89430dc0332))
+* **bot:** present money totals in pounds, rates in pence ([1d83dbe](https://github.com/MrSiJo/PlugTrack/commit/1d83dbefc9b58f34d0963da8e8e63d4aee00bce1))
+
 ## [2.10.1](https://github.com/MrSiJo/PlugTrack/compare/v2.10.0...v2.10.1) (2026-06-20)
 
 
