@@ -174,11 +174,13 @@ def build_request_payload(image_bytes: bytes, *, model: str) -> dict[str, Any]:
 
 
 def parse_extraction(raw: dict[str, Any]) -> Extraction:
+    _raw_cost = raw.get("cost_total_pence")
+    _cost_total_pence: Optional[int] = int(round(_raw_cost)) if _raw_cost is not None else None
     return Extraction(
         source=str(raw.get("source") or "other"),
         has_cost=bool(raw.get("has_cost")),
         energy_kwh=raw.get("energy_kwh"),
-        cost_total_pence=raw.get("cost_total_pence"),
+        cost_total_pence=_cost_total_pence,
         cost_per_kwh_pence=raw.get("cost_per_kwh_pence"),
         start_at=raw.get("start_at"),
         end_at=raw.get("end_at"),

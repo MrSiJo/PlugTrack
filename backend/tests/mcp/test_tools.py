@@ -224,6 +224,24 @@ async def test_find_charges_result_shape(test_sessionmaker):
 
 
 @pytest.mark.asyncio
+async def test_find_charges_location_id_zero_is_no_filter(test_sessionmaker):
+    """location_id=0 (models pass 0 for unset optionals) must NOT filter to nothing."""
+    from plugtrack.mcp.tools import find_charges
+
+    user_id = await _seed_user(test_sessionmaker, "alice_locfilter")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    await _seed_session(test_sessionmaker, user_id, car_id)
+    await _seed_session(test_sessionmaker, user_id, car_id, date_offset=1)
+
+    async with test_sessionmaker() as session:
+        zero = await find_charges(session, user_id, location_id=0)
+        none = await find_charges(session, user_id, location_id=None)
+
+    assert len(zero) == 2, "location_id=0 must behave as no filter, not match location 0"
+    assert len(none) == 2
+
+
+@pytest.mark.asyncio
 async def test_find_charges_formats_money(test_sessionmaker):
     """Per-charge cost is shown in pounds (£X.XX); tariff in pence (Np/kWh)."""
     from plugtrack.mcp.tools import find_charges
@@ -1018,3 +1036,161 @@ async def test_mint_token_purges_used_entries(test_sessionmaker):
     tok2 = r2["change_token"]
     assert tok2 in tools_module._CHANGE_STORE
     assert tok1 not in tools_module._CHANGE_STORE, "Used token should have been evicted"
+
+
+# ---------------------------------------------------------------------------
+# Odometer: propose_edit_charge + _session_to_dict display
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_propose_edit_charge_odometer_mi_default(test_sessionmaker):
+    """Odometer in miles (default unit) is converted to km and committed correctly."""
+    from plugtrack.mcp.tools import propose_edit_charge, commit_change
+
+    await _seed_home_rate(test_sessionmaker, 7.5)
+    user_id = await _seed_user(test_sessionmaker, "odo_mi_user")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(
+        test_sessionmaker, user_id, car_id, odometer_at_session_km=None
+    )
+
+    async with test_sessionmaker() as session:
+        result = await propose_edit_charge(session, user_id, charge_id=cs_id, odometer=11056)
+
+    assert "error" not in result, f"Unexpected error: {result}"
+    assert "change_token" in result
+    assert "summary" in result
+    assert "11056" in result["summary"]
+
+    async with test_sessionmaker() as session:
+        commit_result = await commit_change(session, user_id, result["change_token"])
+
+    assert "error" not in commit_result, f"Commit failed: {commit_result}"
+
+    async with test_sessionmaker() as session:
+        row = await session.get(ChargingSession, cs_id)
+        expected_km = 11056 * 1.609344
+        assert abs(row.odometer_at_session_km - expected_km) < 0.01, (
+            f"Expected ~{expected_km} km, got {row.odometer_at_session_km}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_propose_edit_charge_odometer_km_explicit(test_sessionmaker):
+    """Odometer with explicit km unit is stored as-is."""
+    from plugtrack.mcp.tools import propose_edit_charge, commit_change
+
+    await _seed_home_rate(test_sessionmaker, 7.5)
+    user_id = await _seed_user(test_sessionmaker, "odo_km_user")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(
+        test_sessionmaker, user_id, car_id, odometer_at_session_km=None
+    )
+
+    async with test_sessionmaker() as session:
+        result = await propose_edit_charge(
+            session, user_id, charge_id=cs_id, odometer=17800, odometer_unit="km"
+        )
+
+    assert "error" not in result
+
+    async with test_sessionmaker() as session:
+        commit_result = await commit_change(session, user_id, result["change_token"])
+
+    assert "error" not in commit_result
+
+    async with test_sessionmaker() as session:
+        row = await session.get(ChargingSession, cs_id)
+        assert abs(row.odometer_at_session_km - 17800.0) < 0.01, (
+            f"Expected 17800.0 km, got {row.odometer_at_session_km}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_propose_edit_charge_odometer_summary_line(test_sessionmaker):
+    """propose_edit_charge summary contains 'odometer' and the reading value."""
+    from plugtrack.mcp.tools import propose_edit_charge
+
+    await _seed_home_rate(test_sessionmaker, 7.5)
+    user_id = await _seed_user(test_sessionmaker, "odo_summary_user")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(test_sessionmaker, user_id, car_id)
+
+    async with test_sessionmaker() as session:
+        result = await propose_edit_charge(session, user_id, charge_id=cs_id, odometer=11056)
+
+    assert "error" not in result
+    summary = result["summary"]
+    assert "odometer" in summary.lower()
+    assert "11056" in summary
+
+
+@pytest.mark.asyncio
+async def test_find_charges_includes_odometer_display(test_sessionmaker):
+    """find_charges result includes odometer_km and formatted odometer string."""
+    from plugtrack.mcp.tools import find_charges
+    from sqlalchemy import select as sa_select
+
+    await _seed_home_rate(test_sessionmaker, 7.5)
+    user_id = await _seed_user(test_sessionmaker, "odo_find_user")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(
+        test_sessionmaker, user_id, car_id, odometer_at_session_km=17800.0
+    )
+
+    # Set distance_unit to "mi"
+    async with test_sessionmaker() as s:
+        result = await s.execute(
+            sa_select(Setting).where(Setting.key == "distance_unit")
+        )
+        row = result.scalar_one_or_none()
+        if row is not None:
+            row.value = "mi"
+            await s.commit()
+
+    async with test_sessionmaker() as session:
+        results = await find_charges(session, user_id)
+
+    assert results, "Expected at least one result"
+    r = results[0]
+    assert r["odometer_km"] == 17800.0
+    assert r["odometer"] is not None
+    assert "mi" in r["odometer"]
+    # 17800 km / 1.609344 ≈ 11060 miles (formatted with comma: "11,060 mi")
+    assert "11" in r["odometer"]  # starts with 11xxx
+    assert "060" in r["odometer"] or "11060" in r["odometer"].replace(",", "")
+
+
+@pytest.mark.asyncio
+async def test_get_charge_includes_odometer_display(test_sessionmaker):
+    """get_charge result includes odometer_km and formatted odometer string."""
+    from plugtrack.mcp.tools import get_charge
+    from sqlalchemy import select as sa_select
+
+    await _seed_home_rate(test_sessionmaker, 7.5)
+    user_id = await _seed_user(test_sessionmaker, "odo_get_user")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(
+        test_sessionmaker, user_id, car_id, odometer_at_session_km=17800.0
+    )
+
+    # Set distance_unit to "mi"
+    async with test_sessionmaker() as s:
+        result = await s.execute(
+            sa_select(Setting).where(Setting.key == "distance_unit")
+        )
+        row = result.scalar_one_or_none()
+        if row is not None:
+            row.value = "mi"
+            await s.commit()
+
+    async with test_sessionmaker() as session:
+        r = await get_charge(session, user_id, cs_id)
+
+    assert r is not None
+    assert r["odometer_km"] == 17800.0
+    assert r["odometer"] is not None
+    assert "mi" in r["odometer"]
+    # 17800 km / 1.609344 ≈ 11060 miles (formatted with comma: "11,060 mi")
+    assert "11060" in r["odometer"].replace(",", "")
