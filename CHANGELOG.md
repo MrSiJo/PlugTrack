@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.4.1](https://github.com/MrSiJo/PlugTrack/compare/v3.4.0...v3.4.1) (2026-06-20)
+
+
+### Bug Fixes
+
+* planner home-actual & AC ceiling, car-form persistence, insights polish ([#31](https://github.com/MrSiJo/PlugTrack/issues/31)) ([e2f7a06](https://github.com/MrSiJo/PlugTrack/commit/e2f7a0655f6ffc0aac09833fe66677359ed77e2d))
+
 ## [3.4.0](https://github.com/MrSiJo/PlugTrack/compare/v3.3.0...v3.4.0) (2026-06-20)
 
 
