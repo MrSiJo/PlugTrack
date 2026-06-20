@@ -662,3 +662,132 @@ async def test_delete_another_users_car_returns_404(app, test_sessionmaker):
                 headers=csrf_b,
             )
             assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Task 13: GET /{car_id}/lifetime
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_car_lifetime_basic(authed_client, test_sessionmaker):
+    """GET /api/cars/{id}/lifetime returns lifetime stats for the car."""
+    from datetime import date as date_cls
+    from plugtrack.models import Car, ChargingSession, User
+    from sqlalchemy import select
+
+    # Create car via API
+    r = await authed_client.post(
+        "/api/cars",
+        json={"make": "Cupra", "model": "Born",
+              "battery_kwh": 58.0, "nominal_efficiency_mi_per_kwh": 3.5},
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    car_id = r.json()["id"]
+
+    async with test_sessionmaker() as session:
+        car = (await session.execute(
+            select(Car).where(Car.id == car_id)
+        )).scalar_one()
+        user_id = car.user_id
+        session.add(ChargingSession(
+            user_id=user_id, car_id=car_id,
+            date=date_cls(2026, 3, 1), start_soc=20, end_soc=80,
+            kwh_added=10.0, charging_type="ac", charging_mode="manual",
+            cost_pence=200, cost_basis="home_rate", source="manual",
+        ))
+        await session.commit()
+
+    r = await authed_client.get(f"/api/cars/{car_id}/lifetime")
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert "ownership_span" in body
+    assert body["ownership_span"]["first"] == "2026-03-01"
+    assert body["total_sessions"] == 1
+    assert body["total_kwh"] == pytest.approx(10.0)
+    assert body["total_cost_pence"] == 200
+    assert "home_public" in body
+
+
+@pytest.mark.asyncio
+async def test_car_lifetime_404_for_other_user(app, authed_client, test_sessionmaker):
+    """GET /api/cars/{id}/lifetime returns 404 for another user's car."""
+    from httpx import ASGITransport, AsyncClient
+    from plugtrack.api.auth_middleware import SESSION_COOKIE_NAME, make_serializer
+    from plugtrack.models import User
+    from plugtrack.security.crypto import hash_password
+
+    # Create a car as authed_client (user A)
+    r = await authed_client.post(
+        "/api/cars",
+        json={"make": "Cupra", "model": "Born",
+              "battery_kwh": 58.0, "nominal_efficiency_mi_per_kwh": 3.5},
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201
+    car_id = r.json()["id"]
+
+    # Create user B and request the lifetime endpoint as them
+    async with test_sessionmaker() as session:
+        user_b = User(username="other_b", password_hash=hash_password("test-password-12chars"))
+        session.add(user_b)
+        await session.commit()
+        await session.refresh(user_b)
+        user_b_id = user_b.id
+
+    serializer = make_serializer("test-secret-key-for-tests-only-padding-padding")
+    token_b = serializer.dumps({"user_id": user_b_id})
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as other:
+        other.cookies.set(SESSION_COOKIE_NAME, token_b)
+        r = await other.get(f"/api/cars/{car_id}/lifetime")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_car_lifetime_archived_car(authed_client, test_sessionmaker):
+    """GET /api/cars/{id}/lifetime works for archived (active=False) cars."""
+    from datetime import date as date_cls
+    from plugtrack.models import Car, ChargingSession, User
+    from sqlalchemy import select
+
+    # Create car via API, then archive it
+    r = await authed_client.post(
+        "/api/cars",
+        json={"make": "Cupra", "model": "Born",
+              "battery_kwh": 58.0, "nominal_efficiency_mi_per_kwh": 3.5},
+        headers=csrf_headers(authed_client),
+    )
+    car_id = r.json()["id"]
+
+    async with test_sessionmaker() as session:
+        car = (await session.execute(
+            select(Car).where(Car.id == car_id)
+        )).scalar_one()
+        user_id = car.user_id
+        session.add(ChargingSession(
+            user_id=user_id, car_id=car_id,
+            date=date_cls(2025, 6, 1), start_soc=10, end_soc=90,
+            kwh_added=50.0, charging_type="ac", charging_mode="manual",
+            cost_pence=1000, cost_basis="home_rate", source="manual",
+        ))
+        await session.commit()
+
+    # Archive the car
+    r = await authed_client.put(
+        f"/api/cars/{car_id}",
+        json={"active": False},
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 200
+    assert r.json()["active"] is False
+
+    # Lifetime should still work
+    r = await authed_client.get(f"/api/cars/{car_id}/lifetime")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total_sessions"] == 1
+    assert body["total_kwh"] == pytest.approx(50.0)

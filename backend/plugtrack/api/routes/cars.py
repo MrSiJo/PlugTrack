@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...db import get_db
 from ...models import Car, CarMileageYear, ChargingSession
 from ...services import mileage_tracking
+from ...services.car_lifetime import compute_car_lifetime
 
 
 # pycupra hard-codes images at `<base>/pycupra/image_<vin>_<view>.png`
@@ -243,6 +244,22 @@ async def get_car_image(
         # only key, so add a weak validator from mtime.
         headers={"Cache-Control": "private, max-age=300"},
     )
+
+
+@router.get("/{car_id}/lifetime")
+async def get_car_lifetime(
+    car_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return lifetime statistics for a car the caller owns.
+
+    Works for both active and archived cars. Returns 404 when the car
+    does not belong to the authenticated user.
+    """
+    user_id = _user_id(request)
+    await _get_owned(session, car_id, user_id)
+    return await compute_car_lifetime(session, user_id=user_id, car_id=car_id)
 
 
 @router.get("/{car_id}", response_model=CarPayload)
