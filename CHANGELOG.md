@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.11.1](https://github.com/MrSiJo/PlugTrack/compare/v2.11.0...v2.11.1) (2026-06-20)
+
+
+### Bug Fixes
+
+* **security:** harden CSV export, VIN paths, rate-limit key, MCP limit ([2c6c831](https://github.com/MrSiJo/PlugTrack/commit/2c6c831263cf24afafeee867e40e5cc19e294399))
+
 ## [2.11.0](https://github.com/MrSiJo/PlugTrack/compare/v2.10.2...v2.11.0) (2026-06-20)
 
 
