@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.4.2](https://github.com/MrSiJo/PlugTrack/compare/v3.4.1...v3.4.2) (2026-06-20)
+
+
+### Bug Fixes
+
+* planner SoC defaults & input UX; docs: README refresh ([#33](https://github.com/MrSiJo/PlugTrack/issues/33)) ([4c36e91](https://github.com/MrSiJo/PlugTrack/commit/4c36e91d03939c7d58b5fb7393ac2a65b44f18a1))
+
 ## [3.4.1](https://github.com/MrSiJo/PlugTrack/compare/v3.4.0...v3.4.1) (2026-06-20)
 
 
