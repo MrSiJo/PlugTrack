@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.2.0](https://github.com/MrSiJo/PlugTrack/compare/v3.1.0...v3.2.0) (2026-06-20)
+
+
+### Features
+
+* smart charge planner — multi-scenario, data-driven ([#25](https://github.com/MrSiJo/PlugTrack/issues/25)) ([9860868](https://github.com/MrSiJo/PlugTrack/commit/9860868ed1c4091d8deb2eb7dfe2649bc81de2a4))
+
 ## [3.1.0](https://github.com/MrSiJo/PlugTrack/compare/v3.0.0...v3.1.0) (2026-06-20)
 
 
