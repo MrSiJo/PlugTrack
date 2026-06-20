@@ -421,3 +421,73 @@ async def test_update_car_rejects_masked_vin(authed_client, test_sessionmaker):
     async with test_sessionmaker() as session:
         car = (await session.execute(select(Car).where(Car.id == car_id))).scalar_one()
         assert car.vin == plain_vin
+
+
+# ---------------------------------------------------------------------------
+# Car name + display_name (Task 1 / Task 2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_car_with_name_returns_name_and_display_name(authed_client):
+    """POST /api/cars with name= returns name and display_name equal to name."""
+    r = await authed_client.post(
+        "/api/cars",
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 3.5,
+            "name": "Daily",
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["name"] == "Daily"
+    assert body["display_name"] == "Daily"
+
+
+@pytest.mark.asyncio
+async def test_create_car_without_name_display_name_is_make_model(authed_client):
+    """POST /api/cars without name → display_name falls back to '{make} {model}'."""
+    r = await authed_client.post(
+        "/api/cars",
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 3.5,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["name"] is None
+    assert body["display_name"] == "Cupra Born"
+
+
+@pytest.mark.asyncio
+async def test_update_car_name(authed_client):
+    """PUT /api/cars/{id} with name updates it; display_name follows."""
+    r = await authed_client.post(
+        "/api/cars",
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 3.5,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    car_id = r.json()["id"]
+
+    r = await authed_client.put(
+        f"/api/cars/{car_id}",
+        json={"name": "Weekend Warrior"},
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["name"] == "Weekend Warrior"
+    assert body["display_name"] == "Weekend Warrior"

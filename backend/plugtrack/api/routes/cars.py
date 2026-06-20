@@ -64,6 +64,8 @@ class CarPayload(BaseModel):
     id: int
     make: str
     model: str
+    name: Optional[str] = None
+    display_name: str
     vin: Optional[str] = None
     battery_kwh: float
     nominal_efficiency_mi_per_kwh: float
@@ -75,6 +77,7 @@ class CarPayload(BaseModel):
 class CarCreateRequest(BaseModel):
     make: str = Field(min_length=1, max_length=64)
     model: str = Field(min_length=1, max_length=64)
+    name: Optional[str] = Field(default=None, max_length=64)
     vin: Optional[str] = Field(default=None, max_length=32)
     battery_kwh: float = Field(gt=0, lt=1000)
     nominal_efficiency_mi_per_kwh: float = Field(gt=0, lt=20)
@@ -88,6 +91,7 @@ class CarCreateRequest(BaseModel):
 class CarUpdateRequest(BaseModel):
     make: Optional[str] = Field(default=None, min_length=1, max_length=64)
     model: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    name: Optional[str] = Field(default=None, max_length=64)
     vin: Optional[str] = Field(default=None, max_length=32)
     battery_kwh: Optional[float] = Field(default=None, gt=0, lt=1000)
     nominal_efficiency_mi_per_kwh: Optional[float] = Field(default=None, gt=0, lt=20)
@@ -119,6 +123,8 @@ def _to_payload(car: Car) -> CarPayload:
         id=car.id,
         make=car.make,
         model=car.model,
+        name=car.name,
+        display_name=car.display_name,
         vin=_mask_vin(car.vin),  # masked — full VIN via GET /{id}/vin
         battery_kwh=car.battery_kwh,
         nominal_efficiency_mi_per_kwh=car.nominal_efficiency_mi_per_kwh,
@@ -158,6 +164,7 @@ async def create_car(
         user_id=user_id,
         make=body.make,
         model=body.model,
+        name=body.name,
         battery_kwh=body.battery_kwh,
         nominal_efficiency_mi_per_kwh=body.nominal_efficiency_mi_per_kwh,
         provider=body.provider,
