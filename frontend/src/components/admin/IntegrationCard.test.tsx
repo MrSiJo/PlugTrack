@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as settingsStoreModule from '@/stores/settingsStore'
 import { IntegrationCard } from './IntegrationCard'
 import type { IntegrationDef } from '@/config/integrations'
+import { INTEGRATIONS } from '@/config/integrations'
 import type { SettingsMap } from '@/api/client'
 
 // Minimal AI integration definition for tests.
@@ -129,6 +130,87 @@ describe('IntegrationCard', () => {
     await waitFor(() => {
       expect(screen.getByText('Saved.')).toBeInTheDocument()
     })
+  })
+
+  it('Telegram integration card config includes all three digest setting keys', () => {
+    const telegramDef = INTEGRATIONS.find((d) => d.key === 'telegram')
+    expect(telegramDef).toBeDefined()
+    expect(telegramDef!.settingKeys).toContain('digest_weekly_enabled')
+    expect(telegramDef!.settingKeys).toContain('digest_monthly_enabled')
+    expect(telegramDef!.settingKeys).toContain('digest_send_hour')
+    // Confirm hidden markers are NOT present
+    expect(telegramDef!.settingKeys).not.toContain('digest_last_weekly_sent')
+    expect(telegramDef!.settingKeys).not.toContain('digest_last_monthly_sent')
+  })
+
+  it('renders digest fields under Telegram card when bot is enabled', () => {
+    const telegramDef = INTEGRATIONS.find((d) => d.key === 'telegram')!
+    const settings: SettingsMap = {
+      telegram_bot_enabled: {
+        key: 'telegram_bot_enabled',
+        value: 'true',
+        value_type: 'bool',
+        group_name: 'telegram',
+        label: 'Telegram bot enabled',
+        description: null,
+        is_secret: false,
+      },
+      telegram_bot_token: {
+        key: 'telegram_bot_token',
+        value: '',
+        value_type: 'string',
+        group_name: 'telegram',
+        label: 'Bot token',
+        description: null,
+        is_secret: true,
+      },
+      telegram_allowed_user_ids: {
+        key: 'telegram_allowed_user_ids',
+        value: '',
+        value_type: 'string',
+        group_name: 'telegram',
+        label: 'Allowed user IDs',
+        description: null,
+        is_secret: false,
+      },
+      digest_weekly_enabled: {
+        key: 'digest_weekly_enabled',
+        value: 'false',
+        value_type: 'bool',
+        group_name: 'telegram',
+        label: 'Weekly digest enabled',
+        description: null,
+        is_secret: false,
+      },
+      digest_monthly_enabled: {
+        key: 'digest_monthly_enabled',
+        value: 'false',
+        value_type: 'bool',
+        group_name: 'telegram',
+        label: 'Monthly digest enabled',
+        description: null,
+        is_secret: false,
+      },
+      digest_send_hour: {
+        key: 'digest_send_hour',
+        value: '8',
+        value_type: 'int',
+        group_name: 'telegram',
+        label: 'Digest send hour',
+        description: null,
+        is_secret: false,
+      },
+    }
+
+    settingsStoreModule.useSettingsStore.setState(
+      { settings, loaded: true, loading: false, error: null, set: mockSet } as unknown as Parameters<typeof settingsStoreModule.useSettingsStore.setState>[0],
+    )
+
+    render(<IntegrationCard def={telegramDef} />)
+
+    expect(screen.getByLabelText(/Weekly digest enabled/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Monthly digest enabled/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Digest send hour/i)).toBeInTheDocument()
   })
 
   it('master toggle syncs to true when store hydrates after mount (empty → true)', async () => {
