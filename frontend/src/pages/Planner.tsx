@@ -132,8 +132,8 @@ export default function Planner() {
   const [carsError, setCarsError] = useState<string | null>(null)
 
   const [carId, setCarId] = useState<number | null>(null)
-  const [startSoc, setStartSoc] = useState<number>(20)
-  const [targetSoc, setTargetSoc] = useState<number>(100)
+  const [startSoc, setStartSoc] = useState<number | ''>(60)
+  const [targetSoc, setTargetSoc] = useState<number | ''>(80)
   const [customKw, setCustomKw] = useState<number | undefined>(undefined)
 
   const [plan, setPlan] = useState<ScenarioPlanResponse | null>(null)
@@ -169,9 +169,14 @@ export default function Planner() {
   // Fetch the plan whenever inputs change (and cars are ready).
   useEffect(() => {
     if (carId === null) return
+    if (startSoc === '' || targetSoc === '') {
+      setPlan(null)
+      setPlanError('Enter a start and target SoC.')
+      return
+    }
     if (targetSoc <= startSoc) {
       setPlan(null)
-      setPlanError('Target must be greater than start.')
+      setPlanError('Target must be higher than start.')
       return
     }
     let cancelled = false
@@ -248,7 +253,13 @@ export default function Planner() {
                 min={0}
                 max={100}
                 value={startSoc}
-                onChange={(e) => setStartSoc(Math.min(100, Math.max(0, Number(e.target.value))))}
+                onChange={(e) => {
+                  const raw = e.target.value
+                  if (raw === '') { setStartSoc(''); return }
+                  const n = Number(raw)
+                  if (!Number.isFinite(n)) return
+                  setStartSoc(Math.min(100, Math.max(0, Math.floor(n))))
+                }}
                 data-testid="planner-start-soc"
               />
             </label>
@@ -262,7 +273,13 @@ export default function Planner() {
                 min={0}
                 max={100}
                 value={targetSoc}
-                onChange={(e) => setTargetSoc(Math.min(100, Math.max(0, Number(e.target.value))))}
+                onChange={(e) => {
+                  const raw = e.target.value
+                  if (raw === '') { setTargetSoc(''); return }
+                  const n = Number(raw)
+                  if (!Number.isFinite(n)) return
+                  setTargetSoc(Math.min(100, Math.max(0, Math.floor(n))))
+                }}
                 data-testid="planner-target-soc"
               />
             </label>
