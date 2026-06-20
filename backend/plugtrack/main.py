@@ -71,6 +71,223 @@ async def run_scheduled_backup(*, retention: int = 7) -> None:
         _log.exception("Scheduled backup failed — swallowed to protect scheduler.")
 
 
+async def run_digest_tick(
+    *,
+    now=None,
+    sessionmaker=None,
+    client_factory=None,
+    _weekly_builder=None,
+    _monthly_builder=None,
+) -> None:
+    """Run one digest-tick: send weekly/monthly digests if due and not already sent.
+
+    Designed to be called on an hourly schedule (Task 4 registers it with
+    APScheduler).  The whole body is wrapped in a broad try/except so a failure
+    is logged + swallowed — it MUST NOT crash the scheduler.
+
+    Parameters
+    ----------
+    now:
+        The current instant in time (tz-aware recommended; if naive it is treated
+        as already in Europe/London).  Defaults to ``datetime.now(LONDON)``.
+    sessionmaker:
+        Async-sessionmaker to use.  Defaults to ``db_module.SessionLocal``.
+    client_factory:
+        Callable ``token -> TelegramClient-like``.  Defaults to constructing a
+        real ``TelegramClient(token)``.  Injected in tests to avoid network calls.
+    _weekly_builder / _monthly_builder:
+        Injectable digest builders (for testing).  Default to the real ones from
+        ``services.digest``.
+    """
+    from zoneinfo import ZoneInfo as _ZoneInfo
+
+    LONDON = _ZoneInfo("Europe/London")
+
+    if now is None:
+        from datetime import datetime as _datetime
+        now = _datetime.now(LONDON)
+
+    if sessionmaker is None:
+        sessionmaker = db_module.SessionLocal
+
+    if client_factory is None:
+        from .services.telegram_client import TelegramClient as _TC
+        client_factory = lambda token: _TC(token)  # noqa: E731
+
+    if _weekly_builder is None:
+        from .services.digest import build_weekly_digest as _bw
+        _weekly_builder = _bw
+
+    if _monthly_builder is None:
+        from .services.digest import build_monthly_digest as _bm
+        _monthly_builder = _bm
+
+    try:
+        from sqlalchemy import select as _select
+        from .models import Setting as _Setting, User as _User
+
+        async with sessionmaker() as session:
+            # ── Load all relevant settings into a dict ────────────────────
+            rows = {
+                r.key: r.value
+                for r in (await session.execute(_select(_Setting))).scalars().all()
+            }
+
+        def _truthy(v) -> bool:
+            return (v or "").strip().lower() in {"true", "1", "yes", "on"}
+
+        def _parse_ids(v) -> list[int]:
+            return [int(x) for x in (v or "").replace(" ", "").split(",") if x]
+
+        # ── Channel availability gate ─────────────────────────────────────
+        if not _truthy(rows.get("telegram_bot_enabled")):
+            _log.debug("run_digest_tick: bot disabled, skipping")
+            return
+
+        raw_token = rows.get("telegram_bot_token")
+        if not raw_token:
+            _log.debug("run_digest_tick: no telegram_bot_token, skipping")
+            return
+
+        allowed_ids = _parse_ids(rows.get("telegram_allowed_user_ids"))
+        if not allowed_ids:
+            _log.debug("run_digest_tick: no allowed_user_ids, skipping")
+            return
+
+        chat_id = allowed_ids[0]
+
+        # Decrypt the token (may already be plain-text in tests if the value
+        # isn't Fernet-encrypted; fall back gracefully).
+        try:
+            from .bootstrap import get_settings as _gs
+            from .security.crypto import decrypt_secret as _ds
+            token = _ds(raw_token, _gs().app_secret_key)
+        except Exception:  # noqa: BLE001
+            # In unit tests the token is seeded as plain text — use as-is.
+            token = raw_token
+
+        # ── Resolve the single app user ───────────────────────────────────
+        async with sessionmaker() as session:
+            user = (await session.execute(_select(_User))).scalar_one_or_none()
+        if user is None:
+            _log.warning("run_digest_tick: no user row, skipping")
+            return
+        user_id = user.id
+
+        # ── Normalise now to London ───────────────────────────────────────
+        now_local = now.astimezone(LONDON) if now.tzinfo is not None else now.replace(tzinfo=LONDON)
+
+        # Parse send hour
+        try:
+            send_hour = int(rows.get("digest_send_hour") or "8")
+        except (TypeError, ValueError):
+            send_hour = 8
+
+        # Current ISO week string: "YYYY-Www"
+        iso = now_local.date().isocalendar()  # (year, week, weekday)
+        current_iso_week = f"{iso[0]}-W{iso[1]:02d}"
+
+        # Current month string: "YYYY-MM"
+        current_month = now_local.strftime("%Y-%m")
+
+        client = client_factory(token)
+
+        # ── Delivery semantics (at-least-once) ───────────────────────────────
+        # Send failure  → marker NOT advanced → tick retried next hourly run.
+        #   A duplicate digest is possible if Telegram errors then recovers —
+        #   this is acceptable for a low-frequency digest.
+        # Empty period  → builder returns None → marker IS advanced immediately
+        #   (no send, but no retry either — nothing to send).
+        # The two periods are fully independent: a monthly failure must NOT
+        # prevent the weekly marker from being committed, and vice-versa.
+        # Each period runs inside its own try/except so neither can poison the
+        # other; the outer try/except guards only the shared setup above.
+
+        # ── WEEKLY ───────────────────────────────────────────────────────
+        try:
+            if _truthy(rows.get("digest_weekly_enabled")):
+                # The anchor is: Monday of the current ISO week at send_hour.
+                # It has passed when:
+                #   - weekday > 0 (Tue–Sun, anchor was earlier this week), OR
+                #   - weekday == 0 AND hour >= send_hour (Mon at or after send_hour)
+                weekday = now_local.weekday()  # 0=Mon, 6=Sun
+                weekly_anchor_passed = (weekday > 0) or (weekday == 0 and now_local.hour >= send_hour)
+
+                last_weekly = rows.get("digest_last_weekly_sent") or ""
+
+                if weekly_anchor_passed and last_weekly != current_iso_week:
+                    async with sessionmaker() as session:
+                        text = await _weekly_builder(session, user_id=user_id, now=now_local)
+
+                    if text is not None:
+                        # Failure here raises → marker NOT committed → retried next tick.
+                        await client.send_message(chat_id=chat_id, text=text)
+
+                    # Marker committed only after successful send (or empty period).
+                    async with sessionmaker() as session:
+                        marker_row = (await session.execute(
+                            _select(_Setting).where(_Setting.key == "digest_last_weekly_sent")
+                        )).scalar_one_or_none()
+                        if marker_row is None:
+                            session.add(_Setting(
+                                key="digest_last_weekly_sent",
+                                value=current_iso_week,
+                                value_type="string",
+                                group_name="telegram",
+                                label="(internal) last weekly digest",
+                                description="",
+                                default_value=None,
+                            ))
+                        else:
+                            marker_row.value = current_iso_week
+                        await session.commit()
+        except Exception:  # noqa: BLE001
+            _log.exception("run_digest_tick: weekly period failed — swallowed; will retry next tick.")
+
+        # ── MONTHLY ──────────────────────────────────────────────────────
+        try:
+            if _truthy(rows.get("digest_monthly_enabled")):
+                # Anchor: 1st of current month at send_hour.
+                # Passed when: day > 1, OR (day == 1 AND hour >= send_hour)
+                monthly_anchor_passed = (now_local.day > 1) or (
+                    now_local.day == 1 and now_local.hour >= send_hour
+                )
+
+                last_monthly = rows.get("digest_last_monthly_sent") or ""
+
+                if monthly_anchor_passed and last_monthly != current_month:
+                    async with sessionmaker() as session:
+                        text = await _monthly_builder(session, user_id=user_id, now=now_local)
+
+                    if text is not None:
+                        # Failure here raises → marker NOT committed → retried next tick.
+                        await client.send_message(chat_id=chat_id, text=text)
+
+                    # Marker committed only after successful send (or empty period).
+                    async with sessionmaker() as session:
+                        marker_row = (await session.execute(
+                            _select(_Setting).where(_Setting.key == "digest_last_monthly_sent")
+                        )).scalar_one_or_none()
+                        if marker_row is None:
+                            session.add(_Setting(
+                                key="digest_last_monthly_sent",
+                                value=current_month,
+                                value_type="string",
+                                group_name="telegram",
+                                label="(internal) last monthly digest",
+                                description="",
+                                default_value=None,
+                            ))
+                        else:
+                            marker_row.value = current_month
+                        await session.commit()
+        except Exception:  # noqa: BLE001
+            _log.exception("run_digest_tick: monthly period failed — swallowed; will retry next tick.")
+
+    except Exception:  # noqa: BLE001
+        _log.exception("run_digest_tick failed — swallowed to protect scheduler.")
+
+
 def _assert_single_worker() -> None:
     """Two-layer multi-worker tripwire.
 
@@ -229,7 +446,20 @@ async def _lifespan(app: FastAPI):
     from sqlalchemy import select as _select
     from .models import Setting as _Setting
 
+    # ---------------------------------------------------------------------------
+    # Unified app-level scheduler.
+    # One AsyncIOScheduler is always created so the digest-tick job runs
+    # regardless of whether backups are enabled.  The backup job is added
+    # conditionally inside the same scheduler when backup_enabled=true.
+    # ---------------------------------------------------------------------------
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler as _AsyncIOScheduler
+    from apscheduler.triggers.interval import IntervalTrigger as _IntervalTrigger
+
+    app.state.scheduler = None
+    # Keep backward-compat alias so existing code / tests that check
+    # app.state.backup_scheduler still work.
     app.state.backup_scheduler = None
+
     async with db_module.SessionLocal() as _bk_session:
         backup_enabled = await _read_bool_setting(_bk_session, "backup_enabled", True)
         _bk_interval_hours = 24
@@ -257,50 +487,65 @@ async def _lifespan(app: FastAPI):
             except (TypeError, ValueError):
                 _bk_retention = 7
 
-    if backup_enabled:
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler as _AsyncIOScheduler
-        from apscheduler.triggers.interval import IntervalTrigger as _IntervalTrigger
+    try:
+        _scheduler = _AsyncIOScheduler()
 
-        _bk_retention_default = _bk_retention  # capture for closure fallback
+        # ── Digest tick (always) ─────────────────────────────────────────────
+        async def _digest_job() -> None:
+            await run_digest_tick()
 
-        async def _backup_job() -> None:
-            # Read retention fresh each run so setting changes apply without restart.
-            retention = _bk_retention_default
-            try:
-                async with db_module.SessionLocal() as _s:
-                    _ret_row = (await _s.execute(
-                        _select(_Setting).where(_Setting.key == "backup_retention")
-                    )).scalar_one_or_none()
-                    if _ret_row and _ret_row.value:
-                        try:
-                            retention = int(_ret_row.value)
-                        except (TypeError, ValueError):
-                            pass
-            except Exception:  # noqa: BLE001
-                pass  # use captured default if DB read fails
-            await run_scheduled_backup(retention=retention)
+        _scheduler.add_job(
+            _digest_job,
+            trigger=_IntervalTrigger(hours=1),
+            id="digest-tick",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
 
-        try:
-            _bk_scheduler = _AsyncIOScheduler()
-            _bk_scheduler.add_job(
+        # ── Backup job (conditional) ─────────────────────────────────────────
+        if backup_enabled:
+            _bk_retention_default = _bk_retention  # capture for closure fallback
+
+            async def _backup_job() -> None:
+                # Read retention fresh each run so setting changes apply without restart.
+                retention = _bk_retention_default
+                try:
+                    async with db_module.SessionLocal() as _s:
+                        _ret_row = (await _s.execute(
+                            _select(_Setting).where(_Setting.key == "backup_retention")
+                        )).scalar_one_or_none()
+                        if _ret_row and _ret_row.value:
+                            try:
+                                retention = int(_ret_row.value)
+                            except (TypeError, ValueError):
+                                pass
+                except Exception:  # noqa: BLE001
+                    pass  # use captured default if DB read fails
+                await run_scheduled_backup(retention=retention)
+
+            _scheduler.add_job(
                 _backup_job,
                 trigger=_IntervalTrigger(hours=_bk_interval_hours),
                 id="backup-scheduled",
                 replace_existing=True,
                 misfire_grace_time=300,
             )
-            _bk_scheduler.start()
-            app.state.backup_scheduler = _bk_scheduler
-            _log.info(
-                "Backup scheduler started: interval=%dh, retention=%d.",
-                _bk_interval_hours,
-                _bk_retention,
-            )
-        except Exception:  # noqa: BLE001
-            _log.exception(
-                "Backup scheduler failed to start — continuing without scheduled backups."
-            )
-            app.state.backup_scheduler = None
+
+        _scheduler.start()
+        app.state.scheduler = _scheduler
+        # Backward-compat: expose the backup scheduler under its old name too.
+        if backup_enabled:
+            app.state.backup_scheduler = _scheduler
+        _log.info(
+            "App scheduler started: digest-tick=1h%s.",
+            f", backup-scheduled={_bk_interval_hours}h" if backup_enabled else "",
+        )
+    except Exception:  # noqa: BLE001
+        _log.exception(
+            "App scheduler failed to start — continuing without scheduled jobs."
+        )
+        app.state.scheduler = None
+        app.state.backup_scheduler = None
 
     try:
         yield
@@ -308,10 +553,10 @@ async def _lifespan(app: FastAPI):
         mgr = getattr(app.state, "telegram_manager", None)
         if mgr is not None:
             await mgr.stop()
-        bk_scheduler = getattr(app.state, "backup_scheduler", None)
-        if bk_scheduler is not None:
+        _app_scheduler = getattr(app.state, "scheduler", None)
+        if _app_scheduler is not None:
             try:
-                bk_scheduler.shutdown(wait=False)
+                _app_scheduler.shutdown(wait=False)
             except Exception:  # noqa: BLE001
                 pass
         # Stop the MCP session manager (if it was started)

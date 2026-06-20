@@ -30,6 +30,14 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 # Catalogue lookup keyed by `key` for O(1) access.
 _CATALOGUE_BY_KEY = {entry.key: entry for entry in CATALOGUE}
 
+# Keys that exist and are seeded normally but are NOT surfaced to the UI.
+# These are internal state markers written by backend jobs; exposing them
+# would clutter the Settings page and invite accidental edits.
+_HIDDEN_KEYS: set[str] = {
+    "digest_last_weekly_sent",
+    "digest_last_monthly_sent",
+}
+
 # Settings whose change must reconcile the live Telegram bot manager.
 _RECONCILE_KEYS = {
     "telegram_bot_enabled",
@@ -68,6 +76,9 @@ async def list_settings(
     rows = result.scalars().all()
     out: dict[str, SettingPayload] = {}
     for row in rows:
+        # Internal marker keys are seeded but never exposed to the UI.
+        if row.key in _HIDDEN_KEYS:
+            continue
         # Defence-in-depth: read is_secret from the catalogue, not the row.
         secret = _is_secret_per_catalogue(row.key)
         value: Optional[Any] = "***" if (secret and row.value) else row.value
