@@ -106,7 +106,20 @@ describe('CarDetail page', () => {
     renderAt('42')
 
     await waitFor(() => expect(screen.getByText('Cupra Born')).toBeInTheDocument())
-    const dashes = screen.getAllByText('—')
-    expect(dashes.length).toBeGreaterThanOrEqual(1)
+    // The specific Avg p/kWh tile must render "—" when the value is null.
+    expect(screen.getByTestId('tile-avg-p-per-kwh')).toHaveTextContent('—')
+  })
+
+  it('shows — for null lifetime_mi_per_kwh', async () => {
+    vi.spyOn(api, 'getCar').mockResolvedValue(makeCar())
+    vi.spyOn(api, 'getCarLifetime').mockResolvedValue(
+      makeLifetime({ lifetime_mi_per_kwh: null })
+    )
+
+    renderAt('42')
+
+    await waitFor(() => expect(screen.getByText('Cupra Born')).toBeInTheDocument())
+    // The specific mi/kWh tile must render "—" when the value is null.
+    expect(screen.getByTestId('tile-mi-per-kwh')).toHaveTextContent('—')
   })
 })

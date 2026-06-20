@@ -120,10 +120,12 @@ export default function CarDetail() {
         <LifetimeTile
           label="Avg p/kWh"
           value={lifetime.lifetime_avg_p_per_kwh !== null ? `${lifetime.lifetime_avg_p_per_kwh.toFixed(1)}p` : '—'}
+          testId="tile-avg-p-per-kwh"
         />
         <LifetimeTile
           label="mi/kWh"
           value={lifetime.lifetime_mi_per_kwh !== null ? lifetime.lifetime_mi_per_kwh.toFixed(2) : '—'}
+          testId="tile-mi-per-kwh"
         />
         <LifetimeTile
           label="Home sessions"
@@ -143,11 +145,11 @@ export default function CarDetail() {
   )
 }
 
-function LifetimeTile({ label, value }: { label: string; value: string }) {
+function LifetimeTile({ label, value, testId }: { label: string; value: string; testId?: string }) {
   return (
     <Card className="flex flex-col gap-1 p-3">
       <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">{label}</dt>
-      <dd className="text-lg font-semibold text-slate-900 dark:text-slate-100">{value}</dd>
+      <dd className="text-lg font-semibold text-slate-900 dark:text-slate-100" data-testid={testId}>{value}</dd>
     </Card>
   )
 }

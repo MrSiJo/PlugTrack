@@ -85,6 +85,32 @@ describe('Insights page', () => {
     expect(spy.mock.calls[1]![0]).toBeTruthy()
   })
 
+  it('threads car_id into API calls when ?car= deep-link is present', async () => {
+    const locationSpy = vi
+      .spyOn(api, 'getInsightsByLocation')
+      .mockResolvedValue({ rows: [], totals: { spend_pence: 0, kwh: 0, sessions: 0 } })
+    const overviewSpy = vi
+      .spyOn(api, 'getInsightsOverview')
+      .mockResolvedValue(EMPTY_OVERVIEW)
+    vi.spyOn(api, 'getCars').mockResolvedValue([
+      { id: 5, make: 'Cupra', model: 'Born', name: null, display_name: 'Cupra Born', vin: null,
+        battery_kwh: 58, nominal_efficiency_mi_per_kwh: 4.2, provider: 'manual',
+        provider_vehicle_id: null, active: true },
+    ])
+
+    render(
+      <MemoryRouter initialEntries={['/insights?car=5']}>
+        <Insights />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(locationSpy).toHaveBeenCalledTimes(1))
+    // Both endpoints must receive car_id=5 as the third argument.
+    // Use mock.calls to inspect exact args (expect.anything() excludes undefined).
+    expect(locationSpy.mock.calls[0]![2]).toBe(5)
+    expect(overviewSpy.mock.calls[0]![2]).toBe(5)
+  })
+
   it('renders the additional insight modules', async () => {
     vi.spyOn(api, 'getInsightsByLocation').mockResolvedValue({
       rows: [], totals: { spend_pence: 0, kwh: 0, sessions: 0 },
