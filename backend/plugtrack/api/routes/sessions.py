@@ -170,6 +170,7 @@ class SessionCreateRequest(BaseModel):
 
 
 class SessionUpdateRequest(BaseModel):
+    car_id: Optional[int] = None
     date: Optional[date_cls] = None
     start_soc: Optional[int] = Field(default=None, ge=0, le=100)
     end_soc: Optional[int] = Field(default=None, ge=0, le=100)
@@ -507,6 +508,16 @@ async def update_session(
     cs = await _get_owned(session, session_id, user_id)
 
     data = body.model_dump(exclude_unset=True)
+
+    # Validate car ownership before any writes.  Active OR archived cars are
+    # both allowed; do not filter on `active`.
+    if "car_id" in data:
+        target_car = await session.scalar(
+            select(Car).where(Car.id == data["car_id"], Car.user_id == user_id)
+        )
+        if target_car is None:
+            raise HTTPException(status_code=404, detail="Car not found")
+
     cost_dirty = bool(_COST_AFFECTING & data.keys())
     soc_dirty = bool(_SOC_AFFECTING & data.keys())
     override_changed = bool(_OVERRIDE_FIELDS & data.keys())
