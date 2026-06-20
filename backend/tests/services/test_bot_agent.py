@@ -752,3 +752,55 @@ async def test_rolling_context_accumulates_turns(test_sessionmaker, seeded_user_
     assert len(captured_histories[0]) == 0
     # Second call: history contains at least the first turn
     assert len(captured_histories[1]) >= 2  # user + assistant from first turn
+
+
+# ---------------------------------------------------------------------------
+# Test F: build_tool_catalogue has odometer fields in propose_edit_charge
+# ---------------------------------------------------------------------------
+
+
+def test_build_tool_catalogue_propose_edit_charge_has_odometer():
+    from plugtrack.services.bot_agent import build_tool_catalogue
+    catalogue = build_tool_catalogue()
+    edit_tool = next(t for t in catalogue if t["name"] == "propose_edit_charge")
+    props = edit_tool["parameters"]["properties"]
+    assert "odometer" in props
+    assert props["odometer"]["type"] == "number"
+    assert "odometer_unit" in props
+
+
+# ---------------------------------------------------------------------------
+# Test G: run_agent_turn injects today's date into instructions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_agent_turn_instructions_contain_today_date():
+    import re
+    from plugtrack.services.bot_agent import run_agent_turn
+
+    captured_instructions = {}
+
+    async def mock_post(url, *, json, headers, **kwargs):
+        captured_instructions["instructions"] = json.get("instructions", "")
+        m = MagicMock()
+        m.status_code = 200
+        m.raise_for_status = MagicMock()
+        m.json.return_value = _text_response("Hello")
+        return m
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = mock_post
+        mock_client_cls.return_value = mock_client
+
+        await run_agent_turn(
+            session=None, user_id=1, text="hello", history=[],
+            api_key="sk-test", model="gpt-5-mini", tool_runner=_fake_runner,
+        )
+
+    instr = captured_instructions.get("instructions", "")
+    assert "Today's date is" in instr
+    assert re.search(r"\d{4}-\d{2}-\d{2}", instr), "No YYYY-MM-DD date found"

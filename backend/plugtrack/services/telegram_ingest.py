@@ -12,6 +12,7 @@ import dataclasses
 import hashlib
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
@@ -56,6 +57,10 @@ class IngestContext:
     rolling_context: dict[int, list[dict]] = field(default_factory=dict)
     # chat_id -> pending change_token (from a propose_* result awaiting commit).
     pending_tokens: dict[int, str] = field(default_factory=dict)
+    # chat_id -> (charge_id, set_at_epoch) — conversational two-step edit target.
+    # Set by handle_text when user says "update session N from the next screenshot".
+    # Consumed (single-use, 10-min expiry) by the next handle_photo for that chat.
+    pending_edit_target: dict[int, tuple[int, float]] = field(default_factory=dict)
 
 
 @dataclass
@@ -124,6 +129,104 @@ def _parse_caption(caption: Optional[str]) -> tuple[Optional[str], Optional[floa
             unit = "mi"
         text = (text[: m.start()] + text[m.end():]).strip()
     return (text or None, odo, unit)
+
+
+# ---------------------------------------------------------------------------
+# Update-target parsers
+# ---------------------------------------------------------------------------
+
+# Verb form: "update 42", "update session 7", "edit charge 99", "update #42"
+_UPDATE_VERB_RE = re.compile(
+    r"(?:update|edit)\s+(?:session\s+|charge\s+)?#?(\d+)",
+    re.IGNORECASE,
+)
+# Bare hash form: caption is EXACTLY "#42" (whole-caption match only, not substring)
+_UPDATE_HASH_WHOLE_RE = re.compile(r"^#\s?(\d+)$", re.IGNORECASE)
+
+
+def _parse_update_target(caption: Optional[str]) -> Optional[int]:
+    """Return session id if the caption expresses an update intent, else None.
+
+    Matches: "update 42", "update session 7", "update charge 99",
+    "update #42", "edit 5", "edit session 3".
+    Bare #N form ONLY when it is the ENTIRE caption (strip): "#42", "  #42 ".
+    Does NOT match "#N" embedded in a location name ("Osprey stall #3",
+    "BP Pulse #1 Oxford"), bare numbers ("11056") or plain words ("Home").
+    """
+    text = (caption or "").strip()
+    if not text:
+        return None
+    # Verb form may appear anywhere in the caption.
+    m = _UPDATE_VERB_RE.search(text)
+    if m:
+        return int(m.group(1))
+    # Bare #N form: only when the WHOLE stripped caption is "#N".
+    m = _UPDATE_HASH_WHOLE_RE.match(text)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _parse_pending_screenshot_edit(text: str) -> Optional[int]:
+    """Return session id if text expresses intent to send a screenshot to update a session.
+
+    Requires ALL of:
+    - a session id
+    - a screenshot/photo word
+    - an explicit update/edit/send-intent verb
+
+    The bare "screenshot for session N" form WITHOUT an intent verb is NOT
+    matched (it could be a read-only question like "Can you show me a
+    screenshot for session 42?").
+
+    Examples that match:
+      "update session 42 with the next screenshot" → 42
+      "update 42 with a photo" → 42
+      "i'll send a screenshot to update session 42" → 42
+      "edit session 7 from the next screenshot" → 7
+
+    Examples that do NOT match:
+      "Can you show me a screenshot for session 42?" (no intent verb)
+      "update session 42"        (no screenshot/photo word)
+      "send a screenshot"        (no id)
+      "what did I spend"         (no relevant tokens)
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+
+    has_photo_word = bool(re.search(r"\b(?:screenshot|photo)\b", text, re.IGNORECASE))
+
+    # All forms require both a photo word AND an update/edit/send verb
+    if not has_photo_word:
+        return None
+    has_verb = bool(re.search(
+        r"\b(?:update|edit|send|attach|i['']?ll\s+send|i\s+will\s+send)\b",
+        text, re.IGNORECASE,
+    ))
+    if not has_verb:
+        return None
+
+    # Extract the session id
+    for pat in (
+        r"(?:update|edit)\s+(?:session\s+|charge\s+)?#?(\d+)",
+        r"\b(?:session|charge)\s+#?(\d+)\b",
+    ):
+        m2 = re.search(pat, text, re.IGNORECASE)
+        if m2:
+            return int(m2.group(1))
+
+    return None
+
+
+_PENDING_EDIT_TTL = 600  # 10 minutes
+
+
+def _build_proposal_message(result: dict, target: int) -> tuple[str, dict]:
+    """Return (text, reply_markup) for a propose_edit_charge result."""
+    summary = result.get("summary", f"Proposed update to session #{target}")
+    token = result["change_token"]
+    return summary, _proposal_kb(token)
 
 
 def _kb() -> dict[str, Any]:
@@ -357,6 +460,99 @@ async def _stage_and_card(
     await _send_or_edit_card(ctx, chat_id=chat_id, text=text)
 
 
+def _extraction_to_edit_kwargs(extraction: "Extraction") -> dict[str, Any]:
+    """Map Extraction fields → propose_edit_charge keyword arguments.
+
+    Only includes fields that are not None. Date and notes are never set from
+    a screenshot (updating an existing session shouldn't move its date).
+    Cost: prefer total_cost_p when has_cost+cost_total_pence; else per-kwh rate.
+    """
+    kwargs: dict[str, Any] = {}
+    if extraction.energy_kwh is not None:
+        kwargs["kwh"] = extraction.energy_kwh
+    if extraction.has_cost and extraction.cost_total_pence is not None:
+        kwargs["total_cost_p"] = extraction.cost_total_pence
+    elif extraction.cost_per_kwh_pence is not None:
+        kwargs["price_p_per_kwh"] = extraction.cost_per_kwh_pence
+    if extraction.soc_start is not None:
+        kwargs["start_soc"] = extraction.soc_start
+    if extraction.soc_end is not None:
+        kwargs["end_soc"] = extraction.soc_end
+    if extraction.network is not None:
+        kwargs["network"] = extraction.network
+    if extraction.odometer is not None:
+        kwargs["odometer"] = extraction.odometer
+        if extraction.odometer_unit is not None:
+            kwargs["odometer_unit"] = extraction.odometer_unit
+    return kwargs
+
+
+async def _handle_photo_update_target(
+    ctx: IngestContext, *, target: int, user_id: int, chat_id: int, image: bytes,
+    consumed_pending: bool = False,
+) -> None:
+    """Execute the update-from-screenshot path for a resolved target session id.
+
+    Downloads+extracts the image, validates ownership, calls propose_edit_charge,
+    stores the change_token, sends the proposal card. Sends an error message on
+    any failure (not found, no usable fields, propose error).
+
+    `consumed_pending` signals that the caller has already pulled this call's
+    target from pending_edit_target; on failure we put it back so the user can
+    resend (fix 5).
+    """
+    from ..mcp.tools import get_charge, propose_edit_charge
+
+    async with ctx.sessionmaker() as s:
+        owned = await get_charge(s, user_id, target)
+        if owned is None or (isinstance(owned, dict) and owned.get("error")):  # fix 7
+            await ctx.telegram.send_message(
+                chat_id=chat_id,
+                text=f"Session {target} not found.",
+            )
+            # Ownership failure — restore pending so the user can correct and resend.
+            if consumed_pending:
+                ctx.pending_edit_target[chat_id] = (target, time.time())
+            return
+
+    result_obj = await ctx.extractor(image)
+    extraction = result_obj.extraction
+    kwargs = _extraction_to_edit_kwargs(extraction)
+
+    if not kwargs:
+        await ctx.telegram.send_message(
+            chat_id=chat_id,
+            text=f"Couldn't read any charge data from that screenshot to update session {target}.",
+        )
+        # Extraction failure — restore pending so the user can resend a clearer photo.
+        if consumed_pending:
+            ctx.pending_edit_target[chat_id] = (target, time.time())
+        return
+
+    async with ctx.sessionmaker() as s:
+        result = await propose_edit_charge(s, user_id, charge_id=target, **kwargs)
+
+    if result.get("error"):
+        await ctx.telegram.send_message(chat_id=chat_id, text=result["error"])
+        # propose error — restore pending so the user can retry.
+        if consumed_pending:
+            ctx.pending_edit_target[chat_id] = (target, time.time())
+        return
+
+    # Success: clear the staging card so the next new-session photo starts fresh (fix 3).
+    ctx.card_ids.pop(chat_id, None)
+
+    change_token = result["change_token"]
+    ctx.pending_tokens[chat_id] = change_token
+    # Use _build_proposal_message as the single source of truth for card text (fix 6).
+    summary, kb = _build_proposal_message(result, target)
+    await ctx.telegram.send_message(
+        chat_id=chat_id,
+        text=summary,
+        reply_markup=kb,
+    )
+
+
 async def handle_photo(
     ctx: IngestContext, *, from_id: int, chat_id: int, message_id: int, file_id: str,
     caption: Optional[str] = None,
@@ -366,6 +562,39 @@ async def handle_photo(
     user_id, _car_id = ctx.resolve_target()
     path = await ctx.telegram.get_file_path(file_id)
     image = await ctx.telegram.download_file(path)
+
+    # -------------------------------------------------------------------
+    # Update-from-screenshot routing: resolve a target session id, if any.
+    #   Priority 1: caption trigger ("update 42", "#13", "edit session 7").
+    #   Priority 2: conversational pending_edit_target (10-min expiry, single-use).
+    # When a target is found, delegate to the update path and RETURN — the
+    # new-session staging flow below is never reached.
+    # -------------------------------------------------------------------
+    target: Optional[int] = _parse_update_target(caption)
+    consumed_pending = False
+    if target is None:
+        pending = ctx.pending_edit_target.get(chat_id)
+        if pending is not None:
+            pending_id, set_at = pending
+            if time.time() - set_at <= _PENDING_EDIT_TTL:
+                target = pending_id
+                # Pop now (single-use, valid). On failure _handle_photo_update_target
+                # will restore it so the user can resend (fix 5).
+                ctx.pending_edit_target.pop(chat_id, None)
+                consumed_pending = True
+            else:
+                # Expired entry — clear it.
+                ctx.pending_edit_target.pop(chat_id, None)
+
+    if target is not None:
+        await _handle_photo_update_target(
+            ctx, target=target, user_id=user_id, chat_id=chat_id, image=image,
+            consumed_pending=consumed_pending)
+        return
+
+    # -------------------------------------------------------------------
+    # Existing new-session staging flow — unchanged.
+    # -------------------------------------------------------------------
     sha = hashlib.sha256(image).hexdigest()
 
     # Dedupe is resolved in _stage_and_card (committed -> warn, staged -> re-show,
@@ -408,7 +637,9 @@ async def handle_callback(
             async with ctx.sessionmaker() as s:
                 from ..mcp.tools import commit_change
                 result = await commit_change(s, user_id, token)
-            ctx.pending_tokens.pop(chat_id, None)
+            # Only pop the stored token if it matches the one being committed (fix 4).
+            if ctx.pending_tokens.get(chat_id) == token:
+                ctx.pending_tokens.pop(chat_id, None)
             if result.get("ok"):
                 await ctx.telegram.send_message(chat_id=chat_id, text="Done — change saved.")
             else:
@@ -424,7 +655,10 @@ async def handle_callback(
         return
 
     if data.startswith("mcpdiscard:"):
-        ctx.pending_tokens.pop(chat_id, None)
+        token = data[len("mcpdiscard:"):]
+        # Only pop the stored token if it matches the one being discarded (fix 4).
+        if ctx.pending_tokens.get(chat_id) == token:
+            ctx.pending_tokens.pop(chat_id, None)
         await ctx.telegram.answer_callback(callback_id, "Discarded")
         await ctx.telegram.send_message(chat_id=chat_id, text="Change discarded.")
         return
@@ -524,6 +758,28 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
         from .telegram_health import format_health_text
         report = await ctx.health_check(from_id)
         await ctx.telegram.send_message(chat_id=chat_id, text=format_health_text(report))
+        return
+    # -----------------------------------------------------------------------
+    # Conversational two-step: "update session N from the next screenshot"
+    # Checked early (before charge-note extractor) so it isn't swallowed by it.
+    # -----------------------------------------------------------------------
+    target_id = _parse_pending_screenshot_edit(text)
+    if target_id is not None:
+        from ..mcp.tools import get_charge
+        user_id_for_check, _ = ctx.resolve_target()
+        async with ctx.sessionmaker() as s:
+            owned = await get_charge(s, user_id_for_check, target_id)
+        if owned is None or (isinstance(owned, dict) and owned.get("error")):
+            await ctx.telegram.send_message(
+                chat_id=chat_id,
+                text=f"Session {target_id} not found.",
+            )
+        else:
+            ctx.pending_edit_target[chat_id] = (target_id, time.time())
+            await ctx.telegram.send_message(
+                chat_id=chat_id,
+                text=f"OK — send the screenshot to update session {target_id}.",
+            )
         return
     # Try to parse a free-text charge note. A failure here (e.g. an OpenAI
     # error) must NOT black-hole the message — log and fall through to the
