@@ -353,7 +353,7 @@ export default function Insights() {
       )}
 
       {!loading && !error && rows.length > 0 && (
-        <Card className="overflow-x-auto p-0">
+        <Card className="mb-6 overflow-x-auto p-0">
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800">

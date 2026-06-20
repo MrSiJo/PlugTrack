@@ -83,4 +83,38 @@ describe('SeasonalEfficiencyChart', () => {
     // formatDistance(160.9344, 'mi') → { value: 100, unit: 'mi' } → "100 mi"
     expect(screen.getByText(/100 mi/i)).toBeInTheDocument()
   })
+
+  it('Fix 3: tooltip mi_per_kwh is rounded to 2 dp (not raw float)', () => {
+    // 3.293709853662873 should display as "3.29 mi/kWh", not the raw float.
+    useSettingsStore.setState({ settings: {}, loaded: true })
+    const point = {
+      period: '2026-06',
+      mi_per_kwh: 3.293709853662873,
+      derived_range_km: 168,
+      low_confidence: false,
+    }
+    const payload = [{ payload: point, name: 'mi_per_kwh', value: 3.293709853662873 }]
+    const { container } = render(<ChartTooltip active={true} payload={payload} />)
+    // Must show exactly 2 dp
+    expect(container.textContent).toMatch(/3\.29 mi\/kWh/)
+    // Must NOT show 6+ dp raw float
+    expect(container.textContent).not.toMatch(/3\.2937/)
+  })
+
+  it('Fix 3: tooltip range value is rounded to whole number (no decimal)', () => {
+    useSettingsStore.setState({ settings: {}, loaded: true })
+    const point = {
+      period: '2026-09',
+      mi_per_kwh: 3.1,
+      derived_range_km: 148.7,  // converts to ~92.4 mi — should show "92" not "92.4..."
+      low_confidence: false,
+    }
+    const payload = [{ payload: point, name: 'mi_per_kwh', value: 3.1 }]
+    const { container } = render(<ChartTooltip active={true} payload={payload} />)
+    // Range display should be a whole number followed by the unit
+    expect(container.textContent).toMatch(/\d+ mi/)
+    // Should NOT contain a decimal in the range portion
+    // The range line is "Range: N mi" — no decimal N
+    expect(container.textContent).not.toMatch(/Range: \d+\.\d/)
+  })
 })
