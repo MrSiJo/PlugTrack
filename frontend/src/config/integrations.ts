@@ -35,7 +35,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
       'digest_monthly_enabled',
       'digest_send_hour',
     ],
-    hint: 'Screenshot extraction needs an OpenAI key set in the AI integration. Weekly and monthly digests are sent at the configured hour (UTC).',
+    hint: 'Screenshot extraction needs an OpenAI key set in the AI integration. Weekly and monthly digests are sent at the configured hour (Europe/London time).',
     actions: ['testTelegram'],
   },
   {

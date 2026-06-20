@@ -127,14 +127,13 @@ def test_delta_phrase_small_rounds_to_flat():
 
 
 def test_delta_phrase_prev_zero():
-    result = _delta_phrase(50.0, 0.0)
-    # Should not crash; either "" or some sensible string
-    assert isinstance(result, str)
+    # When prev==0 the comparison is undefined; returns "" so callers omit the parenthetical.
+    assert _delta_phrase(50.0, 0.0) == ""
 
 
 def test_delta_phrase_both_zero():
-    result = _delta_phrase(0.0, 0.0)
-    assert isinstance(result, str)
+    # Both zero is also prev==0; same contract: empty string.
+    assert _delta_phrase(0.0, 0.0) == ""
 
 
 # ---------------------------------------------------------------------------
