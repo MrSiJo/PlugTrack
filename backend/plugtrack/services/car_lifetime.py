@@ -7,12 +7,16 @@ from typing import Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import ChargingSession
+from ..models import Car, ChargingSession
 from .insights_stats import (
     home_public_split,
     window_totals,
     _miles_driven_km,
     KM_PER_MILE,
+)
+from .ownership_trends import (
+    current_estimated_capacity,
+    seasonal_range_span,
 )
 
 
@@ -29,7 +33,16 @@ async def compute_car_lifetime(
         lifetime_avg_p_per_kwh: float | None  (spend_pence / costed_kwh, None if no costed kWh)
         lifetime_mi_per_kwh: float | None (total miles / total kwh, None if no odometer data or no kwh)
         home_public: {home: {...}, public: {...}}  (from home_public_split)
+        estimated_usable_kwh: float | None  (rolling median capacity from qualifying charges)
+        seasonal_range_span: {min_km, max_km, avg_km} | None  (derived range across months)
     """
+    # Load the car to obtain battery_kwh (no active filter — works for archived cars)
+    car = (
+        await session.execute(
+            select(Car).where(Car.user_id == user_id, Car.id == car_id)
+        )
+    ).scalar_one_or_none()
+    battery_kwh: Optional[float] = car.battery_kwh if car is not None else None
     # ownership span — min/max date for this car's sessions
     span_stmt = select(
         func.min(ChargingSession.date).label("first"),
@@ -73,6 +86,18 @@ async def compute_car_lifetime(
         session, user_id=user_id, date_from=None, date_to=None, car_id=car_id
     )
 
+    # Ownership-trend fields — require battery_kwh from the Car row
+    if battery_kwh is not None:
+        estimated_cap = await current_estimated_capacity(
+            session, user_id=user_id, car_id=car_id, battery_kwh=battery_kwh
+        )
+        seasonal_span = await seasonal_range_span(
+            session, user_id=user_id, car_id=car_id, battery_kwh=battery_kwh
+        )
+    else:
+        estimated_cap = None
+        seasonal_span = None
+
     return {
         "ownership_span": ownership_span,
         "total_sessions": total_sessions,
@@ -81,4 +106,6 @@ async def compute_car_lifetime(
         "lifetime_avg_p_per_kwh": lifetime_avg_p_per_kwh,
         "lifetime_mi_per_kwh": lifetime_mi_per_kwh,
         "home_public": home_public,
+        "estimated_usable_kwh": estimated_cap,
+        "seasonal_range_span": seasonal_span,
     }

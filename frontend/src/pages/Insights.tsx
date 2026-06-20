@@ -32,6 +32,8 @@ import { OverTimeChart } from '@/components/insights/OverTimeChart'
 import { HomePublicSplit } from '@/components/insights/HomePublicSplit'
 import { NetworkBreakdown } from '@/components/insights/NetworkBreakdown'
 import { EfficiencyChart } from '@/components/insights/EfficiencyChart'
+import { SeasonalEfficiencyChart } from '@/components/insights/SeasonalEfficiencyChart'
+import { CapacityTrendChart } from '@/components/insights/CapacityTrendChart'
 import { MileageAllowance } from '@/components/insights/MileageAllowance'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -439,6 +441,30 @@ export default function Insights() {
             <h2 className={MODULE_EYEBROW}>Efficiency &amp; cost per mile</h2>
             <EfficiencyChart data={overview.efficiency} />
           </Card>
+
+          {overview.seasonal_efficiency && overview.seasonal_efficiency.length > 0 && (
+            <Card className="mb-6">
+              <h2 className={MODULE_EYEBROW}>Seasonal efficiency &amp; range</h2>
+              <SeasonalEfficiencyChart data={overview.seasonal_efficiency} />
+              {overview.seasonal_delta != null && (
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  Seasonal swing:{' '}
+                  <span className="font-medium text-slate-700 dark:text-slate-200">
+                    {overview.seasonal_delta.pct.toFixed(1)}%
+                    {' '}({overview.seasonal_delta.abs_mi_per_kwh.toFixed(2)} mi/kWh)
+                  </span>{' '}
+                  between best ({overview.seasonal_delta.best.period}) and worst ({overview.seasonal_delta.worst.period}) month.
+                </p>
+              )}
+            </Card>
+          )}
+
+          {overview.capacity_trend && overview.capacity_trend.length > 0 && (
+            <Card className="mb-6">
+              <h2 className={MODULE_EYEBROW}>Estimated battery health</h2>
+              <CapacityTrendChart data={overview.capacity_trend} />
+            </Card>
+          )}
         </>
       )}
 

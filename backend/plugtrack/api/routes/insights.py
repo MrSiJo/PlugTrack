@@ -11,9 +11,11 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
+from ...models import Car
 from ...services.insights import aggregate_by_location
 from ...services.insights_stats import (
     efficiency_over_time,
@@ -23,6 +25,11 @@ from ...services.insights_stats import (
     resolve_granularity,
     spend_energy_over_time,
     window_totals,
+)
+from ...services.ownership_trends import (
+    capacity_trend as _capacity_trend,
+    efficiency_by_month,
+    seasonal_delta,
 )
 
 
@@ -88,6 +95,29 @@ async def _effective_bounds(session, user_id, date_from, date_to):
     return lo, hi
 
 
+async def _resolve_trend_car(
+    session: AsyncSession, *, user_id: int, car_id: Optional[int]
+) -> Optional[Car]:
+    """Return the Car to use for ownership-trend aggregations.
+
+    When car_id is provided, load that specific car (no active filter — it
+    could be an archived car if the caller asks for it).  When car_id is
+    None, resolve to the user's first ACTIVE car ordered by id; trends are
+    inherently per-car and we need a single battery_kwh to anchor them.
+    Returns None if no suitable car can be found.
+    """
+    if car_id is not None:
+        stmt = select(Car).where(Car.user_id == user_id, Car.id == car_id)
+    else:
+        stmt = (
+            select(Car)
+            .where(Car.user_id == user_id, Car.active == True)  # noqa: E712
+            .order_by(Car.id)
+            .limit(1)
+        )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
 @router.get("/overview")
 async def get_overview(
     request: Request,
@@ -111,12 +141,34 @@ async def get_overview(
         session, user_id=user_id, date_from=date_from, date_to=date_to, granularity=granularity,
         car_id=car_id)
 
+    # Ownership-trend keys — inherently per-car; resolve the car to use.
+    trend_car = await _resolve_trend_car(session, user_id=user_id, car_id=car_id)
+    if trend_car is not None:
+        seasonal_efficiency = await efficiency_by_month(
+            session,
+            user_id=user_id,
+            car_id=trend_car.id,
+            battery_kwh=trend_car.battery_kwh,
+        )
+        capacity_trend_data = await _capacity_trend(
+            session,
+            user_id=user_id,
+            car_id=trend_car.id,
+            battery_kwh=trend_car.battery_kwh,
+        )
+    else:
+        seasonal_efficiency = []
+        capacity_trend_data = []
+
     return JSONResponse(content={
         "granularity": granularity,
         "over_time": over_time,
         "split": split,
         "by_network": by_network,
         "efficiency": efficiency,
+        "seasonal_efficiency": seasonal_efficiency,
+        "capacity_trend": capacity_trend_data,
+        "seasonal_delta": seasonal_delta(seasonal_efficiency),
     })
 
 

@@ -244,6 +244,8 @@ export interface CarLifetimePayload {
   lifetime_avg_p_per_kwh: number | null
   lifetime_mi_per_kwh: number | null
   home_public: CarLifetimeHomepublic
+  estimated_usable_kwh: number | null
+  seasonal_range_span: { min_km: number | null; max_km: number | null; avg_km: number | null } | null
 }
 
 // ---------------------------------------------------------------------------
@@ -499,12 +501,38 @@ export interface InsightsEfficiencyPoint {
   cost_per_mile_p: number | null
 }
 
+export interface SeasonalEfficiencyPoint {
+  /** "YYYY-MM" */
+  period: string
+  mi_per_kwh: number | null
+  derived_range_km: number | null
+  low_confidence: boolean
+}
+
+export interface CapacityTrendPoint {
+  /** "YYYY-MM-DD" */
+  date: string
+  usable_kwh: number
+  charging_type: 'ac' | 'dc' | 'unknown'
+  low_confidence: boolean
+}
+
+export interface SeasonalDelta {
+  best: SeasonalEfficiencyPoint
+  worst: SeasonalEfficiencyPoint
+  pct: number
+  abs_mi_per_kwh: number
+}
+
 export interface InsightsOverviewResponse {
   granularity: 'daily' | 'weekly' | 'monthly'
   over_time: InsightsOverTimePoint[]
   split: { home: InsightsSplitBucket; public: InsightsSplitBucket }
   by_network: InsightsNetworkRow[]
   efficiency: InsightsEfficiencyPoint[]
+  seasonal_efficiency?: SeasonalEfficiencyPoint[]
+  capacity_trend?: CapacityTrendPoint[]
+  seasonal_delta?: SeasonalDelta | null
 }
 
 export interface InsightsMileageResponse {

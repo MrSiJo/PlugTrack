@@ -27,6 +27,8 @@ function makeLifetime(over: Partial<CarLifetimePayload> = {}): CarLifetimePayloa
       home: { spend_pence: 2000, kwh: 300, sessions: 14, avg_p_per_kwh: 6.7 },
       public: { spend_pence: 1500, kwh: 200, sessions: 6, avg_p_per_kwh: 7.5 },
     },
+    estimated_usable_kwh: null,
+    seasonal_range_span: null,
     ...over,
   }
 }
@@ -122,5 +124,107 @@ describe('CarDetail page', () => {
     await waitFor(() => expect(screen.getByText('Cupra Born')).toBeInTheDocument())
     // The specific mi/kWh tile must render "—" when the value is null.
     expect(screen.getByTestId('tile-mi-per-kwh')).toHaveTextContent('—')
+  })
+
+  // ---------------------------------------------------------------------------
+  // Battery health & seasonal range tile
+  // ---------------------------------------------------------------------------
+
+  it('renders battery-health card for active car with estimated_usable_kwh', async () => {
+    // car.battery_kwh = 58; estimated = 54.3 → degradation = (1 - 54.3/58)*100 = 6.4%
+    vi.spyOn(api, 'getCar').mockResolvedValue(makeCar({ battery_kwh: 58 }))
+    vi.spyOn(api, 'getCarLifetime').mockResolvedValue(
+      makeLifetime({
+        estimated_usable_kwh: 54.3,
+        seasonal_range_span: { min_km: 200, max_km: 350, avg_km: 280 },
+      }),
+    )
+
+    renderAt('42')
+
+    await waitFor(() => expect(screen.getByText('Cupra Born')).toBeInTheDocument())
+
+    // Section heading
+    expect(screen.getByText('Battery health & seasonal range')).toBeInTheDocument()
+
+    // Estimated usable capacity
+    expect(screen.getByTestId('tile-estimated-usable')).toHaveTextContent('54.3 kWh')
+
+    // Indicative caveat text
+    expect(screen.getByTestId('tile-estimated-usable-caveat')).toBeInTheDocument()
+
+    // Degradation hint (6.4%)
+    expect(screen.getByTestId('tile-degradation')).toHaveTextContent('6.4%')
+
+    // Seasonal range span — values are mi by default (km / 1.609344)
+    // min_km=200 → ~124.3 mi; max_km=350 → ~217.5 mi
+    const spanEl = screen.getByTestId('tile-seasonal-span')
+    expect(spanEl).toHaveTextContent(/\d+/)
+    // Both min and max present — should show a range with "–"
+    expect(spanEl.textContent).toMatch(/–/)
+  })
+
+  it('renders battery-health card for archived car', async () => {
+    vi.spyOn(api, 'getCar').mockResolvedValue(makeCar({ active: false, battery_kwh: 77 }))
+    vi.spyOn(api, 'getCarLifetime').mockResolvedValue(
+      makeLifetime({
+        estimated_usable_kwh: 72.0,
+        seasonal_range_span: null,
+      }),
+    )
+
+    renderAt('42')
+
+    await waitFor(() => expect(screen.getByText('Archived')).toBeInTheDocument())
+    expect(screen.getByText('Battery health & seasonal range')).toBeInTheDocument()
+    expect(screen.getByTestId('tile-estimated-usable')).toHaveTextContent('72.0 kWh')
+    // seasonal span is null → shows —
+    expect(screen.getByTestId('tile-seasonal-span')).toHaveTextContent('—')
+  })
+
+  it('hides battery-health card when estimated_usable_kwh is null', async () => {
+    vi.spyOn(api, 'getCar').mockResolvedValue(makeCar())
+    vi.spyOn(api, 'getCarLifetime').mockResolvedValue(
+      makeLifetime({ estimated_usable_kwh: null, seasonal_range_span: null }),
+    )
+
+    renderAt('42')
+
+    await waitFor(() => expect(screen.getByText('Cupra Born')).toBeInTheDocument())
+    expect(screen.queryByText('Battery health & seasonal range')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tile-estimated-usable')).not.toBeInTheDocument()
+  })
+
+  it('shows — for degradation when estimated_usable_kwh exceeds battery_kwh', async () => {
+    // Estimated > nominal → degrade is negative; guard → show "—" or ~0%
+    vi.spyOn(api, 'getCar').mockResolvedValue(makeCar({ battery_kwh: 58 }))
+    vi.spyOn(api, 'getCarLifetime').mockResolvedValue(
+      makeLifetime({ estimated_usable_kwh: 60, seasonal_range_span: null }),
+    )
+
+    renderAt('42')
+
+    await waitFor(() => expect(screen.getByText('Battery health & seasonal range')).toBeInTheDocument())
+    const deg = screen.getByTestId('tile-degradation')
+    // Should show "—" (or ≈0%) rather than a negative percentage
+    const text = deg.textContent ?? ''
+    const isNonNegative = text === '—' || text === '~0%' || (parseFloat(text) >= 0)
+    expect(isNonNegative).toBe(true)
+  })
+
+  it('shows — for seasonal range when min_km or max_km is null', async () => {
+    vi.spyOn(api, 'getCar').mockResolvedValue(makeCar())
+    vi.spyOn(api, 'getCarLifetime').mockResolvedValue(
+      makeLifetime({
+        estimated_usable_kwh: 54,
+        seasonal_range_span: { min_km: null, max_km: 350, avg_km: null },
+      }),
+    )
+
+    renderAt('42')
+
+    await waitFor(() => expect(screen.getByText('Battery health & seasonal range')).toBeInTheDocument())
+    // When either min or max is null, show — for the span
+    expect(screen.getByTestId('tile-seasonal-span')).toHaveTextContent('—')
   })
 })
