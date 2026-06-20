@@ -59,8 +59,15 @@ AGENT_SYSTEM_PROMPT = (
 # ---------------------------------------------------------------------------
 
 def build_tool_catalogue() -> list[dict[str, Any]]:
-    """Return the list of function tool definitions for the Responses API."""
-    return [
+    """Return the list of function tool definitions for the Responses API.
+
+    IMPORTANT: the Responses API expects the FLAT function-tool shape —
+    ``{"type": "function", "name": ..., "description": ..., "parameters": {...}}`` —
+    NOT the Chat Completions nested ``{"type": "function", "function": {...}}``
+    shape (which 400s with "Missing required parameter: 'tools[0].name'"). The
+    definitions below are authored nested for readability and flattened on return.
+    """
+    _nested = [
         {
             "type": "function",
             "function": {
@@ -275,6 +282,8 @@ def build_tool_catalogue() -> list[dict[str, Any]]:
             },
         },
     ]
+    # Flatten to the Responses API shape: {"type": "function", "name", ...}.
+    return [{"type": "function", **t["function"]} for t in _nested]
 
 
 # ---------------------------------------------------------------------------
