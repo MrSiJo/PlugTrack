@@ -3,8 +3,7 @@
 
 Lower layer shared by the Insights `/overview` endpoint and the
 Telegram usage-chat (`usage_stats`). These return plain numbers — no
-formatting, no unit conversion. Every query filters by `user_id` and
-excludes `source == "unconfirmed"`.
+formatting, no unit conversion. Every query filters by `user_id`.
 """
 from __future__ import annotations
 
@@ -19,14 +18,9 @@ from ..models import ChargingSession
 from . import mileage_tracking
 from .mileage_tracking import KM_PER_MILE
 
-EXCLUDED_SOURCE = "unconfirmed"
-
 
 def _base_filter(user_id: int):
-    return (
-        ChargingSession.user_id == user_id,
-        ChargingSession.source != EXCLUDED_SOURCE,
-    )
+    return (ChargingSession.user_id == user_id,)
 
 
 def resolve_granularity(lo: dt.date, hi: dt.date) -> str:

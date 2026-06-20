@@ -37,7 +37,6 @@ async def test_over_time_buckets_daily(test_sessionmaker, seeded_user_car):
     await _mk(test_sessionmaker, user_id=uid, car_id=car, when=dt.date(2026, 6, 1), kwh=10.0, cost_pence=200)
     await _mk(test_sessionmaker, user_id=uid, car_id=car, when=dt.date(2026, 6, 1), kwh=5.0, cost_pence=100)
     await _mk(test_sessionmaker, user_id=uid, car_id=car, when=dt.date(2026, 6, 3), kwh=8.0, cost_pence=None)
-    await _mk(test_sessionmaker, user_id=uid, car_id=car, when=dt.date(2026, 6, 2), kwh=99.0, cost_pence=9999, source="unconfirmed")
     async with test_sessionmaker() as s:
         out = await ins.spend_energy_over_time(
             s, user_id=uid, date_from=dt.date(2026, 6, 1), date_to=dt.date(2026, 6, 30), granularity="daily")

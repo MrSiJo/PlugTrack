@@ -9,8 +9,6 @@ import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useTheme } from '@/theme'
 import { SettingField, ENUM_OPTIONS, ModelSelect } from '@/components/admin/SettingField'
-import { ClearTokensButton } from '@/components/admin/ClearTokensButton'
-import { SyncControlsPanel } from '@/components/admin/SyncControlsPanel'
 
 // Re-export so existing imports of ModelSelect from SettingsPage continue to work.
 export { ENUM_OPTIONS, ModelSelect }
@@ -42,8 +40,6 @@ export default function SettingsPage() {
   }, [settings])
 
   const groupOrder = [
-    'cupra_connect',
-    'sync',
     'telegram',
     'openai',
     'cost',
@@ -56,8 +52,6 @@ export default function SettingsPage() {
   }
 
   const TAB_LABEL: Record<string, string> = {
-    cupra_connect: 'Cupra Connect',
-    sync: 'Sync',
     telegram: 'Telegram',
     openai: 'OpenAI',
     cost: 'Cost',
@@ -65,14 +59,7 @@ export default function SettingsPage() {
     locations: 'Locations',
   }
 
-  // The pycupra sync stack is gated off by default in standalone mode; the
-  // manual sync controls are only meaningful when it is enabled.
-  const pycupraEnabled = useMemo(() => {
-    const raw = settings['pycupra_enabled']?.value
-    return raw === 'true' || raw === '1'
-  }, [settings])
-
-  const [activeTab, setActiveTab] = useState<string>(orderedGroups[0] ?? 'cupra_connect')
+  const [activeTab, setActiveTab] = useState<string>(orderedGroups[0] ?? 'telegram')
 
   // If groups load after the first render, default to the first one.
   useEffect(() => {
@@ -156,8 +143,6 @@ export default function SettingsPage() {
             {grouped[activeTab]!.map((entry) => (
               <SettingRow key={entry.key} entry={entry} />
             ))}
-            {activeTab === 'cupra_connect' && <ClearTokensButton />}
-            {activeTab === 'sync' && pycupraEnabled && <SyncControlsPanel />}
             {(activeTab === 'telegram' || activeTab === 'openai') && <TestConnectionPanel />}
           </div>
         </section>

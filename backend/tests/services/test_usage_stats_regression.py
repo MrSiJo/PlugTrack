@@ -27,7 +27,6 @@ async def test_usage_snapshot_window_and_split_strings(test_sessionmaker, seeded
     today = dt.date(2026, 6, 17)
     await _mk(test_sessionmaker, user_id=uid, car_id=car, when=dt.date(2026, 6, 2), kwh=10.0, cost_pence=200, ctype="ac")
     await _mk(test_sessionmaker, user_id=uid, car_id=car, when=dt.date(2026, 6, 4), kwh=30.0, cost_pence=1500, ctype="dc", network="Tesla")
-    await _mk(test_sessionmaker, user_id=uid, car_id=car, when=dt.date(2026, 6, 5), kwh=99.0, cost_pence=9999, source="unconfirmed")
 
     async with test_sessionmaker() as s:
         snap = await build_usage_snapshot(s, user_id=uid, today=today, distance_unit="mi")

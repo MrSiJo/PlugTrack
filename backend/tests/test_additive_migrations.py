@@ -1,4 +1,4 @@
-"""Additive charge-context columns on ChargingSession + CarStateSnapshot.
+"""Additive charge-context columns on ChargingSession.
 
 These columns are added idempotently via `_apply_additive_migrations`
 for existing databases, and declared on the models so `create_all`
@@ -8,7 +8,7 @@ import datetime as dt
 
 import pytest
 
-from plugtrack.models import CarStateSnapshot, ChargingSession
+from plugtrack.models import ChargingSession
 
 
 @pytest.mark.asyncio
@@ -64,19 +64,3 @@ async def test_session_has_actual_charge_seconds(test_sessionmaker, seeded_user_
         await s.commit()
         await s.refresh(row2)
         assert row2.actual_charge_seconds is None
-
-
-@pytest.mark.asyncio
-async def test_car_state_has_live_context_columns(test_sessionmaker, seeded_user_car):
-    _uid, car_id = seeded_user_car
-    async with test_sessionmaker() as s:
-        row = CarStateSnapshot(
-            car_id=car_id,
-            last_battery_care=True,
-            last_max_charge_current="reduced",
-            last_charging_estimated_end_at=dt.datetime.now(dt.timezone.utc),
-        )
-        s.add(row)
-        await s.commit()
-        await s.refresh(row)
-        assert row.last_max_charge_current == "reduced"

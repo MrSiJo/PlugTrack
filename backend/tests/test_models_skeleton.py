@@ -65,36 +65,3 @@ async def test_charging_session_belongs_to_car(test_sessionmaker):
         await session.refresh(cs)
 
         assert cs.id == 1
-
-
-@pytest.mark.asyncio
-async def test_sync_run_skeleton(test_sessionmaker):
-    from plugtrack.models import Car, SyncRun, User
-    from datetime import datetime, timezone
-
-    async with test_sessionmaker() as session:
-        user = User(username="alice", password_hash="x")
-        session.add(user)
-        await session.commit()
-        await session.refresh(user)
-
-        car = Car(
-            user_id=user.id,
-            make="Cupra",
-            model="Born",
-            battery_kwh=77.0,
-            nominal_efficiency_mi_per_kwh=3.6,
-        )
-        session.add(car)
-        await session.commit()
-        await session.refresh(car)
-
-        run = SyncRun(
-            car_id=car.id, started_at=datetime.now(timezone.utc), status="running"
-        )
-        session.add(run)
-        await session.commit()
-        await session.refresh(run)
-
-        assert run.id == 1
-        assert run.status == "running"

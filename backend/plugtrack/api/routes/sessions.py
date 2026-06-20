@@ -287,7 +287,7 @@ async def _get_owned_location(
 # deprecated legacy synthesis source — dropped from the filter allow-list as it
 # is no longer offered in the UI; 'telegram'/'import' are the standalone-pivot
 # ingest sources.
-_VALID_SOURCES = frozenset({"manual", "synthesis", "telegram", "import", "unconfirmed"})
+_VALID_SOURCES = frozenset({"manual", "synthesis", "telegram", "import"})
 _VALID_SORTS = frozenset({"date", "cost", "energy", "saved"})
 _VALID_DIRS = frozenset({"asc", "desc"})
 
@@ -536,92 +536,3 @@ async def delete_session(
     await session.delete(cs)
     await session.commit()
     return Response(status_code=204)
-
-
-class SessionConfirmRequest(BaseModel):
-    """Body for POST /api/sessions/{id}/confirm.
-
-    All fields are optional — the user may confirm with no changes (accepting
-    the pre-filled values) or correct any subset before promoting the row.
-
-    Override fields follow the same cost-precedence rules as a normal edit:
-    total_cost_pence_override wins over cost_per_kwh_override_p, which wins
-    over the location's default rate, which wins over the home rate.
-    """
-
-    location_id: Optional[int] = None
-    kwh_added: Optional[float] = Field(default=None, gt=0, lt=1000)
-    cost_per_kwh_override_p: Optional[float] = Field(default=None, ge=0)
-    total_cost_pence_override: Optional[int] = Field(default=None, ge=0)
-    notes: Optional[str] = Field(default=None, max_length=512)
-
-
-@router.post("/{session_id}/confirm", response_model=SessionPayload)
-async def confirm_session(
-    session_id: int,
-    request: Request,
-    body: SessionConfirmRequest,
-    session: AsyncSession = Depends(get_db),
-) -> SessionPayload:
-    """Promote an unconfirmed (SoC-delta-inferred) session to a manual charge.
-
-    Steps:
-    1. Validate the session is owned by the authenticated user and has
-       source='unconfirmed'. (Confirming an already-confirmed row is a no-op
-       guard — 409 is returned.)
-    2. Apply any user corrections (location, kwh, overrides, notes).
-    3. If kwh_added is still null after corrections, populate it from
-       kwh_calculated (the SoC-delta estimate) so the row flows through
-       the existing kwh_added-based totals path unchanged.
-    4. Run cost-precedence against the (possibly corrected) location.
-    5. Flip source from 'unconfirmed' to 'manual'.
-    6. Preserve the SoC-delta provenance in notes.
-    """
-    user_id = _user_id(request)
-    cs = await _get_owned(session, session_id, user_id)
-
-    if cs.source != "unconfirmed":
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"session {session_id} has source={cs.source!r}; "
-                "only unconfirmed sessions can be confirmed"
-            ),
-        )
-
-    # Apply user-supplied corrections.
-    data = body.model_dump(exclude_unset=True)
-    if "location_id" in data:
-        # Validate ownership of the target location before writing it.
-        await _get_owned_location(session, data["location_id"], user_id)
-        cs.location_id = data["location_id"]
-    if "kwh_added" in data:
-        cs.kwh_added = data["kwh_added"]
-    if "cost_per_kwh_override_p" in data:
-        cs.cost_per_kwh_override_p = data["cost_per_kwh_override_p"]
-    if "total_cost_pence_override" in data:
-        cs.total_cost_pence_override = data["total_cost_pence_override"]
-    if "notes" in data:
-        cs.notes = data["notes"]
-
-    # If kwh_added is still null, promote from the SoC-delta estimate.
-    if cs.kwh_added is None and cs.kwh_calculated is not None:
-        cs.kwh_added = cs.kwh_calculated
-
-    # Record provenance in notes before cost-precedence changes anything.
-    provenance = "[auto-detected from SoC delta]"
-    if cs.notes:
-        if provenance not in cs.notes:
-            cs.notes = f"{provenance} {cs.notes}"
-    else:
-        cs.notes = provenance
-
-    # Run cost-precedence against the final state.
-    await apply_cost(session, cs)
-
-    # Promote: unconfirmed -> manual.
-    cs.source = "manual"
-
-    await session.commit()
-    await session.refresh(cs)
-    return await _to_payload_with_location(session, cs)

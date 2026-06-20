@@ -4,7 +4,10 @@ Covers:
 - Empty state (no cars / no sessions).
 - Single car with multiple sessions: panels + totals + recent list.
 - Multi-car: top-locations aggregation across cars.
-- Orchestrator merge: live state overrides session-derived defaults.
+
+The live sync subsystem has been removed, so panels are sourced purely
+from the most-recent session (battery → end_soc) with the formerly
+live-only fields always None.
 """
 from __future__ import annotations
 
@@ -15,11 +18,6 @@ import pytest
 from plugtrack.models import Car, ChargingSession, Location, User
 from plugtrack.services.dashboard_service import dashboard_summary
 from plugtrack.services.mileage_tracking import KM_PER_MILE
-from plugtrack.services.sync_orchestrator import CarSyncState, SyncOrchestrator
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 async def _make_user(sessionmaker, username: str = "alice") -> User:
@@ -136,8 +134,7 @@ async def test_dashboard_cost_per_mile_lifetime_and_30d(test_sessionmaker):
     """Cost-per-mile is cost ÷ miles for two windows: lifetime and rolling 30d.
 
     Miles come from odometer deltas; the 30d window needs a reference reading
-    *before* the window to attribute distance. Cost numerators exclude
-    unconfirmed rows (same policy as lifetime totals).
+    *before* the window to attribute distance.
     """
     user = await _make_user(test_sessionmaker)
     car = await _make_car(test_sessionmaker, user.id)
@@ -327,7 +324,9 @@ async def test_dashboard_summary_multi_car_top_locations(test_sessionmaker):
 
 
 @pytest.mark.asyncio
-async def test_dashboard_summary_orchestrator_overrides_battery(test_sessionmaker):
+async def test_dashboard_summary_live_fields_are_none(test_sessionmaker):
+    """With the sync subsystem removed, the formerly live-only panel fields
+    are always None and battery falls back to the latest session's end_soc."""
     user = await _make_user(test_sessionmaker)
     car = await _make_car(test_sessionmaker, user.id)
     await _make_session(
@@ -340,172 +339,20 @@ async def test_dashboard_summary_orchestrator_overrides_battery(test_sessionmake
         end_soc=50,
     )
 
-    orch = SyncOrchestrator()
-    state = orch.ensure_state(car.id)
-    state.last_state = "CHARGING"
-    state.last_soc = 73
-    state.last_car_captured_timestamp = _utcnow()
-    state.next_poll_at = _utcnow() + timedelta(minutes=5)
-    state.active_job_id = "job-abc"
-
-    async with test_sessionmaker() as session:
-        summary = await dashboard_summary(session, user.id, orchestrator=orch)
-
-    panel = summary.cars[0]
-    assert panel.battery_level == 73
-    assert panel.last_soc == 73
-    assert panel.last_state == "CHARGING"
-    assert panel.charging_cable_connected is True
-    assert panel.active_job_id == "job-abc"
-    assert panel.next_poll_at is not None
-
-
-@pytest.mark.asyncio
-async def test_car_panel_includes_live_charge_context(test_sessionmaker):
-    user = await _make_user(test_sessionmaker)
-    car = await _make_car(test_sessionmaker, user.id)
-    await _make_session(
-        test_sessionmaker,
-        user_id=user.id,
-        car_id=car.id,
-        when=date(2026, 5, 1),
-        kwh=5.0,
-        cost_pence=40,
-        end_soc=50,
-    )
-
-    orch = SyncOrchestrator()
-    state = orch.ensure_state(car.id)
-    state.last_state = "CHARGING"
-    state.last_soc = 60
-    state.last_battery_care = True
-    state.last_max_charge_current = "maximum"
-    state.last_charging_estimated_end_at = _utcnow() + timedelta(hours=2)
-
-    async with test_sessionmaker() as session:
-        summary = await dashboard_summary(session, user.id, orchestrator=orch)
-
-    panel = summary.cars[0]
-    assert panel.battery_care is True
-    assert panel.max_charge_current == "maximum"
-    assert panel.charging_estimated_end_at is not None
-
-
-@pytest.mark.asyncio
-async def test_dashboard_totals_exclude_unconfirmed(test_sessionmaker):
-    """Unconfirmed rows contribute zero to lifetime totals until promoted.
-
-    One manual session (should count) + one unconfirmed session (should not).
-    Flipping the unconfirmed row's source to 'manual' must make it count.
-    """
-    user = await _make_user(test_sessionmaker)
-    car = await _make_car(test_sessionmaker, user.id)
-    today = date(2026, 5, 1)
-
-    await _make_session(
-        test_sessionmaker,
-        user_id=user.id,
-        car_id=car.id,
-        when=today,
-        kwh=10.0,
-        cost_pence=150,
-        source="manual",
-    )
-    unconf = await _make_session(
-        test_sessionmaker,
-        user_id=user.id,
-        car_id=car.id,
-        when=today,
-        kwh=5.0,
-        cost_pence=80,
-        source="unconfirmed",
-    )
-
     async with test_sessionmaker() as session:
         summary = await dashboard_summary(session, user.id)
 
-    # Only the manual session contributes.
-    totals = summary.lifetime_totals
-    assert totals.sessions_count == 1
-    assert totals.kwh == pytest.approx(10.0)
-    assert totals.cost_pence == 150
-
-    # After promotion: flip source to 'manual' and check both rows count.
-    async with test_sessionmaker() as session:
-        cs = await session.get(ChargingSession, unconf.id)
-        cs.source = "manual"
-        await session.commit()
-
-    async with test_sessionmaker() as session:
-        summary2 = await dashboard_summary(session, user.id)
-
-    totals2 = summary2.lifetime_totals
-    assert totals2.sessions_count == 2
-    assert totals2.kwh == pytest.approx(15.0)
-    assert totals2.cost_pence == 230
-
-
-@pytest.mark.asyncio
-async def test_top_locations_exclude_unconfirmed(test_sessionmaker):
-    """Unconfirmed rows do not appear in top-locations charge counts or totals.
-
-    A location with only unconfirmed sessions must be absent from top_locations
-    (HAVING count > 0 excludes it). A mixed location shows only confirmed counts.
-    """
-    user = await _make_user(test_sessionmaker)
-    car = await _make_car(test_sessionmaker, user.id)
-    home = await _make_location(test_sessionmaker, user.id, name="Home")
-    rapid = await _make_location(test_sessionmaker, user.id, name="Rapid")
-
-    today = date(2026, 5, 1)
-    # Home: one confirmed + one unconfirmed session.
-    await _make_session(
-        test_sessionmaker,
-        user_id=user.id,
-        car_id=car.id,
-        when=today,
-        kwh=20.0,
-        cost_pence=150,
-        location_id=home.id,
-        source="manual",
-    )
-    await _make_session(
-        test_sessionmaker,
-        user_id=user.id,
-        car_id=car.id,
-        when=today,
-        kwh=10.0,
-        cost_pence=800,
-        location_id=home.id,
-        source="unconfirmed",
-    )
-    # Rapid: only an unconfirmed session — must not appear in top_locations.
-    await _make_session(
-        test_sessionmaker,
-        user_id=user.id,
-        car_id=car.id,
-        when=today,
-        kwh=15.0,
-        cost_pence=1200,
-        location_id=rapid.id,
-        source="unconfirmed",
-    )
-
-    async with test_sessionmaker() as session:
-        summary = await dashboard_summary(session, user.id)
-
-    names = [loc.name for loc in summary.top_locations]
-    # Rapid has only unconfirmed sessions → excluded.
-    assert "Rapid" not in names
-    # Home has one confirmed session → appears.
-    assert "Home" in names
-
-    home_stat = next(loc for loc in summary.top_locations if loc.name == "Home")
-    # charge_count counts only the confirmed session.
-    assert home_stat.charge_count == 1
-    # Totals reflect only the confirmed session's energy and cost.
-    assert home_stat.total_kwh == pytest.approx(20.0)
-    assert home_stat.total_cost_pence == 150
+    panel = summary.cars[0]
+    assert panel.battery_level == 50  # from latest session end_soc
+    assert panel.last_soc == 50
+    assert panel.last_state is None
+    assert panel.next_poll_at is None
+    assert panel.active_job_id is None
+    assert panel.charging_cable_connected is False
+    assert panel.charging_power_kw is None
+    assert panel.charging_estimated_end_at is None
+    assert panel.battery_care is None
+    assert panel.max_charge_current is None
 
 
 @pytest.mark.asyncio

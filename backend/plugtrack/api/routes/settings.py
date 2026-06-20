@@ -9,13 +9,7 @@ GET  /api/settings — auth required. Returns all rows from the `setting`
 PUT  /api/settings — auth + CSRF. Body {key, value}. Validates the key
    exists in the catalogue (rejects unknown keys). Encrypts secret values
    via Fernet (`encrypt_secret`) before storing.
-
-POST /api/settings/clear-pycupra-tokens — auth + CSRF. Wipes the local
-   pycupra token cache directory. Used by Phase 5 but added here so all
-   settings routes live together.
 """
-import shutil
-from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -131,100 +125,4 @@ async def update_setting(
         if mgr is not None:
             await mgr.reconcile()
 
-    # Phase 5.4: when the user re-saves a cupra_* credential we wipe the
-    # in-memory adapter cache, clear the auth_invalid flag for every car
-    # belonging to the requesting user, and kick off an immediate sync
-    # so the banner clears as soon as the new creds prove out.
-    if body.key.startswith("cupra_"):
-        await _maybe_recover_from_auth_failure(request)
-
     return {"key": row.key, "status": "updated"}
-
-
-async def _maybe_recover_from_auth_failure(request: Request) -> None:
-    """Best-effort: clear cached connections + auth-invalid flags after
-    the user re-saves cupra_* credentials.
-
-    Quietly no-ops in tests where the orchestrator isn't wired or the
-    user has no cars.
-    """
-    user_id = getattr(request.state, "user_id", None)
-    if not isinstance(user_id, int):
-        return
-
-    # Wipe the cached adapter Connection so the next sync re-authenticates
-    # with the freshly-saved settings.
-    from ...services.sync_worker import clear_cached_connections
-
-    clear_cached_connections()
-
-    orch = getattr(request.app.state, "sync_orchestrator", None)
-    if orch is None:
-        return
-
-    # Find this user's cars to know which orchestrator slots to clear.
-    from ...models import Car
-
-    from ...db import get_db as _get_db  # noqa: F401  (only for context)
-
-    # We can't reuse the request-scoped session because it might already
-    # be committed/closed by the caller. Open a fresh one off the global
-    # SessionLocal.
-    from ... import db as db_module
-
-    async with db_module.SessionLocal() as session:
-        cars = (
-            await session.execute(select(Car).where(Car.user_id == user_id))
-        ).scalars().all()
-        car_ids = [c.id for c in cars]
-
-    if not car_ids:
-        return
-
-    cleared = orch.clear_auth_invalid(car_ids)
-    if not cleared:
-        return
-
-    # Kick off an immediate sync attempt for the cleared cars so the UI
-    # banner disappears as soon as the new creds prove out. Fire-and-
-    # forget — failures will surface on the next sync cycle.
-    import asyncio
-
-    for car_id in cleared:
-        asyncio.create_task(orch.sync_car(car_id, kind="force"))
-
-
-def _pycupra_dir() -> Path:
-    """Resolve the pycupra token directory.
-
-    Reads `data_dir` from app settings (defaults to `<repo>/data` in dev,
-    overridden to `/app/data` in container via DATA_DIR env var). Token
-    cache lives at `{data_dir}/pycupra`.
-    """
-    from ...bootstrap import get_settings
-    return Path(get_settings().data_dir) / "pycupra"
-
-
-@router.post("/clear-pycupra-tokens")
-async def clear_pycupra_tokens(request: Request) -> dict[str, Any]:  # noqa: ARG001
-    # Drop any cached Cupra Connection objects so the next sync
-    # re-authenticates from disk + the (possibly freshly-saved) settings.
-    from ...services.sync_worker import clear_cached_connections
-
-    clear_cached_connections()
-
-    target = _pycupra_dir()
-    if not target.exists():
-        return {"cleared": False, "count": 0}
-
-    count = 0
-    for child in target.iterdir():
-        if child.is_dir():
-            shutil.rmtree(child, ignore_errors=True)
-        else:
-            try:
-                child.unlink()
-            except OSError:
-                continue
-        count += 1
-    return {"cleared": count > 0, "count": count}

@@ -5,7 +5,6 @@ import { MemoryRouter } from 'react-router-dom'
 import Sessions from './Sessions'
 import { api, type ChargingSessionPayload } from '@/api/client'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { useSyncStore } from '@/stores/syncStore'
 
 function makeSession(
   over: Partial<ChargingSessionPayload> = {},
@@ -65,10 +64,6 @@ describe('Sessions page', () => {
     vi.restoreAllMocks()
     vi.spyOn(api, 'getSettings').mockResolvedValue({})
     useSettingsStore.setState({ settings: {}, loaded: true })
-    useSyncStore.setState({
-      ...useSyncStore.getState(),
-      recentlyImportedSessionIds: [],
-    })
   })
 
   it('renders a table with the expected column headers and a row per session', async () => {
@@ -156,30 +151,6 @@ describe('Sessions page', () => {
     )
     await waitFor(() => {
       expect(screen.getByText(/No sessions yet/i)).toBeInTheDocument()
-    })
-  })
-
-  it('highlights rows whose ids are in syncStore.recentlyImportedSessionIds', async () => {
-    vi.spyOn(api, 'getSessions').mockResolvedValue([
-      makeSession({ id: 1 }),
-      makeSession({ id: 2 }),
-    ])
-    useSyncStore.setState({
-      ...useSyncStore.getState(),
-      recentlyImportedSessionIds: [2],
-    })
-
-    render(
-      <MemoryRouter>
-        <Sessions />
-      </MemoryRouter>,
-    )
-
-    await waitFor(() => {
-      const rows = screen.getAllByTestId('session-row')
-      expect(rows).toHaveLength(2)
-      expect(rows[0]).toHaveAttribute('data-highlighted', 'false')
-      expect(rows[1]).toHaveAttribute('data-highlighted', 'true')
     })
   })
 
@@ -667,10 +638,9 @@ describe('Sessions page', () => {
     })
   })
 
-  describe('unconfirmed source filter', () => {
-    it('shows "Unconfirmed" button in the filter bar (not "Phantom")', async () => {
+  describe('source filter', () => {
+    it('offers exactly All / Telegram / Manual / Cupra / Import — no Unconfirmed', async () => {
       vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession({ id: 1 })])
-      vi.spyOn(api, 'countUnconfirmedSessions').mockResolvedValue(0)
 
       render(
         <MemoryRouter>
@@ -683,47 +653,19 @@ describe('Sessions page', () => {
       })
 
       const tabs = screen.getByTestId('source-tabs')
-      expect(tabs).toHaveTextContent('Unconfirmed')
-      expect(tabs).not.toHaveTextContent('Phantom')
-    })
-
-    it('shows badge on Unconfirmed button when count > 0', async () => {
-      vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession({ id: 1 })])
-      vi.spyOn(api, 'countUnconfirmedSessions').mockResolvedValue(3)
-
-      render(
-        <MemoryRouter>
-          <Sessions />
-        </MemoryRouter>,
-      )
-
-      const badge = await screen.findByTestId('unconfirmed-badge')
-      expect(badge).toHaveTextContent('3')
-    })
-
-    it('does not show badge when count is 0', async () => {
-      vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession({ id: 1 })])
-      vi.spyOn(api, 'countUnconfirmedSessions').mockResolvedValue(0)
-
-      render(
-        <MemoryRouter>
-          <Sessions />
-        </MemoryRouter>,
-      )
-
-      await waitFor(() => {
-        expect(screen.getByTestId('session-row')).toBeInTheDocument()
-      })
-
+      const buttons = within(tabs)
+        .getAllByRole('button')
+        .map((b) => b.textContent?.trim())
+      expect(buttons).toEqual(['All', 'Telegram', 'Manual', 'Cupra', 'Import'])
+      expect(tabs).not.toHaveTextContent('Unconfirmed')
       expect(screen.queryByTestId('unconfirmed-badge')).not.toBeInTheDocument()
     })
 
-    it('sends source=unconfirmed to the API when the Unconfirmed filter is selected', async () => {
+    it('sends the selected source to the API (e.g. telegram)', async () => {
       const user = userEvent.setup()
       const spy = vi
         .spyOn(api, 'getSessions')
-        .mockResolvedValue([makeSession({ id: 1, source: 'unconfirmed' })])
-      vi.spyOn(api, 'countUnconfirmedSessions').mockResolvedValue(1)
+        .mockResolvedValue([makeSession({ id: 1, source: 'telegram' })])
 
       render(
         <MemoryRouter>
@@ -736,21 +678,17 @@ describe('Sessions page', () => {
       })
 
       const tabs = screen.getByTestId('source-tabs')
-      const unconfirmedBtn = within(tabs).getByRole('button', {
-        name: /Unconfirmed/i,
-      })
-      await user.click(unconfirmedBtn)
+      await user.click(within(tabs).getByRole('button', { name: /Telegram/i }))
 
       await waitFor(() => {
         const q = lastQuery(spy)
-        expect(q.get('source')).toBe('unconfirmed')
+        expect(q.get('source')).toBe('telegram')
       })
     })
   })
 
   it('New session button opens the form and Create calls createSession', async () => {
     vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession({ id: 1 })])
-    vi.spyOn(api, 'countUnconfirmedSessions').mockResolvedValue(0)
     vi.spyOn(api, 'getCars').mockResolvedValue([
       {
         id: 7,
@@ -810,7 +748,6 @@ describe('Sessions page', () => {
 
   it('rejects a zero-kWh manual session before calling the API', async () => {
     vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession({ id: 1 })])
-    vi.spyOn(api, 'countUnconfirmedSessions').mockResolvedValue(0)
     vi.spyOn(api, 'getCars').mockResolvedValue([
       {
         id: 7,

@@ -15,8 +15,6 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { SettingRow } from './SettingField'
 import type { IntegrationDef } from '@/config/integrations'
 import { TestConnectionPanel } from '@/pages/SettingsPage'
-import { ClearTokensButton } from './ClearTokensButton'
-import { SyncControlsPanel } from './SyncControlsPanel'
 
 export function IntegrationCard({ def }: { def: IntegrationDef }) {
   const settings = useSettingsStore((s) => s.settings)
@@ -109,8 +107,6 @@ export function IntegrationCard({ def }: { def: IntegrationDef }) {
         {/* Action panels */}
         {enabled && def.actions?.includes('testTelegram') && <TestConnectionPanel />}
         {enabled && def.actions?.includes('testOpenai') && <TestConnectionPanel />}
-        {enabled && def.actions?.includes('clearPycupraTokens') && <ClearTokensButton />}
-        {enabled && def.actions?.includes('syncControls') && <SyncControlsPanel />}
       </div>
 
       <div className="mt-4 flex items-center gap-3">

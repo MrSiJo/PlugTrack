@@ -4,9 +4,6 @@ GET /api/dashboard
     auth required
     returns DashboardSummary (cars panels, recent sessions, lifetime
     totals, top locations) — see services/dashboard_service.py.
-
-The orchestrator is read off `request.app.state.sync_orchestrator` so
-test fixtures can inject a stub or omit it entirely.
 """
 from __future__ import annotations
 
@@ -37,12 +34,7 @@ async def get_dashboard(
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     user_id = _user_id(request)
-    orchestrator: Any | None = getattr(
-        request.app.state, "sync_orchestrator", None
-    )
-    summary = await dashboard_summary(
-        session, user_id=user_id, orchestrator=orchestrator
-    )
+    summary = await dashboard_summary(session, user_id=user_id)
     # `dashboard_summary` calls `mileage_tracking.get_status`, which may
     # materialise a rolled-over period (writes new rows). Commit so that
     # write is durable.
