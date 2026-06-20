@@ -12,6 +12,37 @@ The module is split in two:
    `compute_charge_plan` needs.
 
 The route module (`api/routes/charge_plan.py`) calls both in sequence.
+
+DC Capability model (3 tiers)
+------------------------------
+`build_dc_capability` returns a `DcCapability` object whose `power_at(soc)`
+method resolves charging power in kW for a given SoC using three tiers:
+
+  Tier 1 (curve):    Pool all power_curve points into 10% SoC bands.
+                     Band capability = median of pooled points, capped at ceiling.
+  Tier 2 (average):  For bands with no curve points, average the effective
+                     power across all DC sessions whose [start_soc, end_soc]
+                     range overlaps the band.  Effective power =
+                     kwh_added / (actual_charge_seconds / 3600), falling
+                     back to wall_seconds when actual is None.
+  Tier 3 (modelled): For bands with no data at all, apply a fixed
+                     ramp-then-taper shape scaled to ceiling.
+
+Generic taper shape (fraction of ceiling per band):
+  Band 0-10:  0.60   # warming up
+  Band 10-20: 0.80   # approaching peak
+  Band 20-30: 0.95   # near peak
+  Band 30-40: 1.00   # peak region
+  Band 40-50: 0.98
+  Band 50-60: 0.90   # gentle taper begins
+  Band 60-70: 0.75
+  Band 70-80: 0.55
+  Band 80-90: 0.35
+  Band 90-100: 0.18  # thermal / BMS protection
+
+These fractions are a plausible CCS DC curve based on published Born/ID.4 data;
+they are intentionally conservative.  Loss factor is NOT applied here — callers
+(estimate_scenario) apply loss.
 """
 from __future__ import annotations
 
@@ -26,7 +57,166 @@ from ..models import Car, ChargingSession, Location, Setting
 
 
 # ---------------------------------------------------------------------------
-# Pure computation
+# DC Capability model (pure, no DB)
+# ---------------------------------------------------------------------------
+
+# Generic DC ramp-then-taper fractions of ceiling, keyed by band lower bound.
+# Band 0 → [0,10), band 10 → [10,20), ..., band 90 → [90,100].
+_DC_TAPER_FRACTIONS: dict[int, float] = {
+    0:  0.60,
+    10: 0.80,
+    20: 0.95,
+    30: 1.00,
+    40: 0.98,
+    50: 0.90,
+    60: 0.75,
+    70: 0.55,
+    80: 0.35,
+    90: 0.18,
+}
+
+
+def _soc_band(soc: int) -> int:
+    """Return the lower bound of the 10%-wide SoC band containing *soc*.
+
+    Examples: 0→0, 9→0, 10→10, 59→50, 95→90, 100→90 (capped).
+    """
+    # SoC 100 belongs to the 90-100 band.
+    return min((soc // 10) * 10, 90)
+
+
+@dataclass
+class DcSession:
+    """Pure input struct for a single DC charging session."""
+
+    start_soc: int
+    end_soc: int
+    kwh_added: float
+    actual_charge_seconds: Optional[int]
+    wall_seconds: Optional[int]
+    power_curve: Optional[list]  # [[t_seconds, soc, power_kw], ...] or None
+
+
+class DcCapability:
+    """3-tier DC charging capability lookup.
+
+    Created by `build_dc_capability`.  Call ``power_at(soc)`` to get
+    ``(capability_kw, source_tag)`` where source_tag is one of
+    "curve" | "average" | "modelled".
+    """
+
+    def __init__(
+        self,
+        ceiling: float,
+        band_curve: dict[int, float],      # band → median curve power (pre-capped)
+        band_average: dict[int, float],    # band → mean effective power (pre-capped)
+    ) -> None:
+        self.ceiling = ceiling
+        self._band_curve = band_curve
+        self._band_average = band_average
+
+    def power_at(self, soc: int) -> tuple[float, str]:
+        """Return ``(capability_kw, source_tag)`` for the band containing *soc*."""
+        band = _soc_band(soc)
+
+        # Tier 1: curve
+        if band in self._band_curve:
+            return min(self._band_curve[band], self.ceiling), "curve"
+
+        # Tier 2: average
+        if band in self._band_average:
+            return min(self._band_average[band], self.ceiling), "average"
+
+        # Tier 3: modelled
+        fraction = _DC_TAPER_FRACTIONS.get(band, 0.18)
+        return min(fraction * self.ceiling, self.ceiling), "modelled"
+
+
+def build_dc_capability(
+    *,
+    battery_kwh: float,  # noqa: ARG001 — reserved for future net-energy normalization
+    dc_sessions: list[DcSession],
+    max_dc_kw: Optional[float],
+) -> DcCapability:
+    """Build a 3-tier DC capability model from historical DC sessions.
+
+    Parameters
+    ----------
+    battery_kwh:
+        Usable battery capacity (reserved; not currently used in the pure
+        capability model but required by the spec interface for future
+        normalization).
+    dc_sessions:
+        List of past DC charging sessions to learn from.
+    max_dc_kw:
+        Hardware ceiling from car.max_dc_kw.  When None, derived from
+        observed data (max of curve points and effective averages).
+    """
+    # --- Pool curve points per SoC band (Tier 1 data) ---
+    band_points: dict[int, list[float]] = {}
+    for sess in dc_sessions:
+        if not sess.power_curve:
+            continue
+        for triplet in sess.power_curve:
+            if len(triplet) < 3:
+                continue
+            _t, soc_val, power_kw = triplet[0], triplet[1], triplet[2]
+            band = _soc_band(int(soc_val))
+            band_points.setdefault(band, []).append(float(power_kw))
+
+    # Tier 1: median curve power per band (uncapped — ceiling applied in power_at).
+    band_curve: dict[int, float] = {
+        b: statistics.median(pts) for b, pts in band_points.items()
+    }
+
+    # --- Per-session effective power (used for Tier 2 and ceiling derivation) ---
+    # Aligned 1-to-1 with dc_sessions; None when no valid time source.
+    per_session_eff: list[Optional[float]] = []
+    for sess in dc_sessions:
+        if sess.actual_charge_seconds is not None and sess.actual_charge_seconds > 0:
+            hours = sess.actual_charge_seconds / 3600.0
+        elif sess.wall_seconds is not None and sess.wall_seconds > 0:
+            hours = sess.wall_seconds / 3600.0
+        else:
+            per_session_eff.append(None)
+            continue
+        per_session_eff.append(sess.kwh_added / hours)
+
+    # --- Tier 2: SoC-overlapping average per band ---
+    band_average: dict[int, float] = {}
+    for band in range(0, 100, 10):
+        band_lo = band
+        band_hi = band + 10
+        overlapping_effs: list[float] = []
+        for idx, sess in enumerate(dc_sessions):
+            if sess.start_soc >= band_hi or sess.end_soc <= band_lo:
+                continue  # no overlap with this band
+            eff = per_session_eff[idx]
+            if eff is not None:
+                overlapping_effs.append(eff)
+        if overlapping_effs:
+            band_average[band] = statistics.mean(overlapping_effs)
+
+    # --- Derive ceiling ---
+    if max_dc_kw is not None:
+        ceiling = float(max_dc_kw)
+    else:
+        # Observed max: max of raw curve point values and session effective powers.
+        observed: list[float] = []
+        for pts in band_points.values():
+            observed.extend(pts)
+        observed.extend(v for v in per_session_eff if v is not None)
+        ceiling = max(observed) if observed else 50.0  # bare minimum fallback
+
+    return DcCapability(
+        ceiling=ceiling,
+        band_curve=band_curve,
+        band_average=band_average,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Home charge plan — pure computation
 # ---------------------------------------------------------------------------
 
 

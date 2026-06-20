@@ -6,7 +6,11 @@ from __future__ import annotations
 
 import pytest
 
-from plugtrack.services.charge_planner import compute_charge_plan
+from plugtrack.services.charge_planner import (
+    DcSession,
+    build_dc_capability,
+    compute_charge_plan,
+)
 
 
 # Default window: 23:45 → 07:15 = 450 minutes.
@@ -252,3 +256,312 @@ class TestEdgeCases:
         p = _plan(start_soc=0, target_soc=100, battery_kwh=77.0, power_kw=7.4)
         assert p.kwh_needed == pytest.approx(77.0, abs=0.01)
         assert p.nights[-1].end_soc == 100
+
+
+# ---------------------------------------------------------------------------
+# DcCapability / build_dc_capability tests
+# ---------------------------------------------------------------------------
+
+
+class TestDcCapabilityTier1Curve:
+    """Tier 1: curve points pool into 10% SoC bands; capability = band median."""
+
+    def test_power_at_band_with_curve_points_returns_median_and_curve_tag(self):
+        # Session has curve points spanning 50-80% SoC.
+        # Band 60-70 (query soc=60 maps to band 60-70) has points: 80, 100, 90 kW.
+        # Median of [80, 90, 100] = 90.
+        curve = [
+            [0, 52, 75.0],   # band 50-60
+            [30, 55, 80.0],  # band 50-60
+            [60, 62, 80.0],  # band 60-70
+            [90, 65, 100.0], # band 60-70
+            [120, 68, 90.0], # band 60-70
+            [150, 72, 70.0], # band 70-80
+            [180, 78, 60.0], # band 70-80
+        ]
+        session = DcSession(
+            start_soc=50,
+            end_soc=80,
+            kwh_added=15.0,
+            actual_charge_seconds=600,
+            wall_seconds=700,
+            power_curve=curve,
+        )
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=[session],
+            max_dc_kw=150.0,
+        )
+        power, tag = cap.power_at(60)
+        assert tag == "curve"
+        assert power == pytest.approx(90.0, abs=0.1)
+
+    def test_curve_tag_preferred_over_average_when_both_available(self):
+        # Even when the session also overlaps the band by SoC range,
+        # the curve tag wins because tier 1 takes precedence.
+        curve = [[0, 45, 120.0], [30, 48, 130.0]]
+        session = DcSession(
+            start_soc=40,
+            end_soc=60,
+            kwh_added=10.0,
+            actual_charge_seconds=360,
+            wall_seconds=400,
+            power_curve=curve,
+        )
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=[session],
+            max_dc_kw=200.0,
+        )
+        power, tag = cap.power_at(44)
+        assert tag == "curve"
+
+    def test_curve_capped_at_ceiling(self):
+        # Curve points at 200 kW but ceiling is 150 kW → result capped to 150.
+        curve = [[0, 25, 200.0], [30, 28, 210.0]]
+        session = DcSession(
+            start_soc=20,
+            end_soc=35,
+            kwh_added=5.0,
+            actual_charge_seconds=120,
+            wall_seconds=150,
+            power_curve=curve,
+        )
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=[session],
+            max_dc_kw=150.0,
+        )
+        power, tag = cap.power_at(25)
+        assert tag == "curve"
+        assert power <= 150.0
+
+
+class TestDcCapabilityTier2Average:
+    """Tier 2: no curve coverage → effective power averaged across overlapping sessions."""
+
+    def test_power_at_40_with_actual_charge_seconds(self):
+        # Two sessions overlapping 30-50% band.
+        # Session A: 10 kWh / (1800s / 3600) = 20 kW effective
+        # Session B: 12 kWh / (2400s / 3600) = 18 kW effective
+        # Average = 19 kW
+        sessions = [
+            DcSession(
+                start_soc=30,
+                end_soc=55,
+                kwh_added=10.0,
+                actual_charge_seconds=1800,
+                wall_seconds=2000,
+                power_curve=None,
+            ),
+            DcSession(
+                start_soc=25,
+                end_soc=50,
+                kwh_added=12.0,
+                actual_charge_seconds=2400,
+                wall_seconds=2800,
+                power_curve=None,
+            ),
+        ]
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=sessions,
+            max_dc_kw=150.0,
+        )
+        power, tag = cap.power_at(40)
+        assert tag == "average"
+        assert power == pytest.approx(19.0, abs=0.01)
+
+    def test_power_at_40_fallback_to_wall_seconds_when_actual_none(self):
+        # actual_charge_seconds is None → use wall_seconds.
+        # 10 kWh / (2000s / 3600) = 18.0 kW
+        sessions = [
+            DcSession(
+                start_soc=30,
+                end_soc=55,
+                kwh_added=10.0,
+                actual_charge_seconds=None,
+                wall_seconds=2000,
+                power_curve=None,
+            ),
+        ]
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=sessions,
+            max_dc_kw=150.0,
+        )
+        power, tag = cap.power_at(40)
+        assert tag == "average"
+        assert power == pytest.approx(18.0, abs=0.01)
+
+    def test_average_capped_at_ceiling(self):
+        # Effective power would be very high but ceiling is 50 kW.
+        sessions = [
+            DcSession(
+                start_soc=30,
+                end_soc=60,
+                kwh_added=30.0,
+                actual_charge_seconds=600,  # 30/0.1667h = 180 kW effective
+                wall_seconds=700,
+                power_curve=None,
+            ),
+        ]
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=sessions,
+            max_dc_kw=50.0,
+        )
+        power, tag = cap.power_at(40)
+        assert tag == "average"
+        assert power <= 50.0
+
+    def test_session_not_overlapping_band_excluded(self):
+        # Session only covers 70-90%, should NOT count for band 30-40%.
+        sessions = [
+            DcSession(
+                start_soc=70,
+                end_soc=90,
+                kwh_added=10.0,
+                actual_charge_seconds=1800,
+                wall_seconds=2000,
+                power_curve=None,
+            ),
+        ]
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=sessions,
+            max_dc_kw=150.0,
+        )
+        # Band 30-40 has no sessions → should fall through to tier 3
+        _, tag = cap.power_at(35)
+        assert tag == "modelled"
+
+
+class TestDcCapabilityTier3Modelled:
+    """Tier 3: no curve or average data → generic ramp-then-taper shape × ceiling."""
+
+    def test_band_with_no_data_returns_modelled_tag(self):
+        # Pass a session that only covers 80-100%; query band 0-10 has no data.
+        sessions = [
+            DcSession(
+                start_soc=80,
+                end_soc=100,
+                kwh_added=5.0,
+                actual_charge_seconds=900,
+                wall_seconds=1000,
+                power_curve=None,
+            ),
+        ]
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=sessions,
+            max_dc_kw=150.0,
+        )
+        power, tag = cap.power_at(5)
+        assert tag == "modelled"
+        assert 0 < power <= 150.0
+
+    def test_modelled_shape_low_soc_higher_than_high_soc(self):
+        # Generic shape: ramp to peak by ~20-30%, taper after ~50-60%.
+        # Power at low SoC (e.g. 15%) should exceed power at high SoC (e.g. 95%).
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=[],  # no data → all bands are modelled
+            max_dc_kw=150.0,
+        )
+        low_power, low_tag = cap.power_at(15)
+        high_power, high_tag = cap.power_at(95)
+        assert low_tag == "modelled"
+        assert high_tag == "modelled"
+        assert low_power > high_power
+
+    def test_modelled_value_does_not_exceed_ceiling(self):
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=[],
+            max_dc_kw=80.0,
+        )
+        for soc in range(0, 100, 10):
+            power, _ = cap.power_at(soc)
+            assert power <= 80.0
+
+    def test_modelled_at_90_is_low_fraction_of_ceiling(self):
+        # By spec, the shape should be low (~0.2*ceiling) by 90%+.
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=[],
+            max_dc_kw=150.0,
+        )
+        power, tag = cap.power_at(90)
+        assert tag == "modelled"
+        assert power <= 0.3 * 150.0  # at most 30% ceiling at 90%
+
+
+class TestDcCapabilityCeiling:
+    """Ceiling = max_dc_kw when set; else observed max from data."""
+
+    def test_ceiling_set_by_max_dc_kw(self):
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=[],
+            max_dc_kw=160.0,
+        )
+        assert cap.ceiling == pytest.approx(160.0)
+
+    def test_ceiling_no_band_exceeds_max_dc_kw(self):
+        # Curve points go up to 200 kW but ceiling is clamped to 160 kW.
+        curve = [[i * 10, 10 + i, 200.0] for i in range(8)]
+        session = DcSession(
+            start_soc=10,
+            end_soc=80,
+            kwh_added=20.0,
+            actual_charge_seconds=1000,
+            wall_seconds=1200,
+            power_curve=curve,
+        )
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=[session],
+            max_dc_kw=160.0,
+        )
+        for soc in range(0, 100, 10):
+            power, _ = cap.power_at(soc)
+            assert power <= 160.0
+
+    def test_ceiling_derived_from_observed_max_when_max_dc_kw_none(self):
+        # max_dc_kw=None → ceiling = max of effective powers observed.
+        # Session effective power: 10 kWh / (1000/3600) h = 36 kW.
+        sessions = [
+            DcSession(
+                start_soc=20,
+                end_soc=80,
+                kwh_added=10.0,
+                actual_charge_seconds=1000,
+                wall_seconds=1200,
+                power_curve=None,
+            ),
+        ]
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=sessions,
+            max_dc_kw=None,
+        )
+        assert cap.ceiling == pytest.approx(36.0, abs=0.1)
+
+    def test_ceiling_derived_from_curve_max_when_max_dc_kw_none(self):
+        # max_dc_kw=None → ceiling = max curve point observed.
+        curve = [[0, 30, 120.0], [30, 50, 140.0], [60, 70, 100.0]]
+        session = DcSession(
+            start_soc=25,
+            end_soc=75,
+            kwh_added=10.0,
+            actual_charge_seconds=None,
+            wall_seconds=None,
+            power_curve=curve,
+        )
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=[session],
+            max_dc_kw=None,
+        )
+        assert cap.ceiling == pytest.approx(140.0, abs=0.1)
