@@ -83,6 +83,51 @@ async def test_network_breakdown_ranked_and_unknown(test_sessionmaker, seeded_us
 
 
 @pytest.mark.asyncio
+async def test_network_breakdown_null_blank_unknown_string_collapsed(test_sessionmaker, seeded_user_car):
+    """NULL, empty-string, 'unknown', 'Unknown', 'none', 'n/a' all become one
+    'Unknown' bucket. A real network name like 'Tesla' stays separate."""
+    uid, car = seeded_user_car
+    # NULL → "Unknown"
+    await _mk(test_sessionmaker, user_id=uid, car_id=car, when=dt.date(2026, 6, 1),
+              kwh=10.0, cost_pence=200, ctype="dc", network=None)
+    # empty string → "Unknown"
+    await _mk(test_sessionmaker, user_id=uid, car_id=car, when=dt.date(2026, 6, 2),
+              kwh=5.0, cost_pence=None, ctype="dc", network="")
+    # lowercase "unknown" → should collapse into "Unknown" (not a separate bucket)
+    await _mk(test_sessionmaker, user_id=uid, car_id=car, when=dt.date(2026, 6, 3),
+              kwh=8.0, cost_pence=160, ctype="dc", network="unknown")
+    # title-case "Unknown" → already canonical "Unknown"
+    await _mk(test_sessionmaker, user_id=uid, car_id=car, when=dt.date(2026, 6, 4),
+              kwh=3.0, cost_pence=60, ctype="dc", network="Unknown")
+    # real network → stays as-is
+    await _mk(test_sessionmaker, user_id=uid, car_id=car, when=dt.date(2026, 6, 5),
+              kwh=30.0, cost_pence=1500, ctype="dc", network="Tesla")
+
+    async with test_sessionmaker() as s:
+        rows = await ins.network_breakdown(s, user_id=uid, date_from=None, date_to=None)
+
+    network_names = [r["network"] for r in rows]
+
+    # Exactly two buckets: "Tesla" and "Unknown"
+    assert sorted(network_names) == ["Tesla", "Unknown"], (
+        f"Expected ['Tesla', 'Unknown'] but got {network_names!r}. "
+        "Duplicate 'unknown'/''/None buckets should be collapsed."
+    )
+    # No lowercase "unknown" bucket
+    assert "unknown" not in network_names, "Lowercase 'unknown' must be collapsed into 'Unknown'"
+
+    unknown_row = next(r for r in rows if r["network"] == "Unknown")
+    # 4 sessions collapsed: kwh=10+5+8+3=26, spend=200+0+160+60=420
+    assert unknown_row["sessions"] == 4
+    assert unknown_row["kwh"] == pytest.approx(26.0)
+    assert unknown_row["spend_pence"] == 420
+
+    tesla_row = next(r for r in rows if r["network"] == "Tesla")
+    assert tesla_row["sessions"] == 1
+    assert tesla_row["spend_pence"] == 1500
+
+
+@pytest.mark.asyncio
 async def test_efficiency_null_without_odometer(test_sessionmaker, seeded_user_car):
     uid, car = seeded_user_car
     await _mk(test_sessionmaker, user_id=uid, car_id=car, when=dt.date(2026, 6, 2), kwh=10.0, cost_pence=200)

@@ -24,13 +24,6 @@ interface TooltipProps {
 export function ChartTooltip({ active, payload }: TooltipProps) {
   const point = payload?.[0]?.payload
   if (!active || !point) return null
-  const rangeDisplay =
-    point.derived_range_km != null
-      ? (() => {
-          const { value, unit } = formatDistance(point.derived_range_km)
-          return `${value.toFixed(0)} ${unit}`
-        })()
-      : '—'
   return (
     <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900">
       <p className="font-medium text-slate-900 dark:text-slate-100">
@@ -45,7 +38,12 @@ export function ChartTooltip({ active, payload }: TooltipProps) {
         {point.mi_per_kwh == null ? '—' : `${point.mi_per_kwh.toFixed(2)} mi/kWh`}
       </p>
       <p className="tabular-nums text-sky-600 dark:text-sky-300">
-        Range: {rangeDisplay}
+        Range: {point.derived_range_km != null
+          ? (() => {
+              const { value, unit } = formatDistance(point.derived_range_km)
+              return `${Math.round(value)} ${unit}`
+            })()
+          : '—'}
       </p>
     </div>
   )

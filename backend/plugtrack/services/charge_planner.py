@@ -392,7 +392,7 @@ def estimate_scenario(
     start_soc: int,
     target_soc: int,
     battery_kwh: float,
-    charger_cap_kw: float,
+    charger_cap_kw: Optional[float],
     capability: Optional[DcCapability],
     flat_power_kw: Optional[float],
     loss_factor: float,
@@ -409,9 +409,10 @@ def estimate_scenario(
     start_soc       : Starting SoC percentage (0–100).
     target_soc      : Target SoC percentage (0–100), must be > start_soc.
     battery_kwh     : Usable battery capacity in kWh.
-    charger_cap_kw  : For DC: EVSE/charger hardware cap.
-                      For AC: the AC ceiling (max_ac_kw or observed_ac_max).
-                      Effective power = min(scenario_power, charger_cap_kw).
+    charger_cap_kw  : For DC: EVSE/charger hardware cap (must not be None).
+                      For AC: the AC ceiling (car.max_ac_kw), or None meaning
+                      uncapped (scenario power is taken as-is).
+                      When set: effective power = min(scenario_power, charger_cap_kw).
     capability      : DcCapability (required for kind=="dc").
     flat_power_kw   : Flat AC scenario power in kW (required for kind=="ac").
                       Convention: caller passes the AC scenario kW here and the
@@ -495,8 +496,13 @@ def estimate_scenario(
         assert flat_power_kw is not None, "flat_power_kw is required for kind='ac'"
         assert ac_window is not None, "ac_window is required for kind='ac'"
 
-        # Effective power before loss (what the user sees as the "headline kW")
-        effective_kw = min(flat_power_kw, charger_cap_kw)
+        # Effective power before loss (what the user sees as the "headline kW").
+        # charger_cap_kw may be None (meaning no AC cap from car spec) — when None,
+        # the scenario power is taken as-is (uncapped).
+        if charger_cap_kw is not None:
+            effective_kw = min(flat_power_kw, charger_cap_kw)
+        else:
+            effective_kw = flat_power_kw
 
         # Power passed to compute_charge_plan is loss-derated
         plan = compute_charge_plan(
@@ -543,7 +549,9 @@ def build_scenario_table(
     loss_factor           : Charger efficiency; derates power (see estimate_scenario).
     ac                    : Dict with:
                               home_actual_kw    — observed home AC power (from history)
-                              ac_ceiling_kw     — max AC power (car/EVSE limit)
+                              ac_ceiling_kw     — car onboard AC cap (car.max_ac_kw),
+                                                  or None meaning no cap on fixed AC rows.
+                                                  When None, 7/11 kW rows are uncapped.
                               window_minutes    — nightly charging window length
                               window_start_str  — "HH:MM" window start
                               home_rate_p_per_kwh — cost rate in pence/kWh
@@ -569,7 +577,7 @@ def build_scenario_table(
     """
     cap: DcCapability = dc["capability"]
     ceiling: float = dc["ceiling"]
-    ac_ceiling_kw: float = ac["ac_ceiling_kw"]
+    ac_ceiling_kw: Optional[float] = ac["ac_ceiling_kw"]
     ac_window = {
         "window_minutes": ac["window_minutes"],
         "window_start_str": ac["window_start_str"],
@@ -681,7 +689,8 @@ class PlanInputs:
     home_rate_p_per_kwh: float
     is_free: bool
     # Extended fields for scenario table (Task 4)
-    ac_ceiling_kw: float
+    # ac_ceiling_kw is None when car.max_ac_kw is unknown — means "no cap on fixed AC rows"
+    ac_ceiling_kw: Optional[float]
     dc_capability: DcCapability
     dc_ceiling: float
     loss_factor: float
@@ -799,11 +808,17 @@ async def resolve_plan_inputs(
         candidates = []
 
     # Compute effective_kw per session; filter out zero-duration rows.
+    # Bug 1 fix: prefer actual_charge_seconds (real energy-transfer time) over
+    # wall-clock (charge_end_at - charge_start_at), which includes idle tail time
+    # for overnight granny charges and badly understates power.
     effective_kws: list[float] = []
     for cs in candidates:
-        duration_hours = (
-            cs.charge_end_at - cs.charge_start_at
-        ).total_seconds() / 3600.0
+        if cs.actual_charge_seconds is not None and cs.actual_charge_seconds > 0:
+            duration_hours = cs.actual_charge_seconds / 3600.0
+        else:
+            duration_hours = (
+                cs.charge_end_at - cs.charge_start_at
+            ).total_seconds() / 3600.0
         if duration_hours <= 0:
             continue
         effective_kws.append(cs.kwh_added / duration_hours)
@@ -820,14 +835,18 @@ async def resolve_plan_inputs(
     if power_kw <= 0:
         raise ValueError("resolved charging power is 0 or negative")
 
-    # ---- Observed AC max → ac_ceiling_kw ----
-    observed_ac_max: Optional[float] = max(effective_kws) if effective_kws else None
+    # ---- AC ceiling → ac_ceiling_kw ----
+    # Bug 2 fix: the AC ceiling for scenario rows (7 kW, 11 kW) must only be
+    # car.max_ac_kw — the onboard AC charger limit.  The observed home granny power
+    # (observed_ac_max) is NOT a valid ceiling for hypothetical-charger scenario rows;
+    # those rows ask "what if you plugged into a 7/11 kW EVSE?" and are only
+    # constrained by the car's onboard charger.
+    # When car.max_ac_kw is None, ac_ceiling_kw is None (uncapped).
+    # estimate_scenario / build_scenario_table treat None ceiling as uncapped.
     if car.max_ac_kw is not None:
-        ac_ceiling_kw = float(car.max_ac_kw)
-    elif observed_ac_max is not None:
-        ac_ceiling_kw = observed_ac_max
+        ac_ceiling_kw: Optional[float] = float(car.max_ac_kw)
     else:
-        ac_ceiling_kw = _DEFAULT_AC_CEILING_KW
+        ac_ceiling_kw = None
 
     # ---- DC sessions ----
     dc_stmt = (

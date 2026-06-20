@@ -20,7 +20,14 @@ interface TooltipProps {
   payload?: { payload?: CapacityTrendPoint & { usable_kwh_ac?: number | null; usable_kwh_dc?: number | null } }[]
 }
 
-function ChartTooltip({ active, payload }: TooltipProps) {
+function lowConfidenceReason(point: CapacityTrendPoint): string {
+  if (point.charging_type === 'ac' || point.charging_type === 'unknown') {
+    return 'AC charge — overstates capacity'
+  }
+  return 'Low confidence — few samples'
+}
+
+export function CapacityChartTooltip({ active, payload }: TooltipProps) {
   const point = payload?.[0]?.payload
   if (!active || !point) return null
   const kwh = point.usable_kwh_ac ?? point.usable_kwh_dc ?? point.usable_kwh
@@ -28,12 +35,12 @@ function ChartTooltip({ active, payload }: TooltipProps) {
     <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900">
       <p className="font-medium text-slate-900 dark:text-slate-100">
         {point.date}
-        {point.low_confidence && (
-          <span className="ml-1.5 text-[9px] uppercase tracking-wide text-amber-500">
-            low confidence
-          </span>
-        )}
       </p>
+      {point.low_confidence && (
+        <p className="text-[9px] text-amber-500">
+          {lowConfidenceReason(point)}
+        </p>
+      )}
       <p className="tabular-nums text-violet-600 dark:text-violet-300">
         {kwh != null ? `${kwh.toFixed(1)} kWh` : '—'}{' '}
         <span className="text-slate-400">
@@ -122,7 +129,7 @@ export function CapacityTrendChart({
                 style: { fontSize: 9, fill: 'currentColor' },
               }}
             />
-            <Tooltip content={<ChartTooltip />} />
+            <Tooltip content={<CapacityChartTooltip />} />
             <Line
               type="monotone"
               dataKey="usable_kwh_ac"

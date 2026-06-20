@@ -211,9 +211,12 @@ async def network_breakdown(
         select(ChargingSession.charge_network, ChargingSession.cost_pence, ChargingSession.kwh_added),
         user_id=user_id, date_from=date_from, date_to=date_to, car_id=car_id,
     )
+    _UNKNOWN_VALUES = {"", "unknown", "none", "n/a"}
+
     agg: dict[str, dict] = {}
     for net, cost, kwh in (await session.execute(stmt)).all():
-        name = net if net else "Unknown"
+        stripped = (net or "").strip()
+        name = "Unknown" if stripped.lower() in _UNKNOWN_VALUES else stripped
         b = agg.setdefault(name, {"spend_pence": 0, "kwh": 0.0, "sessions": 0, "costed_kwh": 0.0})
         b["kwh"] += float(kwh or 0.0)
         b["sessions"] += 1
