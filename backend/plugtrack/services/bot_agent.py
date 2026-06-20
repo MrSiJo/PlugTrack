@@ -410,29 +410,6 @@ def _extract_text(body: dict) -> Optional[str]:
     return None
 
 
-def _build_responses_payload(
-    *,
-    model: str,
-    history: list[dict],
-    text: str,
-    tools: list[dict],
-) -> dict:
-    """Build the initial Responses API payload."""
-    # Build input from history + current message
-    input_items: list[dict] = []
-    for turn in history:
-        input_items.append(turn)
-    # Add current user message
-    input_items.append({"role": "user", "content": [{"type": "input_text", "text": text}]})
-
-    return {
-        "model": model,
-        "instructions": AGENT_SYSTEM_PROMPT,
-        "input": input_items,
-        "tools": tools,
-        "max_output_tokens": 1000,
-    }
-
 
 async def run_agent_turn(
     *,
