@@ -41,7 +41,7 @@ const STATIC_PAGES = [
   { path: "/sessions",   file: "sessions.png",   settle: 1500 },
   { path: "/insights",   file: "insights.png",   settle: 2500 },
   { path: "/planner",    file: "planner.png",    settle: 2000 },
-  { path: "/locations",  file: "locations.png",  settle: 2500 },
+  { path: "/locations",  file: "locations.png",  settle: 6000 },
   { path: "/cars",       file: "cars.png",       settle: 1500 },
   { path: "/admin",      file: "admin.png",      settle: 1500 },
 ];
@@ -65,10 +65,22 @@ async function main() {
   const page = await context.newPage();
 
   // ---- Login via the JSON API (cookie-based) ----
+  // PlugTrack uses a double-submit CSRF cookie: the server sets `plugtrack_csrf`
+  // on any response, and mutating requests (incl. login) must echo it in the
+  // `X-CSRF-Token` header. So we GET once to receive the cookie, then send it back.
   console.log(`Logging in to ${BASE_URL} as ${USERNAME}…`);
+  // `/api/health` is auth-exempt and a safe GET, so the CSRF middleware
+  // issues the `plugtrack_csrf` cookie on its response (auth-gated paths 401
+  // before CSRF runs, so they don't).
+  await context.request.get(`${BASE_URL}/api/health`).catch(() => {});
+  const preCookies = await context.cookies();
+  const csrf = preCookies.find((c) => c.name === "plugtrack_csrf")?.value;
   const loginResp = await context.request.post(`${BASE_URL}/api/auth/login`, {
     data: { username: USERNAME, password: PASSWORD },
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+    },
   });
 
   if (!loginResp.ok()) {
