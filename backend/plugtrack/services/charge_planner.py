@@ -201,10 +201,11 @@ def build_dc_capability(
     if max_dc_kw is not None:
         ceiling = float(max_dc_kw)
     else:
-        # Observed max: max of raw curve point values and session effective powers.
+        # Observed ceiling: use band medians (already computed) and per-session
+        # effective averages.  This is robust to transient single-point spikes
+        # because medians smooth out outliers within each band.
         observed: list[float] = []
-        for pts in band_points.values():
-            observed.extend(pts)
+        observed.extend(band_curve.values())           # per-band curve medians
         observed.extend(v for v in per_session_eff if v is not None)
         ceiling = max(observed) if observed else 50.0  # bare minimum fallback
 

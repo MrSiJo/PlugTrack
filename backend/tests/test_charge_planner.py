@@ -496,6 +496,18 @@ class TestDcCapabilityTier3Modelled:
         assert tag == "modelled"
         assert power <= 0.3 * 150.0  # at most 30% ceiling at 90%
 
+    def test_power_at_soc_100(self):
+        # SoC 100 maps to the 90-100 band via _soc_band (capped at 90).
+        # No crash; returns a sensible value ≤ ceiling.
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=[],
+            max_dc_kw=150.0,
+        )
+        power, tag = cap.power_at(100)
+        assert tag == "modelled"  # band 90 resolves to tier 3 when no data
+        assert 0 < power <= cap.ceiling
+
 
 class TestDcCapabilityCeiling:
     """Ceiling = max_dc_kw when set; else observed max from data."""
@@ -565,3 +577,38 @@ class TestDcCapabilityCeiling:
             max_dc_kw=None,
         )
         assert cap.ceiling == pytest.approx(140.0, abs=0.1)
+
+    def test_ceiling_uses_band_median_not_raw_spike(self):
+        # Build a session whose curve is mostly ~100 kW but has ONE transient
+        # 170 kW spike.  With max_dc_kw=None the ceiling must reflect the
+        # sustained median (~100 kW), NOT the spike.
+        #
+        # Band 20-30 gets points: 98, 102, 99, 101, 170.
+        # Median of [98, 99, 101, 102, 170] = 101.
+        # Band 30-40 gets points: 96, 104, 100.  Median = 100.
+        # Max of all band medians = 101  → ceiling ≤ 120 (well below 170).
+        curve = [
+            [0,   22, 98.0],
+            [30,  24, 102.0],
+            [60,  25, 99.0],
+            [90,  27, 101.0],
+            [120, 29, 170.0],  # ← transient spike — must NOT drive ceiling
+            [150, 32, 96.0],
+            [180, 35, 104.0],
+            [210, 38, 100.0],
+        ]
+        session = DcSession(
+            start_soc=20,
+            end_soc=40,
+            kwh_added=5.0,
+            actual_charge_seconds=None,
+            wall_seconds=None,
+            power_curve=curve,
+        )
+        cap = build_dc_capability(
+            battery_kwh=77.0,
+            dc_sessions=[session],
+            max_dc_kw=None,
+        )
+        # If ceiling were derived from raw max it would be 170; median-based ceiling ≤ 120.
+        assert cap.ceiling <= 120.0, f"ceiling {cap.ceiling} should be ≤ 120 (spike-robust)"
