@@ -18,24 +18,29 @@ It is built around four ideas:
 - Send one or more screenshots of a finished charge from any app; an OpenAI vision model extracts energy, cost, per-kWh, start/end times, SoC, location, network and the charge-power curve.
 - Multiple screenshots of the same charge (e.g. the network app *and* My Cupra) auto-merge by overlapping time window into a single session — the model is **"Save = one charge"**.
 - A photo **caption** ("home") or a **free-text note** (`home 9.3kwh 8h31m`) is parsed by the same model — no rigid syntax.
+- **Per-charge car targeting** — with a single active car the charge is auto-assigned; with two or more, the bot replies with inline **tap-to-pick** buttons (or you can name the car in the caption). The choice sticks across screenshots merging into the same charge and resets on Save/Discard.
 - **Home / granny-charger** charges: the metered *delivered* kWh is billed truth; SoC-banked energy and the AC→DC efficiency surface for free.
 - An inline **confirm card** shows projected kWh + cost (including the home/location rate) and edits itself in place as more screenshots merge; one tap to Save or Discard. A duplicate-screenshot guard means re-sending a saved charge never double-counts.
 
 **Conversational agent** — the bot is agentic. Beyond ingesting screenshots it can answer questions and make edits in plain language ("spend this month?", "how much on rapids?", "label that last charge as Home", "update session 42 from the next screenshot"). All actions go through a two-phase **propose → confirm → commit** flow, and every answer is grounded in a server-computed stats snapshot, so the model only restates real figures — it never invents numbers.
 
+**Proactive summaries** — opt-in scheduled Telegram digests (weekly on Monday for the previous week; monthly on the 1st for the previous month, both off by default). Each digest is a quiet, glanceable recap — spend, energy, miles driven, and per-car mileage pace, each with a vs-previous-period delta; the monthly adds a home/public split. An hourly tick handles delivery with once-per-period dedupe and downtime catch-up.
+
+**Multi-car** — run and retire several cars over their lifetime. Give cars **friendly names**; **archive** a replaced car (keeps all its history, drops off the dashboard) instead of deleting it; **reassign** any session to any car (active or archived); and **delete** is blocked once a car has charges (archive instead). Each car has a **detail / lifetime page** (ownership span + lifetime totals, efficiency, home/public split) and the whole Insights page can be **filtered to one car**.
+
 **Mileage via text** — include an odometer in a message or caption (`home 12345mi 9.3kwh 8h31m`); it lands on the session and updates current mileage and annual mileage tracking (both derived from session odometers).
 
-**Charging sessions** — full CRUD with a rich detail page built around the **charge-power curve** (AC and DC), plus duration, average/peak power, range added, cost-per-mile and a petrol-cost comparison. Sources are tagged (`telegram`, `manual`, `import`).
+**Charging sessions** — full CRUD with a rich detail page built around the **charge-power curve** (AC and DC), plus duration, average/peak power, range added, cost-per-mile and a petrol-cost comparison. Reassign a session to another car, filter the list by car, and tag sources (`telegram`, `manual`, `import`).
 
 **MyCupra CSV backfill** — a one-off importer (`python -m plugtrack.scripts.import_mycupra_csv`, dry-run by default, idempotent) seeds historical sessions from a My Cupra "charging statistics" export, including real energy-transfer time (`actual_charge_seconds`) distinct from the plug-in window.
 
-**Insights** — five analytics modules over your history: spend/energy **over time**, **home vs public** split, **network** breakdown, **efficiency** trend, and per-car **mileage-allowance pacing** (are you on track for your annual target). Plus a per-location breakdown with average p/kWh.
+**Insights** — analytics over your history, all filterable to a single car: spend/energy **over time**, **home vs public** split, **network** breakdown, **efficiency & cost-per-mile** trend, **seasonal efficiency & derived range** (monthly mi/kWh × battery, with a summer↔winter swing), an indicative **battery-health / capacity trend** (usable kWh over time, framed as a relative trend — not a certified SoH), and per-car **mileage-allowance pacing** (on track for your annual target). Plus a per-location breakdown with average p/kWh.
 
-**Planner** — estimate a home charge: pick a car and a start/target SoC and get the duration, finish time, cost, and whether it fits one overnight window — based on the median power of your recent home charges.
+**Planner** — a multi-scenario, data-driven charge planner. Pick a car and a start/target SoC and see a table comparing your **home (actual)** power (derived from your real charge history), **7 kW / 11 kW** AC, **50 kW / 150 kW / car-max** DC, and a **custom kW** ("is this charger worth it at the stall?"). DC times use a three-tier model — your captured charge curves → SoC-aware averages of past rapids → a generic taper scaled to the car's ceiling — and every row carries a confidence tag (curve-derived · average-derived · modelled). Per-car **Max AC/DC kW** capability fields set the ceilings.
 
 **Dashboard & analytics** — a per-car hero card showing last-known battery (after your most recent charge) and a summary of that charge, a 30-day spend chart, lifetime KPIs, recent sessions, and top locations. A locations map (OpenStreetMap) shows cost-banded markers.
 
-**Admin** — one page for everything operational: integration setup (Telegram, OpenAI, geocoding), display/cost/charging preferences, locations & cars management, scheduled **backups** + on-demand **CSV/JSON export**, and **MCP API tokens**.
+**Admin** — one page for everything operational: integration setup (Telegram, OpenAI, geocoding), display/cost/charging preferences, locations & cars management (incl. archive/restore and capability fields), digest opt-in, scheduled **backups** + on-demand **CSV/JSON export**, and **MCP API tokens**.
 
 **MCP server** — a FastMCP streamable-HTTP server at `/mcp/` exposes the same tool core (find/read charges, insights, and two-phase mutations) to any MCP client over bearer-token auth with read / readwrite scopes. Mint and revoke tokens from the Admin page.
 
@@ -63,8 +68,8 @@ docker compose up -d
 
 Open http://localhost:9279 in a browser. First-run setup prompts you to create the single administrator account. After that:
 
-- Add a car in **Admin → Cars** (make, model, battery size, efficiency).
-- In **Admin → Integrations**, paste your Telegram bot token and OpenAI API key (both encrypted at rest), set your allowed Telegram user id + default car, and enable the bot and AI.
+- Add a car in **Admin → Cars** (make, model, battery size, efficiency; optionally a friendly name and Max AC/DC kW for the planner).
+- In **Admin → Integrations**, paste your Telegram bot token and OpenAI API key (both encrypted at rest), set your allowed Telegram user id(s), and enable the bot and AI. (No "default car" needed — the bot resolves the target car per charge.)
 - Message your bot a charge screenshot, confirm the card, and the session appears on the dashboard.
 
 ### Pinning a specific image tag
@@ -72,7 +77,7 @@ Open http://localhost:9279 in a browser. First-run setup prompts you to create t
 `compose.yaml` defaults to `:latest`. To pin a release:
 
 ```bash
-echo "PLUGTRACK_TAG=3.0.0" >> .env
+echo "PLUGTRACK_TAG=3.4.1" >> .env
 docker compose pull && docker compose up -d
 ```
 
@@ -164,9 +169,9 @@ All configuration lives in two places.
 After first-run setup, all per-user configuration is in **Admin**:
 
 - **Display:** theme (light/dark/system), distance unit (mi/km), currency.
-- **Integrations — Telegram & AI:** Telegram bot token, allowed Telegram user id(s), default car, OpenAI API key + model, optional input/output token prices (for cost accounting). The bot runs as a lifespan background task, gated by `telegram_bot_enabled` / `ai_enabled`, and reconciles live when you change its settings — no redeploy.
+- **Integrations — Telegram & AI:** Telegram bot token, allowed Telegram user id(s), OpenAI API key + model, optional input/output token prices (for cost accounting), and opt-in **weekly / monthly digest** toggles + send hour. The bot runs as a lifespan background task, gated by `telegram_bot_enabled` / `ai_enabled`, and reconciles live when you change its settings — no redeploy. (The bot resolves the target car per charge; there is no "default car" setting.)
 - **Integrations — Geocoding:** provider (`nominatim` default — free and keyless), optional API key for Mapbox / OpenCage, cluster radius.
-- **Charging defaults:** default home rate (p/kWh), home-charge window, fallback power (kW), petrol price (p/L), petrol MPG (used for the petrol comparison).
+- **Charging defaults:** default home rate (p/kWh), home-charge window, fallback power (kW), charging loss factor, petrol price (p/L), petrol MPG (used for the petrol comparison).
 - **Backup:** enable scheduled snapshots, interval, retention count.
 
 Secrets (Telegram token, OpenAI key) are encrypted at rest with `APP_SECRET_KEY` — rotating that secret renders them unreadable, so plan accordingly.
@@ -199,7 +204,7 @@ The bot long-polls Telegram (no inbound webhook needed), sends images to the Ope
 1. Asserts `WEB_CONCURRENCY=1` and acquires `/tmp/plugtrack.lock` so direct `--workers N` invocations crash on the first non-zero worker.
 2. Creates the schema (`Base.metadata.create_all`) and applies additive migrations.
 3. Seeds defaults into the `setting` catalogue.
-4. Starts the long-lived background services: the **Telegram bot manager**, the **MCP session manager**, and the **APScheduler backup job**.
+4. Starts the long-lived background services: the **Telegram bot manager**, the **MCP session manager**, and an **APScheduler** hosting the rotating-backup job and the hourly proactive-digest tick.
 
 Key services live under `backend/plugtrack/services/`:
 
@@ -214,8 +219,11 @@ Key services live under `backend/plugtrack/services/`:
 | `location_clustering.py` / `geocoding.py` | Clusters coordinates into per-user `Location` rows; forward/reverse geocoding providers. |
 | `mileage_tracking.py`          | Annual mileage periods; current mileage derived from session odometers. |
 | `dashboard_service.py` / `dashboard_trend.py` | Aggregation passes for the dashboard + daily spend chart.   |
-| `insights_stats.py` / `usage_stats.py` | Numeric aggregators behind the Insights page and the bot's grounded answers. |
-| `charge_planner.py`            | Home-charge duration/cost estimate from recent home-charge power.        |
+| `insights_stats.py` / `usage_stats.py` | Numeric aggregators (car-filterable) behind the Insights page and the bot's grounded answers. |
+| `ownership_trends.py`          | Read-time seasonal efficiency / derived range + indicative battery-capacity trend. |
+| `car_lifetime.py`              | Per-car lifetime aggregation (ownership span, totals, efficiency, home/public) for the car-detail page. |
+| `charge_planner.py`            | Multi-scenario charge planner: history-derived AC home power + a three-tier DC capability model. |
+| `digest.py`                    | Weekly/monthly proactive-digest content builders (composed from the insights + mileage aggregators). |
 | `backup.py`                    | VACUUM-INTO rotating SQLite snapshots with keep-last-N pruning.           |
 | `mcp/` (`server.py`, `tools.py`) | FastMCP server + the user-scoped, two-phase propose/commit tool core (shared by the bot and external MCP clients). |
 

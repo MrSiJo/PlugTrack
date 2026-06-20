@@ -32,8 +32,8 @@ function makeCar(over: Partial<CarPayload> = {}): CarPayload {
 function makePlan(over: Partial<ScenarioPlanResponse> = {}): ScenarioPlanResponse {
   return {
     car_id: 1,
-    start_soc: 20,
-    target_soc: 100,
+    start_soc: 60,
+    target_soc: 80,
     battery_kwh: 77,
     loss_factor: 0.9,
     home_rate_p_per_kwh: 28.34,
@@ -227,7 +227,7 @@ describe('Planner page', () => {
     renderPlanner()
 
     await waitFor(() => {
-      expect(getChargePlan).toHaveBeenCalledWith(42, 20, 100, undefined)
+      expect(getChargePlan).toHaveBeenCalledWith(42, 60, 80, undefined)
     })
   })
 
@@ -252,7 +252,7 @@ describe('Planner page', () => {
     await user.type(customInput, '22')
 
     await waitFor(() => {
-      expect(getChargePlan).toHaveBeenCalledWith(1, 20, 100, 22)
+      expect(getChargePlan).toHaveBeenCalledWith(1, 60, 80, 22)
     })
   })
 
@@ -268,5 +268,142 @@ describe('Planner page', () => {
     })
     expect(screen.getByTestId('planner-start-soc')).toBeInTheDocument()
     expect(screen.getByTestId('planner-target-soc')).toBeInTheDocument()
+  })
+
+  // ---------------------------------------------------------------------------
+  // New tests: default SoC values + clearable inputs + validation
+  // ---------------------------------------------------------------------------
+
+  it('shows default start SoC of 60 and target SoC of 80 on render', async () => {
+    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar()])
+    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
+
+    renderPlanner()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('planner-start-soc')).toBeInTheDocument()
+    })
+
+    const startInput = screen.getByTestId('planner-start-soc') as HTMLInputElement
+    const targetInput = screen.getByTestId('planner-target-soc') as HTMLInputElement
+
+    expect(startInput.value).toBe('60')
+    expect(targetInput.value).toBe('80')
+  })
+
+  it('allows clearing the start SoC field without snapping to 0', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar()])
+    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
+
+    renderPlanner()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('planner-start-soc')).toBeInTheDocument()
+    })
+
+    const startInput = screen.getByTestId('planner-start-soc') as HTMLInputElement
+
+    await user.clear(startInput)
+
+    // After clearing, the field value should be empty, NOT "0"
+    expect(startInput.value).toBe('')
+  })
+
+  it('shows a validation message and does not call getChargePlan when start SoC is empty', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar()])
+    const getChargePlan = vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
+
+    renderPlanner()
+
+    // Wait for initial plan load with valid defaults
+    await screen.findByTestId('plan-table')
+    getChargePlan.mockClear()
+
+    const startInput = screen.getByTestId('planner-start-soc')
+    await user.clear(startInput)
+
+    // Should show a validation message
+    await waitFor(() => {
+      const err = screen.getByTestId('plan-error')
+      expect(err).toBeInTheDocument()
+    })
+
+    // getChargePlan must NOT have been called with an invalid/empty start
+    expect(getChargePlan).not.toHaveBeenCalled()
+  })
+
+  it('shows a validation message and does not call getChargePlan when target SoC is empty', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar()])
+    const getChargePlan = vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
+
+    renderPlanner()
+
+    await screen.findByTestId('plan-table')
+    getChargePlan.mockClear()
+
+    const targetInput = screen.getByTestId('planner-target-soc')
+    await user.clear(targetInput)
+
+    await waitFor(() => {
+      const err = screen.getByTestId('plan-error')
+      expect(err).toBeInTheDocument()
+    })
+
+    expect(getChargePlan).not.toHaveBeenCalled()
+  })
+
+  it('shows a "target must be higher" message and does not fetch when target SoC <= start SoC', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar({ id: 1 })])
+    const getChargePlan = vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
+
+    renderPlanner()
+
+    await screen.findByTestId('plan-table')
+    getChargePlan.mockClear()
+
+    // Set start to 80, target to 60 (reversed)
+    const startInput = screen.getByTestId('planner-start-soc')
+    const targetInput = screen.getByTestId('planner-target-soc')
+
+    await user.clear(startInput)
+    await user.type(startInput, '80')
+    await user.clear(targetInput)
+    await user.type(targetInput, '60')
+
+    // Should show a "target must be higher" error
+    await waitFor(() => {
+      const err = screen.getByTestId('plan-error')
+      expect(err.textContent?.toLowerCase()).toMatch(/target.*higher|target.*greater|higher.*start/i)
+    })
+
+    // getChargePlan must NOT have been called with (1, 80, 60, ...)
+    expect(getChargePlan).not.toHaveBeenCalledWith(1, 80, 60, expect.anything())
+  })
+
+  it('calls getChargePlan when both SoC values are valid numbers and target > start', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar({ id: 1 })])
+    const getChargePlan = vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
+
+    renderPlanner()
+
+    await screen.findByTestId('plan-table')
+    getChargePlan.mockClear()
+
+    const startInput = screen.getByTestId('planner-start-soc')
+    const targetInput = screen.getByTestId('planner-target-soc')
+
+    await user.clear(startInput)
+    await user.type(startInput, '50')
+    await user.clear(targetInput)
+    await user.type(targetInput, '90')
+
+    await waitFor(() => {
+      expect(getChargePlan).toHaveBeenCalledWith(1, 50, 90, undefined)
+    })
   })
 })
