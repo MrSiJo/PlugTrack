@@ -158,11 +158,10 @@ async def _core_block(
     prv_hi: dt.date,
     currency: str,
     distance_unit: str,
-) -> tuple[dict, dict, Optional[float], Optional[float], list[str]]:
+) -> tuple[dict, dict, Optional[float], Optional[float]]:
     """Fetch window_totals + miles for rep + prev windows.
 
-    Returns (rep_totals, prv_totals, rep_miles_km, prv_miles_km, lines_so_far).
-    lines_so_far is empty; callers build the formatted lines themselves.
+    Returns (rep_totals, prv_totals, rep_miles_km, prv_miles_km).
     """
     rep = await window_totals(session, user_id=user_id, lo=rep_lo, hi=rep_hi)
     prv = await window_totals(session, user_id=user_id, lo=prv_lo, hi=prv_hi)

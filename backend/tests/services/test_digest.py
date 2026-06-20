@@ -517,3 +517,83 @@ async def test_weekly_down_delta(test_sessionmaker, seeded_user_car):
 
     assert result is not None
     assert "down 50%" in result
+
+
+# ---------------------------------------------------------------------------
+# Year/month boundary tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_weekly_year_boundary(test_sessionmaker, seeded_user_car):
+    """Reported week crosses a year boundary into the prior December.
+
+    now = 2027-01-03 (Sunday of week 0 of 2027).
+    This week's Monday = 2026-12-28.
+    Reported (previous Mon-Sun) week = 2026-12-21..2026-12-27.
+    Previous-previous week (for delta) = 2026-12-14..2026-12-20.
+
+    If _reported_week regressed to using now.year it would look at Jan 2027,
+    finding no sessions, and return None. This test locks the Dec 2026 window.
+    """
+    user_id, car_id = seeded_user_car
+    await _seed_settings(test_sessionmaker)
+
+    now_boundary = dt.datetime(2027, 1, 3, 9, 0, 0, tzinfo=dt.timezone.utc)
+
+    # Reported week: 2026-12-21 to 2026-12-27
+    rep_lo = dt.date(2026, 12, 21)
+    prv_lo = dt.date(2026, 12, 14)
+
+    # Seed: 200p in the reported (Dec) week; 100p in the prior week (for delta)
+    await _mk_session(test_sessionmaker, user_id=user_id, car_id=car_id,
+                      when=rep_lo, kwh=20.0, cost_pence=200)
+    await _mk_session(test_sessionmaker, user_id=user_id, car_id=car_id,
+                      when=prv_lo, kwh=10.0, cost_pence=100)
+
+    async with test_sessionmaker() as s:
+        result = await build_weekly_digest(s, user_id=user_id, now=now_boundary)
+
+    # Must not be None (would be None if it looked at the January week instead)
+    assert result is not None
+    # Reported week spend = £2.00 (200p); NOT £1.00 (100p from prior week)
+    assert "£2.00" in result
+    # Header must mention December or the 21st
+    assert "Dec" in result or "21" in result
+    # Delta: 200p vs 100p → up 100%
+    assert "up 100%" in result
+
+
+@pytest.mark.asyncio
+async def test_monthly_january_boundary(test_sessionmaker, seeded_user_car):
+    """Reported month crosses a year boundary: now in Jan 2027 → reported = Dec 2026.
+
+    now = 2027-01-15.
+    Reported month = December 2026 (2026-12-01 to 2026-12-31).
+    Previous month = November 2026 (2026-11-01 to 2026-11-30).
+
+    If _reported_month regressed to now.month/year it would look at January 2027,
+    finding no sessions, and return None. This test locks the December window.
+    """
+    user_id, car_id = seeded_user_car
+    await _seed_settings(test_sessionmaker)
+
+    now_boundary = dt.datetime(2027, 1, 15, 9, 0, 0, tzinfo=dt.timezone.utc)
+
+    # Dec 2026 (reported): 400p spend
+    await _mk_session(test_sessionmaker, user_id=user_id, car_id=car_id,
+                      when=dt.date(2026, 12, 15), kwh=20.0, cost_pence=400)
+    # Nov 2026 (previous, for delta): 200p spend
+    await _mk_session(test_sessionmaker, user_id=user_id, car_id=car_id,
+                      when=dt.date(2026, 11, 15), kwh=10.0, cost_pence=200)
+
+    async with test_sessionmaker() as s:
+        result = await build_monthly_digest(s, user_id=user_id, now=now_boundary)
+
+    # Must not be None (would be None if it looked at January 2027 instead)
+    assert result is not None
+    # Header must reference December
+    assert "December" in result or "Dec" in result
+    # Reported spend = £4.00 (Dec); NOT £2.00 (Nov)
+    assert "£4.00" in result
+    # Delta: 400p vs 200p → up 100%
+    assert "up 100%" in result
