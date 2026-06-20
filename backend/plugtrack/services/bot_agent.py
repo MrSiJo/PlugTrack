@@ -259,6 +259,14 @@ def build_tool_catalogue() -> list[dict[str, Any]]:
                             "type": "string",
                             "description": "Notes for this session.",
                         },
+                        "odometer": {
+                            "type": "number",
+                            "description": "New odometer reading in the user's distance unit (miles unless they say km).",
+                        },
+                        "odometer_unit": {
+                            "type": "string",
+                            "description": "mi or km; defaults to the user's display unit if omitted.",
+                        },
                     },
                     "required": ["charge_id"],
                     "additionalProperties": False,
@@ -363,6 +371,8 @@ def make_tool_runner(session, user_id: int) -> Callable[[str, dict], Awaitable[A
                     date=date,
                     network=args.get("network"),
                     notes=args.get("notes"),
+                    odometer=args.get("odometer"),
+                    odometer_unit=args.get("odometer_unit"),
                 )
             elif tool_name == "commit_change":
                 return await tc.commit_change(
@@ -451,6 +461,15 @@ async def run_agent_turn(
        d. Loop (up to MAX_TOOL_ITERATIONS total).
     4. When the model returns a final text → return it as reply_text.
     """
+    from datetime import datetime, timezone as _tz
+    today = datetime.now(_tz.utc).date().isoformat()
+    date_line = (
+        f"Today's date is {today}. When the user gives a relative date "
+        "(today, yesterday, last week, this month), resolve it to YYYY-MM-DD "
+        "against today before calling tools."
+    )
+    instructions = AGENT_SYSTEM_PROMPT + "\n\n" + date_line
+
     tools = build_tool_catalogue()
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -472,7 +491,7 @@ async def run_agent_turn(
             for iteration in range(MAX_TOOL_ITERATIONS + 1):
                 payload = {
                     "model": model,
-                    "instructions": AGENT_SYSTEM_PROMPT,
+                    "instructions": instructions,
                     "input": input_items,
                     "tools": tools,
                     "max_output_tokens": 1000,
