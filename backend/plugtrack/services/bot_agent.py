@@ -323,11 +323,11 @@ def make_tool_runner(session, user_id: int) -> Callable[[str, dict], Awaitable[A
                     date_to = dt.date.fromisoformat(args["date_to"])
                 return await tc.find_charges(
                     session, user_id,
-                    query=args.get("query"),
+                    query=args.get("query") or None,
                     date_from=date_from,
                     date_to=date_to,
-                    location_id=args.get("location_id"),
-                    limit=int(args.get("limit", 10)),
+                    location_id=(args.get("location_id") or None),
+                    limit=int(args.get("limit") or 10),
                 )
             elif tool_name == "get_charge":
                 return await tc.get_charge(session, user_id, int(args["charge_id"]))
@@ -353,8 +353,8 @@ def make_tool_runner(session, user_id: int) -> Callable[[str, dict], Awaitable[A
                 return await tc.propose_set_location(
                     session, user_id,
                     charge_id=int(args["charge_id"]),
-                    location_id=args.get("location_id"),
-                    location_name=args.get("location_name"),
+                    location_id=(args.get("location_id") or None),
+                    location_name=args.get("location_name") or None,
                 )
             elif tool_name == "propose_edit_charge":
                 date = None
