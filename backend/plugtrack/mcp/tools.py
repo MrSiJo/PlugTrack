@@ -239,7 +239,7 @@ async def find_charges(
             stmt = stmt.where(ChargingSession.date >= date_from)
         if date_to is not None:
             stmt = stmt.where(ChargingSession.date <= date_to)
-        if location_id is not None:
+        if location_id:  # 0/None -> no filter (models pass 0 for unset optionals)
             stmt = stmt.where(ChargingSession.location_id == location_id)
         stmt = stmt.order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
         stmt = stmt.limit(limit)
@@ -425,7 +425,7 @@ async def propose_set_location(
         resolved_location_id: Optional[int] = None
         resolved_location_name: Optional[str] = None
 
-        if location_id is not None:
+        if location_id:  # 0/None -> no filter (models pass 0 for unset optionals)
             loc = await _get_owned_location(session, location_id, user_id)
             if loc is None:
                 return {"error": f"location {location_id} not found or not owned by this user"}

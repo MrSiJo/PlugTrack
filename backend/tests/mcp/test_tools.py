@@ -224,6 +224,24 @@ async def test_find_charges_result_shape(test_sessionmaker):
 
 
 @pytest.mark.asyncio
+async def test_find_charges_location_id_zero_is_no_filter(test_sessionmaker):
+    """location_id=0 (models pass 0 for unset optionals) must NOT filter to nothing."""
+    from plugtrack.mcp.tools import find_charges
+
+    user_id = await _seed_user(test_sessionmaker, "alice_locfilter")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    await _seed_session(test_sessionmaker, user_id, car_id)
+    await _seed_session(test_sessionmaker, user_id, car_id, date_offset=1)
+
+    async with test_sessionmaker() as session:
+        zero = await find_charges(session, user_id, location_id=0)
+        none = await find_charges(session, user_id, location_id=None)
+
+    assert len(zero) == 2, "location_id=0 must behave as no filter, not match location 0"
+    assert len(none) == 2
+
+
+@pytest.mark.asyncio
 async def test_find_charges_formats_money(test_sessionmaker):
     """Per-charge cost is shown in pounds (£X.XX); tariff in pence (Np/kWh)."""
     from plugtrack.mcp.tools import find_charges
