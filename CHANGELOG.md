@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.11.0](https://github.com/MrSiJo/PlugTrack/compare/v2.10.2...v2.11.0) (2026-06-20)
+
+
+### Features
+
+* **bot:** edit session mileage by chat/screenshot + current-date awareness for relative dates ([bf20e6c](https://github.com/MrSiJo/PlugTrack/commit/bf20e6c86deb7415141c9e4cc0eda77c77450cc1))
+* **bot:** update an existing session from a screenshot (caption + conversational triggers) ([c1fa582](https://github.com/MrSiJo/PlugTrack/commit/c1fa5825f655378386a734b74999d7fbb19d796b))
+* conversational session editing — screenshots, mileage, dates ([3473c64](https://github.com/MrSiJo/PlugTrack/commit/3473c648cb62bed0b8a867035e92dca6c9cb947a))
+
+
+### Bug Fixes
+
+* **bot:** harden screenshot-to-edit parsers + card/token state (review fixes) ([dca1825](https://github.com/MrSiJo/PlugTrack/commit/dca18255d1c5b0ffbd0474a0dbee21f382749a33))
+* **bot:** treat falsy location_id as no filter in find_charges ([119154b](https://github.com/MrSiJo/PlugTrack/commit/119154b1c75f0c9fca36b42415650e3875d2f391))
+
 ## [2.10.2](https://github.com/MrSiJo/PlugTrack/compare/v2.10.1...v2.10.2) (2026-06-20)
 
 
