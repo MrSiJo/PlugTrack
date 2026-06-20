@@ -446,6 +446,16 @@ export default function Insights() {
             <Card className="mb-6">
               <h2 className={MODULE_EYEBROW}>Seasonal efficiency &amp; range</h2>
               <SeasonalEfficiencyChart data={overview.seasonal_efficiency} />
+              {overview.seasonal_delta != null && (
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  Seasonal swing:{' '}
+                  <span className="font-medium text-slate-700 dark:text-slate-200">
+                    {overview.seasonal_delta.pct.toFixed(1)}%
+                    {' '}({overview.seasonal_delta.abs_mi_per_kwh.toFixed(2)} mi/kWh)
+                  </span>{' '}
+                  between best ({overview.seasonal_delta.best.period}) and worst ({overview.seasonal_delta.worst.period}) month.
+                </p>
+              )}
             </Card>
           )}
 

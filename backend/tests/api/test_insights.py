@@ -298,3 +298,81 @@ async def test_overview_no_active_car_returns_empty_trend_arrays(authed_client):
     # Other keys still present
     for key in ("granularity", "over_time", "split", "by_network", "efficiency"):
         assert key in body
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: seasonal_delta wired into /overview
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_overview_seasonal_delta_none_with_insufficient_data(authed_client):
+    """seasonal_delta is None when fewer than 2 months with non-None mi_per_kwh."""
+    # Single session → single month → seasonal_delta must be None
+    r = await authed_client.post(
+        "/api/cars",
+        json={"make": "Cupra", "model": "Born", "battery_kwh": 58.0,
+              "nominal_efficiency_mi_per_kwh": 4.0},
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201
+    car_id = r.json()["id"]
+
+    # One session — only one month of seasonal data
+    await _post_session_full(
+        authed_client, car_id=car_id, kwh=20.0,
+        start_soc=10, end_soc=80, ctype="dc", date_str="2026-01-15",
+        odometer_km=1000.0,
+    )
+
+    r = await authed_client.get(f"/api/insights/overview?car_id={car_id}")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "seasonal_delta" in body, "seasonal_delta key must be present"
+    assert body["seasonal_delta"] is None
+
+
+@pytest.mark.asyncio
+async def test_overview_seasonal_delta_populated_with_two_months(authed_client):
+    """seasonal_delta has best/worst/pct/abs_mi_per_kwh when ≥2 months with mi_per_kwh."""
+    r = await authed_client.post(
+        "/api/cars",
+        json={"make": "Cupra", "model": "Born", "battery_kwh": 58.0,
+              "nominal_efficiency_mi_per_kwh": 4.0},
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201
+    car_id = r.json()["id"]
+
+    # Three sessions in different months, with odometer so mi_per_kwh is computed
+    await _post_session_full(
+        authed_client, car_id=car_id, kwh=20.0,
+        start_soc=10, end_soc=80, ctype="dc", date_str="2026-01-15",
+        odometer_km=1000.0,
+    )
+    await _post_session_full(
+        authed_client, car_id=car_id, kwh=18.0,
+        start_soc=20, end_soc=90, ctype="dc", date_str="2026-03-20",
+        odometer_km=1200.0,
+    )
+    await _post_session_full(
+        authed_client, car_id=car_id, kwh=15.0,
+        start_soc=30, end_soc=80, ctype="dc", date_str="2026-05-10",
+        odometer_km=1400.0,
+    )
+
+    r = await authed_client.get(f"/api/insights/overview?car_id={car_id}")
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert "seasonal_delta" in body, "seasonal_delta key must be present"
+    delta = body["seasonal_delta"]
+    # Should be populated (≥2 months have mi_per_kwh from odometer data)
+    assert delta is not None, "seasonal_delta should be non-None with 3 months of data"
+    assert "best" in delta
+    assert "worst" in delta
+    assert "pct" in delta
+    assert "abs_mi_per_kwh" in delta
+    assert delta["pct"] >= 0
+    assert delta["abs_mi_per_kwh"] >= 0
+    assert delta["best"]["mi_per_kwh"] >= delta["worst"]["mi_per_kwh"]

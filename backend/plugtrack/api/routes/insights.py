@@ -29,6 +29,7 @@ from ...services.insights_stats import (
 from ...services.ownership_trends import (
     capacity_trend as _capacity_trend,
     efficiency_by_month,
+    seasonal_delta,
 )
 
 
@@ -167,6 +168,7 @@ async def get_overview(
         "efficiency": efficiency,
         "seasonal_efficiency": seasonal_efficiency,
         "capacity_trend": capacity_trend_data,
+        "seasonal_delta": seasonal_delta(seasonal_efficiency),
     })
 
 

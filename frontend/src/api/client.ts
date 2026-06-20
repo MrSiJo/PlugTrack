@@ -513,8 +513,15 @@ export interface CapacityTrendPoint {
   /** "YYYY-MM-DD" */
   date: string
   usable_kwh: number
-  charging_type: 'ac' | 'dc'
+  charging_type: 'ac' | 'dc' | 'unknown'
   low_confidence: boolean
+}
+
+export interface SeasonalDelta {
+  best: SeasonalEfficiencyPoint
+  worst: SeasonalEfficiencyPoint
+  pct: number
+  abs_mi_per_kwh: number
 }
 
 export interface InsightsOverviewResponse {
@@ -525,6 +532,7 @@ export interface InsightsOverviewResponse {
   efficiency: InsightsEfficiencyPoint[]
   seasonal_efficiency?: SeasonalEfficiencyPoint[]
   capacity_trend?: CapacityTrendPoint[]
+  seasonal_delta?: SeasonalDelta | null
 }
 
 export interface InsightsMileageResponse {

@@ -44,4 +44,15 @@ describe('CapacityTrendChart', () => {
     // Use the full container textContent to avoid broken-up text node issues.
     expect(container.textContent).toMatch(/kWh/i)
   })
+
+  it('renders unknown-type charges in the AC series (not silently dropped)', () => {
+    // A single point with charging_type 'unknown' should fold into AC and still render
+    const unknownData = [
+      { date: '2026-02-14', usable_kwh: 54.0, charging_type: 'unknown' as const, low_confidence: true },
+    ]
+    render(<CapacityTrendChart data={unknownData} data-testid="ctc-unknown" />)
+    // Chart container should be present (not the empty-state message)
+    expect(screen.getByTestId('ctc-unknown')).toBeInTheDocument()
+    expect(screen.queryByText(/no trend data yet/i)).not.toBeInTheDocument()
+  })
 })

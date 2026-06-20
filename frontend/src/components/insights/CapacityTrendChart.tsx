@@ -37,7 +37,7 @@ function ChartTooltip({ active, payload }: TooltipProps) {
       <p className="tabular-nums text-violet-600 dark:text-violet-300">
         {kwh != null ? `${kwh.toFixed(1)} kWh` : '—'}{' '}
         <span className="text-slate-400">
-          ({point.charging_type?.toUpperCase()})
+          ({point.charging_type === 'dc' ? 'DC' : 'AC'})
         </span>
       </p>
     </div>
@@ -54,7 +54,9 @@ function splitSeries(data: CapacityTrendPoint[]): {
 } {
   const chartData = data.map((d) => ({
     ...d,
-    usable_kwh_ac: d.charging_type === 'ac' ? d.usable_kwh : null,
+    // Fold 'unknown' charging_type into the AC series (conservative default —
+    // consistent with spec's "AC overstates usable capacity" framing).
+    usable_kwh_ac: d.charging_type === 'ac' || d.charging_type === 'unknown' ? d.usable_kwh : null,
     usable_kwh_dc: d.charging_type === 'dc' ? d.usable_kwh : null,
   }))
   return { chartData }
