@@ -185,3 +185,32 @@ async def test_labelled_location_with_only_out_of_window_sessions_listed_with_ze
     assert by_id[loc].spend_pence == 0
     assert by_id[loc].kwh == 0.0
     assert by_id[loc].avg_p_per_kwh is None
+
+
+@pytest.mark.asyncio
+async def test_aggregate_by_location_car_id_filter(test_sessionmaker):
+    """aggregate_by_location with car_id only counts that car's sessions."""
+    uid = await _seed_user(test_sessionmaker, "admin")
+    car1 = await _add_car(test_sessionmaker, uid)
+    car2 = await _add_car(test_sessionmaker, uid)
+    loc = await _add_location(test_sessionmaker, uid, name="Home", is_home=True)
+
+    # car1: 10 kWh, 200p at loc; car2: 40 kWh, 800p at same loc
+    await _add_session(test_sessionmaker, uid, car1, location_id=loc, kwh=10.0, cost_pence=200)
+    await _add_session(test_sessionmaker, uid, car2, location_id=loc, kwh=40.0, cost_pence=800)
+
+    async with test_sessionmaker() as s:
+        car1_result = await aggregate_by_location(
+            s, user_id=uid, date_from=None, date_to=None, car_id=car1)
+        both_result = await aggregate_by_location(
+            s, user_id=uid, date_from=None, date_to=None)
+
+    by_id_car1 = {r.location_id: r for r in car1_result.rows}
+    assert by_id_car1[loc].sessions == 1
+    assert by_id_car1[loc].kwh == pytest.approx(10.0)
+    assert by_id_car1[loc].spend_pence == 200
+
+    by_id_both = {r.location_id: r for r in both_result.rows}
+    assert by_id_both[loc].sessions == 2
+    assert by_id_both[loc].kwh == pytest.approx(50.0)
+    assert by_id_both[loc].spend_pence == 1000

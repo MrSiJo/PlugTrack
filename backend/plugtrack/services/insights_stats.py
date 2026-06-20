@@ -19,8 +19,11 @@ from . import mileage_tracking
 from .mileage_tracking import KM_PER_MILE
 
 
-def _base_filter(user_id: int):
-    return (ChargingSession.user_id == user_id,)
+def _base_filter(user_id: int, car_id: Optional[int] = None):
+    filters = [ChargingSession.user_id == user_id]
+    if car_id is not None:
+        filters.append(ChargingSession.car_id == car_id)
+    return tuple(filters)
 
 
 def resolve_granularity(lo: dt.date, hi: dt.date) -> str:
@@ -50,8 +53,8 @@ def _period_bounds(key: str, granularity: str) -> tuple[dt.date, dt.date]:
     return start, start.replace(day=last)
 
 
-def _scope(stmt, *, user_id, date_from, date_to):
-    stmt = stmt.where(*_base_filter(user_id))
+def _scope(stmt, *, user_id, date_from, date_to, car_id: Optional[int] = None):
+    stmt = stmt.where(*_base_filter(user_id, car_id))
     if date_from is not None:
         stmt = stmt.where(ChargingSession.date >= date_from)
     if date_to is not None:
@@ -62,6 +65,7 @@ def _scope(stmt, *, user_id, date_from, date_to):
 async def window_totals(
     session: AsyncSession, *, user_id: int,
     lo: Optional[dt.date], hi: Optional[dt.date],
+    car_id: Optional[int] = None,
 ) -> dict:
     """Single-bucket totals for [lo, hi] (None bounds = open-ended)."""
     costed_kwh = func.sum(
@@ -72,7 +76,7 @@ async def window_totals(
         func.coalesce(func.sum(ChargingSession.kwh_added), 0.0),
         func.count(ChargingSession.id),
         func.coalesce(costed_kwh, 0.0),
-    ).where(*_base_filter(user_id))
+    ).where(*_base_filter(user_id, car_id))
     if lo is not None:
         stmt = stmt.where(ChargingSession.date >= lo, ChargingSession.date <= hi)
     cost, kwh, n, kwh_costed = (await session.execute(stmt)).one()
@@ -137,10 +141,11 @@ async def _miles_driven_km(
 async def spend_energy_over_time(
     session: AsyncSession, *, user_id: int,
     date_from: Optional[dt.date], date_to: Optional[dt.date], granularity: str,
+    car_id: Optional[int] = None,
 ) -> list[dict]:
     stmt = _scope(
         select(ChargingSession.date, ChargingSession.cost_pence, ChargingSession.kwh_added),
-        user_id=user_id, date_from=date_from, date_to=date_to,
+        user_id=user_id, date_from=date_from, date_to=date_to, car_id=car_id,
     )
     buckets: dict[str, dict] = {}
     for d, cost, kwh in (await session.execute(stmt)).all():
@@ -167,10 +172,11 @@ def _bucket_finalise(b: dict) -> dict:
 async def home_public_split(
     session: AsyncSession, *, user_id: int,
     date_from: Optional[dt.date], date_to: Optional[dt.date],
+    car_id: Optional[int] = None,
 ) -> dict:
     stmt = _scope(
         select(ChargingSession.charging_type, ChargingSession.cost_pence, ChargingSession.kwh_added),
-        user_id=user_id, date_from=date_from, date_to=date_to,
+        user_id=user_id, date_from=date_from, date_to=date_to, car_id=car_id,
     )
 
     def blank():
@@ -193,10 +199,11 @@ async def home_public_split(
 async def network_breakdown(
     session: AsyncSession, *, user_id: int,
     date_from: Optional[dt.date], date_to: Optional[dt.date],
+    car_id: Optional[int] = None,
 ) -> list[dict]:
     stmt = _scope(
         select(ChargingSession.charge_network, ChargingSession.cost_pence, ChargingSession.kwh_added),
-        user_id=user_id, date_from=date_from, date_to=date_to,
+        user_id=user_id, date_from=date_from, date_to=date_to, car_id=car_id,
     )
     agg: dict[str, dict] = {}
     for net, cost, kwh in (await session.execute(stmt)).all():
@@ -215,9 +222,11 @@ async def network_breakdown(
 async def efficiency_over_time(
     session: AsyncSession, *, user_id: int,
     date_from: Optional[dt.date], date_to: Optional[dt.date], granularity: str,
+    car_id: Optional[int] = None,
 ) -> list[dict]:
     over = await spend_energy_over_time(
-        session, user_id=user_id, date_from=date_from, date_to=date_to, granularity=granularity)
+        session, user_id=user_id, date_from=date_from, date_to=date_to,
+        granularity=granularity, car_id=car_id)
     out: list[dict] = []
     for b in over:
         lo, hi = _period_bounds(b["period"], granularity)

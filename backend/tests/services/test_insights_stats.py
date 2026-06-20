@@ -159,3 +159,111 @@ async def test_mileage_view_projection_and_pace(test_sessionmaker, seeded_user_c
     # projected = used/elapsed*total = 2000/100*365 = 7300 mi → under the 10000 target
     assert view["projected_year_end_km"] == pytest.approx((10000 + 7300) * 1.609344, abs=5.0)
     assert view["pace"] == "under"
+
+
+# ---------------------------------------------------------------------------
+# car_id filter tests (Task 11)
+# ---------------------------------------------------------------------------
+
+async def _seed_second_car(test_sessionmaker, user_id: int) -> int:
+    """Insert a second Car for the given user; return its id."""
+    from plugtrack.models import Car
+    async with test_sessionmaker() as s:
+        car = Car(
+            user_id=user_id,
+            make="Cupra",
+            model="Formentor",
+            battery_kwh=45.0,
+            nominal_efficiency_mi_per_kwh=3.8,
+            provider="manual",
+            active=True,
+        )
+        s.add(car)
+        await s.commit()
+        await s.refresh(car)
+        return car.id
+
+
+@pytest.mark.asyncio
+async def test_window_totals_car_id_filter(test_sessionmaker, seeded_user_car):
+    """window_totals with car_id=car1 returns only that car's sessions."""
+    uid, car1 = seeded_user_car
+    car2 = await _seed_second_car(test_sessionmaker, uid)
+
+    await _mk(test_sessionmaker, user_id=uid, car_id=car1, when=dt.date(2026, 6, 1), kwh=10.0, cost_pence=200)
+    await _mk(test_sessionmaker, user_id=uid, car_id=car2, when=dt.date(2026, 6, 2), kwh=20.0, cost_pence=500)
+
+    async with test_sessionmaker() as s:
+        car1_only = await ins.window_totals(s, user_id=uid, lo=None, hi=None, car_id=car1)
+        both = await ins.window_totals(s, user_id=uid, lo=None, hi=None)
+
+    assert car1_only["sessions"] == 1
+    assert car1_only["kwh"] == pytest.approx(10.0)
+    assert car1_only["spend_pence"] == 200
+
+    assert both["sessions"] == 2
+    assert both["kwh"] == pytest.approx(30.0)
+    assert both["spend_pence"] == 700
+
+
+@pytest.mark.asyncio
+async def test_spend_energy_over_time_car_id_filter(test_sessionmaker, seeded_user_car):
+    """spend_energy_over_time with car_id only counts that car."""
+    uid, car1 = seeded_user_car
+    car2 = await _seed_second_car(test_sessionmaker, uid)
+
+    await _mk(test_sessionmaker, user_id=uid, car_id=car1, when=dt.date(2026, 6, 1), kwh=10.0, cost_pence=200)
+    await _mk(test_sessionmaker, user_id=uid, car_id=car2, when=dt.date(2026, 6, 1), kwh=40.0, cost_pence=800)
+
+    async with test_sessionmaker() as s:
+        car1_only = await ins.spend_energy_over_time(
+            s, user_id=uid, date_from=None, date_to=None, granularity="daily", car_id=car1)
+        both = await ins.spend_energy_over_time(
+            s, user_id=uid, date_from=None, date_to=None, granularity="daily")
+
+    assert len(car1_only) == 1
+    assert car1_only[0]["kwh"] == pytest.approx(10.0)
+    assert car1_only[0]["sessions"] == 1
+
+    assert len(both) == 1
+    assert both[0]["kwh"] == pytest.approx(50.0)
+    assert both[0]["sessions"] == 2
+
+
+@pytest.mark.asyncio
+async def test_home_public_split_car_id_filter(test_sessionmaker, seeded_user_car):
+    """home_public_split with car_id excludes the other car's sessions."""
+    uid, car1 = seeded_user_car
+    car2 = await _seed_second_car(test_sessionmaker, uid)
+
+    await _mk(test_sessionmaker, user_id=uid, car_id=car1, when=dt.date(2026, 6, 1),
+              kwh=10.0, cost_pence=200, ctype="ac")
+    await _mk(test_sessionmaker, user_id=uid, car_id=car2, when=dt.date(2026, 6, 2),
+              kwh=30.0, cost_pence=900, ctype="ac")
+
+    async with test_sessionmaker() as s:
+        car1_only = await ins.home_public_split(s, user_id=uid, date_from=None, date_to=None, car_id=car1)
+        both = await ins.home_public_split(s, user_id=uid, date_from=None, date_to=None)
+
+    assert car1_only["home"]["sessions"] == 1
+    assert car1_only["home"]["kwh"] == pytest.approx(10.0)
+    assert both["home"]["sessions"] == 2
+
+
+@pytest.mark.asyncio
+async def test_network_breakdown_car_id_filter(test_sessionmaker, seeded_user_car):
+    """network_breakdown with car_id excludes the other car's sessions."""
+    uid, car1 = seeded_user_car
+    car2 = await _seed_second_car(test_sessionmaker, uid)
+
+    await _mk(test_sessionmaker, user_id=uid, car_id=car1, when=dt.date(2026, 6, 1),
+              kwh=10.0, cost_pence=200, ctype="dc", network="Osprey")
+    await _mk(test_sessionmaker, user_id=uid, car_id=car2, when=dt.date(2026, 6, 2),
+              kwh=20.0, cost_pence=400, ctype="dc", network="Tesla")
+
+    async with test_sessionmaker() as s:
+        car1_only = await ins.network_breakdown(s, user_id=uid, date_from=None, date_to=None, car_id=car1)
+        both = await ins.network_breakdown(s, user_id=uid, date_from=None, date_to=None)
+
+    assert [r["network"] for r in car1_only] == ["Osprey"]
+    assert {r["network"] for r in both} == {"Osprey", "Tesla"}
