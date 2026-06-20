@@ -91,14 +91,20 @@ async def window_totals(
 async def _miles_driven_km(
     session: AsyncSession, *, user_id: int,
     lo: Optional[dt.date], hi: Optional[dt.date],
+    car_id: Optional[int] = None,
 ) -> Optional[float]:
-    """Distance driven (km) in [lo, hi], summed across cars, from odometer
-    deltas: max(odo <= hi) - max(odo <= lo-1day). Lifetime (lo is None) =
-    max - min. Returns None when no car has a computable (bounded) delta."""
+    """Distance driven (km) in [lo, hi], summed across cars (or a single car
+    when car_id is supplied), from odometer deltas:
+    max(odo <= hi) - max(odo <= lo-1day). Lifetime (lo is None) = max - min.
+    Returns None when no car has a computable (bounded) delta."""
+    car_id_filter = (
+        [ChargingSession.car_id == car_id] if car_id is not None else []
+    )
     car_ids = (
         await session.execute(
             select(ChargingSession.car_id)
-            .where(*_base_filter(user_id), ChargingSession.odometer_at_session_km.isnot(None))
+            .where(*_base_filter(user_id), ChargingSession.odometer_at_session_km.isnot(None),
+                   *car_id_filter)
             .distinct()
         )
     ).scalars().all()
@@ -230,7 +236,7 @@ async def efficiency_over_time(
     out: list[dict] = []
     for b in over:
         lo, hi = _period_bounds(b["period"], granularity)
-        driven_km = await _miles_driven_km(session, user_id=user_id, lo=lo, hi=hi)
+        driven_km = await _miles_driven_km(session, user_id=user_id, lo=lo, hi=hi, car_id=car_id)
         observed = cost_per_mile = None
         if driven_km is not None and driven_km > 0 and b["kwh"] > 0:
             miles = driven_km / KM_PER_MILE

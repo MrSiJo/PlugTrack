@@ -267,3 +267,51 @@ async def test_network_breakdown_car_id_filter(test_sessionmaker, seeded_user_ca
 
     assert [r["network"] for r in car1_only] == ["Osprey"]
     assert {r["network"] for r in both} == {"Osprey", "Tesla"}
+
+
+@pytest.mark.asyncio
+async def test_efficiency_over_time_car_id_filter(test_sessionmaker, seeded_user_car):
+    """efficiency_over_time(car_id=car1) must use ONLY car1's odometer mileage,
+    not a blended figure across both cars.
+
+    Setup:
+      car1: odo 1000 → 1160.9344 km  (+100 mi), 25 kWh → 4.0 mi/kWh
+      car2: odo 5000 → 5482.8032 km  (+300 mi), 60 kWh  (blended would dilute car1)
+
+    Without the fix, _miles_driven_km sums both cars' deltas (400 mi total)
+    and the ratio is 400/25 = 16 mi/kWh — clearly wrong for car1 alone.
+    With the fix the ratio is 100/25 = 4.0 mi/kWh.
+    """
+    uid, car1 = seeded_user_car
+    car2 = await _seed_second_car(test_sessionmaker, uid)
+
+    KM_PER_MILE = 1.609344
+
+    # car1: anchor reading before window, then reading inside window (+100 mi)
+    await _mk(test_sessionmaker, user_id=uid, car_id=car1,
+              when=dt.date(2026, 5, 30), kwh=1.0, cost_pence=10,
+              odometer_km=1000.0)
+    await _mk(test_sessionmaker, user_id=uid, car_id=car1,
+              when=dt.date(2026, 6, 2), kwh=25.0, cost_pence=500,
+              odometer_km=1000.0 + 100 * KM_PER_MILE)
+
+    # car2: anchor + reading inside same window (+300 mi) — should be invisible
+    await _mk(test_sessionmaker, user_id=uid, car_id=car2,
+              when=dt.date(2026, 5, 30), kwh=1.0, cost_pence=10,
+              odometer_km=5000.0)
+    await _mk(test_sessionmaker, user_id=uid, car_id=car2,
+              when=dt.date(2026, 6, 2), kwh=60.0, cost_pence=1200,
+              odometer_km=5000.0 + 300 * KM_PER_MILE)
+
+    async with test_sessionmaker() as s:
+        out = await ins.efficiency_over_time(
+            s, user_id=uid,
+            date_from=dt.date(2026, 6, 1), date_to=dt.date(2026, 6, 30),
+            granularity="daily", car_id=car1)
+
+    pt = next(p for p in out if p["period"] == "2026-06-02")
+    # car1 only: 100 mi / 25 kWh = 4.0 mi/kWh
+    assert pt["observed_mi_per_kwh"] == pytest.approx(4.0, abs=0.01), (
+        f"Expected 4.0 mi/kWh (car1 only) but got {pt['observed_mi_per_kwh']!r}; "
+        "mileage side is likely not filtered by car_id"
+    )
