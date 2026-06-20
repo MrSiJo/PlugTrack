@@ -337,6 +337,16 @@ def _kb() -> dict[str, Any]:
     }
 
 
+def _carpick_kb(active_cars: list[Any]) -> dict[str, Any]:
+    """Build an inline keyboard with one button per active car for car selection."""
+    return {
+        "inline_keyboard": [
+            [{"text": car.display_name, "callback_data": f"carpick:{car.id}"}]
+            for car in active_cars
+        ]
+    }
+
+
 # Map the raw cost_basis token to a human label for the confirm card. An
 # unknown/missing basis just drops the parenthetical (we don't print the token).
 _BASIS_LABELS = {
@@ -474,14 +484,17 @@ async def _send_or_edit_card(ctx: IngestContext, *, chat_id: int, text: str) -> 
 
 
 async def _stage_and_card(
-    ctx: IngestContext, *, user_id, chat_id, extraction, usage,
-    telegram_file_id, message_id, sha,
+    ctx: IngestContext, *, user_id, car_id: Optional[int] = None, chat_id, extraction, usage,
+    telegram_file_id, message_id, sha, send_card: bool = True,
 ) -> None:
     """Single dedupe authority. By (user_id, sha) — which is UNIQUE:
       - committed  -> warn, don't touch the saved row (commit guard also blocks dupes).
       - staged     -> already in the current batch; re-show the card, no duplicate row.
       - discarded  -> re-stage by REUSING the row (can't insert a 2nd same-sha row).
       - none       -> insert a fresh staged row.
+
+    When ``send_card=False`` the screenshot is staged but the confirm card is
+    not sent — used when the car has not been chosen yet (carpick flow).
     """
     prefix = ""
     unit = "mi"
@@ -527,7 +540,8 @@ async def _stage_and_card(
         merged, unplaceable = correlate_batch([parse_extraction(r.extracted) for r in staged])
         # Preview what Save will produce (kWh + home/location-rate cost) so the
         # card shows real figures, not "£?". Best-effort — never block the card.
-        _uid, car_id = ctx.resolve_target()
+        if car_id is None:
+            _uid, car_id = ctx.resolve_target()
         unit = await _distance_unit_for(s)
         from datetime import date as _date
         projected: list[dict] = []
@@ -549,6 +563,8 @@ async def _stage_and_card(
                 projected.append(entry)
             except Exception:  # noqa: BLE001
                 projected.append({})
+    if not send_card:
+        return
     text = prefix + _summarise(merged, projected=projected, unit=unit)
     if unplaceable:
         text += (
@@ -713,8 +729,44 @@ async def handle_photo(
             repl["odometer_unit"] = odo_unit
     if repl:
         extraction = dataclasses.replace(extraction, **repl)
+
+    # -------------------------------------------------------------------
+    # Car resolution: determine which car this charge belongs to.
+    # Stickiness: if pending_car_choice already set (from a prior carpick
+    # callback or auto-resolved earlier shot in this batch), use it directly
+    # without re-resolving.
+    # -------------------------------------------------------------------
+    resolved_car_id: Optional[int] = ctx.pending_car_choice.get(chat_id)
+    if resolved_car_id is None:
+        async with ctx.sessionmaker() as _res_session:
+            resolution = await resolve_car_for_message(
+                _res_session, user_id=user_id, caption=caption)
+        if resolution.kind == "none":
+            await ctx.telegram.send_message(
+                chat_id=chat_id,
+                text="No active car — add or restore one first.")
+            return
+        if resolution.kind == "prompt":
+            # Stage the screenshot so it isn't lost, then ask which car.
+            # send_card=False: no Save/Discard card yet; the carpick keyboard
+            # follows immediately, and the confirm card appears after the user picks.
+            await _stage_and_card(
+                ctx, user_id=user_id, chat_id=chat_id, extraction=extraction,
+                usage=result.usage, telegram_file_id=file_id, message_id=message_id, sha=sha,
+                send_card=False,
+            )
+            await ctx.telegram.send_message(
+                chat_id=chat_id,
+                text="Which car is this charge for?",
+                reply_markup=_carpick_kb(resolution.active_cars),
+            )
+            return
+        # kind == "auto" or "matched"
+        resolved_car_id = resolution.car_id
+        ctx.pending_car_choice[chat_id] = resolved_car_id
+
     await _stage_and_card(
-        ctx, user_id=user_id, chat_id=chat_id, extraction=extraction,
+        ctx, user_id=user_id, car_id=resolved_car_id, chat_id=chat_id, extraction=extraction,
         usage=result.usage, telegram_file_id=file_id, message_id=message_id, sha=sha,
     )
 
@@ -763,8 +815,64 @@ async def handle_callback(
         return
 
     # -----------------------------------------------------------------------
+    # Car-pick callback: user tapped a car button to resolve a multi-car prompt.
+    # -----------------------------------------------------------------------
+    if data.startswith("carpick:"):
+        chosen_car_id = int(data[len("carpick:"):])
+        ctx.pending_car_choice[chat_id] = chosen_car_id
+        await ctx.telegram.answer_callback(callback_id, "Car selected")
+        # Show the confirm card for the already-staged screenshot(s) targeting chosen car.
+        async with ctx.sessionmaker() as s:
+            staged = (
+                await s.execute(
+                    select(ScreenshotImport).where(
+                        ScreenshotImport.user_id == user_id,
+                        ScreenshotImport.status == "staged",
+                    )
+                )
+            ).scalars().all()
+            merged, unplaceable = correlate_batch(
+                [parse_extraction(r.extracted) for r in staged])
+            from datetime import date as _date
+            unit = await _distance_unit_for(s)
+            projected: list[dict] = []
+            for m in merged:
+                try:
+                    cs = await preview_merged_session(
+                        s, user_id=user_id, car_id=chosen_car_id, merged=m)
+                    entry: dict[str, Any] = {
+                        "kwh_added": cs.kwh_added,
+                        "cost_pence": cs.cost_pence,
+                        "cost_basis": cs.cost_basis,
+                    }
+                    if cs.odometer_at_session_km is not None:
+                        existing_max = await _max_odo_at_or_before(
+                            s, user_id=user_id, car_id=chosen_car_id,
+                            on_or_before=_date.today())
+                        entry["odometer_km"] = cs.odometer_at_session_km
+                        if existing_max is not None and cs.odometer_at_session_km < existing_max:
+                            entry["odometer_regressed"] = True
+                            entry["existing_max_km"] = existing_max
+                    projected.append(entry)
+                except Exception:  # noqa: BLE001
+                    projected.append({})
+        text = _summarise(merged, projected=projected, unit=unit)
+        if unplaceable:
+            text += (
+                f"\n⚠️ {len(unplaceable)} reading(s) have no date — send the app "
+                "screenshot (MyCupra/network) for that charge, or include a date, "
+                "so I can place them."
+            )
+        await _send_or_edit_card(ctx, chat_id=chat_id, text=text)
+        return
+
+    # -----------------------------------------------------------------------
     # Existing Save / Discard (screenshot batch) paths — UNCHANGED
     # -----------------------------------------------------------------------
+    # Resolve car_id: prefer pending_car_choice (set by resolve_car_for_message
+    # or carpick callback); fall back to the static config car_id.
+    car_id = ctx.pending_car_choice.get(chat_id, car_id)
+
     async with ctx.sessionmaker() as s:
         staged = (
             await s.execute(
@@ -779,6 +887,7 @@ async def handle_callback(
                 r.status = "discarded"
             await s.commit()
             ctx.card_ids.pop(chat_id, None)  # batch closed -> next charge gets a fresh card
+            ctx.pending_car_choice.pop(chat_id, None)
             await ctx.telegram.answer_callback(callback_id, "Discarded")
             await ctx.telegram.send_message(chat_id=chat_id, text="Discarded staged screenshots.")
             return
@@ -802,6 +911,7 @@ async def handle_callback(
             row.status = "committed"
         await s.commit()
         ctx.card_ids.pop(chat_id, None)  # batch saved -> next charge gets a fresh card
+        ctx.pending_car_choice.pop(chat_id, None)
         # Reset rolling history on a new charge save (fresh conversation context)
         ctx.rolling_context.pop(chat_id, None)
 

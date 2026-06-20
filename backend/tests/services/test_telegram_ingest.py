@@ -508,3 +508,191 @@ async def test_save_reply_includes_committed_cost(test_sessionmaker, seeded_user
     reply = tg.sent[-1]["text"]
     assert "Saved 1 session(s)." in reply
     assert "£" in reply
+
+
+# ---------------------------------------------------------------------------
+# Task 6: multi-car carpick flow
+# ---------------------------------------------------------------------------
+
+async def _seed_two_cars(test_sessionmaker):
+    """Insert a User + two active Cars; return (user_id, car_id_1, car_id_2)."""
+    from plugtrack.models import Car, User
+    async with test_sessionmaker() as s:
+        user = User(username="bob", password_hash="x")
+        s.add(user)
+        await s.commit()
+        await s.refresh(user)
+        car1 = Car(user_id=user.id, make="Cupra", model="Born",
+                   battery_kwh=58.0, nominal_efficiency_mi_per_kwh=4.2,
+                   provider="manual", active=True, name="Born")
+        car2 = Car(user_id=user.id, make="Tesla", model="Model 3",
+                   battery_kwh=75.0, nominal_efficiency_mi_per_kwh=4.5,
+                   provider="manual", active=True, name="Model3")
+        s.add_all([car1, car2])
+        await s.commit()
+        await s.refresh(car1)
+        await s.refresh(car2)
+        return user.id, car1.id, car2.id
+
+
+@pytest.mark.asyncio
+async def test_two_active_cars_no_caption_sends_carpick_keyboard(test_sessionmaker):
+    """Two active cars + no caption → carpick keyboard listing both cars, no commit yet."""
+    from sqlalchemy import select
+    from plugtrack.models import ChargingSession
+
+    user_id, car_id_1, car_id_2 = await _seed_two_cars(test_sessionmaker)
+    tg = FakeTelegram({"x": b"x"})
+    ctx = _stub_ctx(tg, test_sessionmaker, car_id_1, user_id, _ex_photo())
+
+    await handle_photo(ctx, from_id=111, chat_id=9, message_id=1, file_id="x", caption=None)
+
+    # Should have sent exactly one message (the carpick keyboard), not a Save/Discard card
+    assert len(tg.sent) == 1
+    msg = tg.sent[0]
+    assert msg["reply_markup"] is not None
+    kb = msg["reply_markup"]["inline_keyboard"]
+    # One button per car, each with carpick: prefix
+    cb_datas = [btn["callback_data"] for row in kb for btn in row]
+    assert f"carpick:{car_id_1}" in cb_datas
+    assert f"carpick:{car_id_2}" in cb_datas
+    # No session committed yet
+    async with test_sessionmaker() as s:
+        rows = (await s.execute(select(ChargingSession))).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_carpick_callback_then_save_commits_with_chosen_car(test_sessionmaker):
+    """Tapping carpick:{id} shows Save/Discard card; Save commits with that car_id."""
+    from sqlalchemy import select
+    from plugtrack.models import ChargingSession
+
+    user_id, car_id_1, car_id_2 = await _seed_two_cars(test_sessionmaker)
+    tg = FakeTelegram({"x": b"x"})
+    ctx = _stub_ctx(tg, test_sessionmaker, car_id_1, user_id, _ex_photo())
+
+    # Send photo → carpick keyboard
+    await handle_photo(ctx, from_id=111, chat_id=9, message_id=1, file_id="x", caption=None)
+
+    # User taps car2
+    await handle_callback(ctx, from_id=111, callback_id="cb_pick", data=f"carpick:{car_id_2}",
+                          chat_id=9)
+
+    # Should now show Save/Discard card
+    save_card = tg.sent[-1]
+    assert save_card["reply_markup"] is not None
+    # The Save/Discard keyboard has "save" and "discard" callback_datas
+    all_cb = [btn["callback_data"]
+              for row in save_card["reply_markup"]["inline_keyboard"]
+              for btn in row]
+    assert "save" in all_cb
+    assert "discard" in all_cb
+
+    # Tap Save
+    await handle_callback(ctx, from_id=111, callback_id="cb_save", data="save", chat_id=9)
+
+    async with test_sessionmaker() as s:
+        rows = (await s.execute(select(ChargingSession))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].car_id == car_id_2  # committed with the CHOSEN car
+
+
+@pytest.mark.asyncio
+async def test_second_photo_reuses_pending_car_choice(test_sessionmaker):
+    """A second photo before Save should reuse pending_car_choice, not re-prompt."""
+    user_id, car_id_1, car_id_2 = await _seed_two_cars(test_sessionmaker)
+    tg = FakeTelegram({"x": b"x", "y": b"y"})
+    ctx = _stub_ctx(tg, test_sessionmaker, car_id_1, user_id, _ex_photo())
+
+    # First photo → carpick
+    await handle_photo(ctx, from_id=111, chat_id=9, message_id=1, file_id="x", caption=None)
+    assert ctx.pending_car_choice.get(9) is None  # not yet set (prompt was sent)
+
+    # User picks car2
+    await handle_callback(ctx, from_id=111, callback_id="cb_pick", data=f"carpick:{car_id_2}",
+                          chat_id=9)
+    assert ctx.pending_car_choice.get(9) == car_id_2
+
+    carpick_msg_count = len(tg.sent)
+
+    # Second photo (different sha) — should NOT re-prompt
+    ctx2 = _stub_ctx(tg, test_sessionmaker, car_id_1, user_id,
+                     _ex_photo(start_at="2026-06-17T18:00:00"))
+    ctx2.pending_car_choice[9] = car_id_2  # carry forward the chosen car
+    await handle_photo(ctx2, from_id=111, chat_id=9, message_id=2, file_id="y", caption=None)
+
+    # No new carpick keyboard should have been sent (message count grew only by the confirm card)
+    new_msgs = tg.sent[carpick_msg_count:]
+    carpick_msgs = [m for m in new_msgs
+                    if m.get("reply_markup") and any(
+                        btn["callback_data"].startswith("carpick:")
+                        for row in m["reply_markup"]["inline_keyboard"]
+                        for btn in row
+                    )]
+    assert carpick_msgs == []
+
+
+@pytest.mark.asyncio
+async def test_save_clears_pending_car_choice(test_sessionmaker):
+    """Save must clear pending_car_choice."""
+    user_id, car_id_1, car_id_2 = await _seed_two_cars(test_sessionmaker)
+    tg = FakeTelegram({"x": b"x"})
+    ctx = _stub_ctx(tg, test_sessionmaker, car_id_1, user_id, _ex_photo())
+
+    await handle_photo(ctx, from_id=111, chat_id=9, message_id=1, file_id="x", caption=None)
+    await handle_callback(ctx, from_id=111, callback_id="cb_pick", data=f"carpick:{car_id_2}",
+                          chat_id=9)
+    assert ctx.pending_car_choice.get(9) == car_id_2
+
+    await handle_callback(ctx, from_id=111, callback_id="cb_save", data="save", chat_id=9)
+    assert ctx.pending_car_choice.get(9) is None
+
+
+@pytest.mark.asyncio
+async def test_discard_clears_pending_car_choice(test_sessionmaker):
+    """Discard must clear pending_car_choice."""
+    user_id, car_id_1, car_id_2 = await _seed_two_cars(test_sessionmaker)
+    tg = FakeTelegram({"x": b"x"})
+    ctx = _stub_ctx(tg, test_sessionmaker, car_id_1, user_id, _ex_photo())
+
+    await handle_photo(ctx, from_id=111, chat_id=9, message_id=1, file_id="x", caption=None)
+    await handle_callback(ctx, from_id=111, callback_id="cb_pick", data=f"carpick:{car_id_2}",
+                          chat_id=9)
+    assert ctx.pending_car_choice.get(9) == car_id_2
+
+    await handle_callback(ctx, from_id=111, callback_id="cb_discard", data="discard", chat_id=9)
+    assert ctx.pending_car_choice.get(9) is None
+
+
+@pytest.mark.asyncio
+async def test_zero_active_cars_sends_friendly_message(test_sessionmaker):
+    """Zero active cars → friendly message, nothing staged."""
+    from sqlalchemy import select
+    from plugtrack.models import Car, User, ScreenshotImport
+
+    # Create a user with NO active car
+    async with test_sessionmaker() as s:
+        user = User(username="carol", password_hash="x")
+        s.add(user)
+        await s.commit()
+        await s.refresh(user)
+        car = Car(user_id=user.id, make="Cupra", model="Born",
+                  battery_kwh=58.0, nominal_efficiency_mi_per_kwh=4.2,
+                  provider="manual", active=False)  # INACTIVE
+        s.add(car)
+        await s.commit()
+        await s.refresh(car)
+        uid, cid = user.id, car.id
+
+    tg = FakeTelegram({"x": b"x"})
+    ctx = _stub_ctx(tg, test_sessionmaker, cid, uid, _ex_photo())
+
+    await handle_photo(ctx, from_id=111, chat_id=9, message_id=1, file_id="x", caption=None)
+
+    assert len(tg.sent) == 1
+    assert "active car" in tg.sent[0]["text"].lower() or "no active" in tg.sent[0]["text"].lower()
+    # Nothing staged
+    async with test_sessionmaker() as s:
+        rows = (await s.execute(select(ScreenshotImport))).scalars().all()
+    assert rows == []
