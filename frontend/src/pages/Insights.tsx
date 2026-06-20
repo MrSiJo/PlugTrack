@@ -7,7 +7,7 @@
  * rows link to /locations/:id; the "Unassigned" row is non-clickable.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import {
   Bar,
@@ -27,6 +27,7 @@ import {
   type InsightsLocationRow,
   type InsightsOverviewResponse,
 } from '@/api/client'
+import CarPicker from '@/components/cars/CarPicker'
 import { OverTimeChart } from '@/components/insights/OverTimeChart'
 import { HomePublicSplit } from '@/components/insights/HomePublicSplit'
 import { NetworkBreakdown } from '@/components/insights/NetworkBreakdown'
@@ -82,6 +83,7 @@ function rowLabel(row: InsightsLocationRow): string {
 
 export default function Insights() {
   const currency = useSetting<string>('currency') ?? 'GBP'
+  const [searchParams] = useSearchParams()
   const [data, setData] = useState<InsightsByLocationResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -92,7 +94,10 @@ export default function Insights() {
   const [dir, setDir] = useState<SortDir>('desc')
   const [overview, setOverview] = useState<InsightsOverviewResponse | null>(null)
   const [cars, setCars] = useState<CarPayload[]>([])
-  const [selectedCarId, setSelectedCarId] = useState<number | null>(null)
+  const [selectedCarId, setSelectedCarId] = useState<number | null>(() => {
+    const carParam = searchParams.get('car')
+    return carParam ? Number(carParam) : null
+  })
 
   const isCustom = range === 'custom'
   const invalidCustom = isCustom && customFrom > customTo
@@ -105,8 +110,8 @@ export default function Insights() {
         setLoading(true)
         const { from, to } = rangeBounds(range, customFrom, customTo)
         const [byLocation, ov] = await Promise.all([
-          api.getInsightsByLocation(from, to),
-          api.getInsightsOverview(from, to),
+          api.getInsightsByLocation(from, to, selectedCarId ?? undefined),
+          api.getInsightsOverview(from, to, selectedCarId ?? undefined),
         ])
         if (!cancelled) {
           setData(byLocation)
@@ -124,7 +129,7 @@ export default function Insights() {
     return () => {
       cancelled = true
     }
-  }, [range, customFrom, customTo, invalidCustom])
+  }, [range, customFrom, customTo, invalidCustom, selectedCarId])
 
   useEffect(() => {
     let cancelled = false
@@ -132,9 +137,7 @@ export default function Insights() {
       try {
         const list = await api.getCars()
         if (cancelled) return
-        const active = list.filter((c) => c.active)
-        setCars(active)
-        setSelectedCarId((prev) => prev ?? active[0]?.id ?? null)
+        setCars(list)
       } catch {
         /* mileage module simply won't render without cars */
       }
@@ -143,6 +146,9 @@ export default function Insights() {
       cancelled = true
     }
   }, [])
+
+  // For mileage module: if no car selected, default to first active car
+  const mileageCarId = selectedCarId ?? cars.find((c) => c.active)?.id ?? null
 
   function handleSort(field: SortField) {
     if (field === sort) {
@@ -202,6 +208,16 @@ export default function Insights() {
         subtitle="Where your charging spend goes. Click a location to drill in."
         actions={
           <div className="flex flex-wrap items-center gap-2" data-testid="insights-range">
+            {cars.length > 0 && (
+              <CarPicker
+                value={selectedCarId}
+                onChange={setSelectedCarId}
+                cars={cars}
+                includeArchived
+                allowAll
+                data-testid="insights-car-picker"
+              />
+            )}
             {(Object.keys(RANGE_LABEL) as RangeKey[]).map((r) => (
               <button
                 key={r}
@@ -430,22 +446,8 @@ export default function Insights() {
         <Card className="mb-6">
           <div className="mb-3 flex items-center justify-between">
             <h2 className={cn(MODULE_EYEBROW, 'mb-0')}>Mileage allowance</h2>
-            {cars.length > 1 && (
-              <select
-                aria-label="Select car"
-                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-900"
-                value={selectedCarId ?? ''}
-                onChange={(e) => setSelectedCarId(Number(e.target.value))}
-              >
-                {cars.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.make} {c.model}
-                  </option>
-                ))}
-              </select>
-            )}
           </div>
-          {selectedCarId != null && <MileageAllowance carId={selectedCarId} />}
+          {mileageCarId != null && <MileageAllowance carId={mileageCarId} />}
         </Card>
       )}
     </div>

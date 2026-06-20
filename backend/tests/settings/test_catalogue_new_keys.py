@@ -1,4 +1,4 @@
-"""The new standalone/ingestion settings must exist in the catalogue and seed."""
+"""The standalone/ingestion settings must exist in the catalogue and seed."""
 import pytest
 
 from plugtrack.settings.catalogue import CATALOGUE
@@ -8,7 +8,6 @@ NEW_KEYS = {
     "telegram_bot_enabled": ("bool", False),
     "telegram_bot_token": ("string", True),
     "telegram_allowed_user_ids": ("string", False),
-    "telegram_default_car_id": ("int", False),
     "openai_api_key": ("string", True),
     "openai_model": ("string", False),
 }
@@ -20,6 +19,14 @@ def test_new_keys_present_with_expected_flags():
         assert key in by_key, f"{key} missing from catalogue"
         assert by_key[key].value_type == vtype, key
         assert by_key[key].is_secret is is_secret, key
+
+
+def test_telegram_default_car_id_removed():
+    """telegram_default_car_id must no longer exist in the catalogue."""
+    by_key = {e.key: e for e in CATALOGUE}
+    assert "telegram_default_car_id" not in by_key, (
+        "telegram_default_car_id was removed (dynamic car resolution replaces it)"
+    )
 
 
 def test_ingestion_defaults():

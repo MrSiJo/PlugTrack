@@ -5,6 +5,7 @@
  * and mileage-setup live in Admin → CarsManagement.
  */
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ApiError, api, type CarPayload } from '@/api/client'
 import { CarImage } from '@/components/cars/CarImage'
 import { CarMileageSection } from '@/components/cars/CarMileageSection'
@@ -56,7 +57,9 @@ export default function CarsPage() {
         <ul className="grid gap-4 md:grid-cols-2">
           {cars.map((car) => (
             <li key={car.id}>
-              <CarCard car={car} />
+              <Link to={`/cars/${car.id}`} className="block">
+                <CarCard car={car} />
+              </Link>
             </li>
           ))}
         </ul>

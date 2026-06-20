@@ -41,11 +41,12 @@ async def get_by_location(
     request: Request,
     date_from: Optional[date_cls] = Query(default=None),
     date_to: Optional[date_cls] = Query(default=None),
+    car_id: Optional[int] = Query(default=None),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     user_id = _user_id(request)
     result = await aggregate_by_location(
-        session, user_id=user_id, date_from=date_from, date_to=date_to
+        session, user_id=user_id, date_from=date_from, date_to=date_to, car_id=car_id
     )
     return JSONResponse(
         content={
@@ -92,6 +93,7 @@ async def get_overview(
     request: Request,
     date_from: Optional[date_cls] = Query(default=None),
     date_to: Optional[date_cls] = Query(default=None),
+    car_id: Optional[int] = Query(default=None),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     user_id = _user_id(request)
@@ -99,13 +101,15 @@ async def get_overview(
     granularity = resolve_granularity(lo, hi) if lo is not None and hi is not None else "daily"
 
     over_time = await spend_energy_over_time(
-        session, user_id=user_id, date_from=date_from, date_to=date_to, granularity=granularity)
+        session, user_id=user_id, date_from=date_from, date_to=date_to, granularity=granularity,
+        car_id=car_id)
     split = await home_public_split(
-        session, user_id=user_id, date_from=date_from, date_to=date_to)
+        session, user_id=user_id, date_from=date_from, date_to=date_to, car_id=car_id)
     by_network = await network_breakdown(
-        session, user_id=user_id, date_from=date_from, date_to=date_to)
+        session, user_id=user_id, date_from=date_from, date_to=date_to, car_id=car_id)
     efficiency = await efficiency_over_time(
-        session, user_id=user_id, date_from=date_from, date_to=date_to, granularity=granularity)
+        session, user_id=user_id, date_from=date_from, date_to=date_to, granularity=granularity,
+        car_id=car_id)
 
     return JSONResponse(content={
         "granularity": granularity,

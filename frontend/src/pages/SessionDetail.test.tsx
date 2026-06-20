@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import SessionDetail from './SessionDetail'
 import {
@@ -8,6 +9,11 @@ import {
   type SessionMetricsPayload,
 } from '@/api/client'
 import { useSettingsStore } from '@/stores/settingsStore'
+
+/** Default empty cars list — prevents getCars from being unmocked. */
+function mockNoCars() {
+  vi.spyOn(api, 'getCars').mockResolvedValue([])
+}
 
 function makeSession(
   over: Partial<ChargingSessionPayload> = {},
@@ -69,6 +75,7 @@ describe('SessionDetail — hero charge time', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     useSettingsStore.setState({ settings: {}, loaded: true })
+    mockNoCars()
   })
 
   it('shows actual charge time (not the plug-in window) labelled "Charge time"', async () => {
@@ -121,6 +128,7 @@ describe('SessionDetail — charge details', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     useSettingsStore.setState({ settings: {}, loaded: true })
+    mockNoCars()
   })
 
   it('renders a single Charge details section merging mechanics + context', async () => {
@@ -316,6 +324,7 @@ describe('SessionDetail — charge curve approximation', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     useSettingsStore.setState({ settings: {}, loaded: true })
+    mockNoCars()
   })
 
   const curve = [
@@ -366,6 +375,7 @@ describe('SessionDetail — petrol comparison basis', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     useSettingsStore.setState({ settings: {}, loaded: true })
+    mockNoCars()
   })
 
   it('shows the Estimated pill and a tilde on savings when basis is estimated', async () => {
@@ -469,6 +479,7 @@ describe('SessionDetail — petrol comparison compact card', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     useSettingsStore.setState({ settings: {}, loaded: true })
+    mockNoCars()
   })
 
   it('renders one compact line with savings, EV vs petrol /mi and equivalent', async () => {
@@ -534,6 +545,7 @@ describe('SessionDetail — source rendering', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     useSettingsStore.setState({ settings: {}, loaded: true })
+    mockNoCars()
   })
 
   it('does not render any unconfirmed review panel for a normal session', async () => {
@@ -556,6 +568,7 @@ describe('SessionDetail — assign location via edit form', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     useSettingsStore.setState({ settings: {}, loaded: true })
+    mockNoCars()
   })
 
   it('lets you assign a location to an unassigned session', async () => {
@@ -601,5 +614,166 @@ describe('SessionDetail — assign location via edit form', () => {
 
     expect(updateSpy).toHaveBeenCalledTimes(1)
     expect(updateSpy.mock.calls[0]![1]).toMatchObject({ location_id: 9 })
+  })
+})
+
+describe('SessionDetail — car reassignment picker', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    useSettingsStore.setState({ settings: {}, loaded: true })
+    mockNoCars()
+  })
+
+  it('renders a car-picker in the header/hero area showing the current car', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({ car_id: 7 }),
+    )
+    vi.spyOn(api, 'getCars').mockResolvedValue([
+      {
+        id: 7,
+        make: 'Cupra',
+        model: 'Born',
+        name: null,
+        display_name: 'Cupra Born',
+        vin: null,
+        battery_kwh: 59,
+        nominal_efficiency_mi_per_kwh: 3.5,
+        provider: 'cupra',
+        provider_vehicle_id: null,
+        active: true,
+      },
+      {
+        id: 8,
+        make: 'Tesla',
+        model: 'Model 3',
+        name: null,
+        display_name: 'Tesla Model 3',
+        vin: null,
+        battery_kwh: 75,
+        nominal_efficiency_mi_per_kwh: 4.0,
+        provider: 'manual',
+        provider_vehicle_id: null,
+        active: true,
+      },
+    ])
+    vi.spyOn(api, 'updateSession').mockResolvedValue(makeSession({ car_id: 8 }))
+
+    renderDetail()
+
+    // Car picker should be visible showing the current car
+    await waitFor(() => {
+      expect(screen.getByTestId('car-reassign-picker')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('car-reassign-picker')).toHaveTextContent('Cupra Born')
+  })
+
+  it('selecting a different car calls updateSession with the new car_id', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({ car_id: 7 }),
+    )
+    vi.spyOn(api, 'getCars').mockResolvedValue([
+      {
+        id: 7,
+        make: 'Cupra',
+        model: 'Born',
+        name: null,
+        display_name: 'Cupra Born',
+        vin: null,
+        battery_kwh: 59,
+        nominal_efficiency_mi_per_kwh: 3.5,
+        provider: 'cupra',
+        provider_vehicle_id: null,
+        active: true,
+      },
+      {
+        id: 8,
+        make: 'Tesla',
+        model: 'Model 3',
+        name: null,
+        display_name: 'Tesla Model 3',
+        vin: null,
+        battery_kwh: 75,
+        nominal_efficiency_mi_per_kwh: 4.0,
+        provider: 'manual',
+        provider_vehicle_id: null,
+        active: true,
+      },
+    ])
+    const updateSpy = vi
+      .spyOn(api, 'updateSession')
+      .mockResolvedValue(makeSession({ car_id: 8 }))
+    vi.spyOn(api, 'getSession')
+      .mockResolvedValueOnce(makeSession({ car_id: 7 }))
+      .mockResolvedValueOnce(makeSession({ car_id: 8 }))
+
+    const user = userEvent.setup()
+    renderDetail()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('car-reassign-picker')).toBeInTheDocument()
+    })
+
+    // Open the picker and select a different car
+    await user.click(screen.getByTestId('car-reassign-picker'))
+    const option = await screen.findByRole('option', { name: 'Tesla Model 3' })
+    await user.click(option)
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(1, expect.objectContaining({ car_id: 8 }))
+    })
+  })
+
+  it('shows an error alert when updateSession rejects during car reassign', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({ car_id: 7 }),
+    )
+    vi.spyOn(api, 'getCars').mockResolvedValue([
+      {
+        id: 7,
+        make: 'Cupra',
+        model: 'Born',
+        name: null,
+        display_name: 'Cupra Born',
+        vin: null,
+        battery_kwh: 59,
+        nominal_efficiency_mi_per_kwh: 3.5,
+        provider: 'cupra',
+        provider_vehicle_id: null,
+        active: true,
+      },
+      {
+        id: 8,
+        make: 'Tesla',
+        model: 'Model 3',
+        name: null,
+        display_name: 'Tesla Model 3',
+        vin: null,
+        battery_kwh: 75,
+        nominal_efficiency_mi_per_kwh: 4.0,
+        provider: 'manual',
+        provider_vehicle_id: null,
+        active: true,
+      },
+    ])
+    vi.spyOn(api, 'updateSession').mockRejectedValue(new Error('Server error'))
+
+    const user = userEvent.setup()
+    renderDetail()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('car-reassign-picker')).toBeInTheDocument()
+    })
+
+    // Open the picker and select a different car
+    await user.click(screen.getByTestId('car-reassign-picker'))
+    const option = await screen.findByRole('option', { name: 'Tesla Model 3' })
+    await user.click(option)
+
+    // Failure message should appear
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        "Couldn't reassign car — please try again.",
+      )
+    })
   })
 })

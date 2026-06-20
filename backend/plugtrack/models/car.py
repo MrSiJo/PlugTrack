@@ -38,6 +38,7 @@ class Car(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False)
     make: Mapped[str] = mapped_column(String(64), nullable=False)
     model: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     # VIN ciphertext; never queried by value. The `vin` property below
     # is the only public access path.
@@ -84,6 +85,10 @@ class Car(Base):
             self.vin_encrypted = None
         else:
             self.vin_encrypted = encrypt_secret(value, get_settings().app_secret_key)
+
+    @property
+    def display_name(self) -> str:
+        return self.name or f"{self.make} {self.model}"
 
     def __repr__(self) -> str:
         return f"<Car id={self.id} {self.make} {self.model}>"

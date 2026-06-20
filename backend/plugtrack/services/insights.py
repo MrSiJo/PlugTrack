@@ -43,6 +43,7 @@ async def aggregate_by_location(
     user_id: int,
     date_from: Optional[date_cls],
     date_to: Optional[date_cls],
+    car_id: Optional[int] = None,
 ) -> InsightsByLocation:
     """Aggregate spend/kWh/sessions per location for one user in a window.
 
@@ -52,6 +53,7 @@ async def aggregate_by_location(
     - Untagged sessions (location_id NULL) roll into an "Unassigned" row,
       included only when it has sessions.
     - Labelled locations with zero in-window sessions are still listed (zeros).
+    - Optional car_id restricts aggregation to a single vehicle.
     """
     costed = ChargingSession.cost_pence.isnot(None)
     agg_stmt = (
@@ -71,6 +73,8 @@ async def aggregate_by_location(
         .where(ChargingSession.user_id == user_id)
         .group_by(ChargingSession.location_id)
     )
+    if car_id is not None:
+        agg_stmt = agg_stmt.where(ChargingSession.car_id == car_id)
     if date_from is not None:
         agg_stmt = agg_stmt.where(ChargingSession.date >= date_from)
     if date_to is not None:

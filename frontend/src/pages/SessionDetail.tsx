@@ -17,12 +17,14 @@ import { Info } from 'lucide-react'
 import {
   ApiError,
   api,
+  type CarPayload,
   type ChargingSessionPayload,
   type CostBasis,
   type LocationListPayload,
   type SessionMetricsPayload,
   type SessionUpdateRequest,
 } from '@/api/client'
+import CarPicker from '@/components/cars/CarPicker'
 import LocationLabelForm from '@/components/LocationLabelForm'
 import { LocationMiniMap } from '@/components/locations/LocationMiniMap'
 import { Card } from '@/components/ui/Card'
@@ -834,16 +836,22 @@ export default function SessionDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [labelToast, setLabelToast] = useState<string | null>(null)
+  const [reassignError, setReassignError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+  const [cars, setCars] = useState<CarPayload[]>([])
 
   useEffect(() => {
     if (sessionId === null) return
     let cancelled = false
     void (async () => {
       try {
-        const data = await api.getSession(sessionId)
+        const [data, carList] = await Promise.all([
+          api.getSession(sessionId),
+          api.getCars(),
+        ])
         if (!cancelled) {
           setSession(data)
+          setCars(carList)
           setLoading(false)
         }
       } catch (err) {
@@ -857,6 +865,19 @@ export default function SessionDetail() {
       cancelled = true
     }
   }, [sessionId])
+
+  async function handleCarReassign(carId: number | null) {
+    if (carId === null || session === null || sessionId === null) return
+    setReassignError(null)
+    try {
+      await api.updateSession(sessionId, { car_id: carId })
+      // Refetch to get fresh session data including recomputed metrics.
+      const fresh = await api.getSession(sessionId)
+      setSession(fresh)
+    } catch {
+      setReassignError("Couldn't reassign car — please try again.")
+    }
+  }
 
   if (loading) return <p className="p-6 text-sm text-slate-500">Loading…</p>
   if (error)
@@ -1011,6 +1032,20 @@ export default function SessionDetail() {
             </div>
           )}
           <div className="ml-auto flex items-center gap-2">
+            {cars.length > 0 && (
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+                  Car:
+                </span>
+                <CarPicker
+                  value={session.car_id}
+                  onChange={handleCarReassign}
+                  cars={cars}
+                  includeArchived
+                  data-testid="car-reassign-picker"
+                />
+              </div>
+            )}
             {session.charge_network && (
               <Pill data-testid="charge-network-badge">
                 {session.charge_network}
@@ -1041,6 +1076,12 @@ export default function SessionDetail() {
             </Tooltip>
           </div>
         </Card>
+
+        {reassignError && (
+          <p role="alert" className="mb-4 text-xs text-red-600 dark:text-red-400">
+            {reassignError}
+          </p>
+        )}
 
         {session.power_curve && session.power_curve.length > 0 && (
           <section className="mb-6">

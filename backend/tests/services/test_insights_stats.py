@@ -159,3 +159,159 @@ async def test_mileage_view_projection_and_pace(test_sessionmaker, seeded_user_c
     # projected = used/elapsed*total = 2000/100*365 = 7300 mi → under the 10000 target
     assert view["projected_year_end_km"] == pytest.approx((10000 + 7300) * 1.609344, abs=5.0)
     assert view["pace"] == "under"
+
+
+# ---------------------------------------------------------------------------
+# car_id filter tests (Task 11)
+# ---------------------------------------------------------------------------
+
+async def _seed_second_car(test_sessionmaker, user_id: int) -> int:
+    """Insert a second Car for the given user; return its id."""
+    from plugtrack.models import Car
+    async with test_sessionmaker() as s:
+        car = Car(
+            user_id=user_id,
+            make="Cupra",
+            model="Formentor",
+            battery_kwh=45.0,
+            nominal_efficiency_mi_per_kwh=3.8,
+            provider="manual",
+            active=True,
+        )
+        s.add(car)
+        await s.commit()
+        await s.refresh(car)
+        return car.id
+
+
+@pytest.mark.asyncio
+async def test_window_totals_car_id_filter(test_sessionmaker, seeded_user_car):
+    """window_totals with car_id=car1 returns only that car's sessions."""
+    uid, car1 = seeded_user_car
+    car2 = await _seed_second_car(test_sessionmaker, uid)
+
+    await _mk(test_sessionmaker, user_id=uid, car_id=car1, when=dt.date(2026, 6, 1), kwh=10.0, cost_pence=200)
+    await _mk(test_sessionmaker, user_id=uid, car_id=car2, when=dt.date(2026, 6, 2), kwh=20.0, cost_pence=500)
+
+    async with test_sessionmaker() as s:
+        car1_only = await ins.window_totals(s, user_id=uid, lo=None, hi=None, car_id=car1)
+        both = await ins.window_totals(s, user_id=uid, lo=None, hi=None)
+
+    assert car1_only["sessions"] == 1
+    assert car1_only["kwh"] == pytest.approx(10.0)
+    assert car1_only["spend_pence"] == 200
+
+    assert both["sessions"] == 2
+    assert both["kwh"] == pytest.approx(30.0)
+    assert both["spend_pence"] == 700
+
+
+@pytest.mark.asyncio
+async def test_spend_energy_over_time_car_id_filter(test_sessionmaker, seeded_user_car):
+    """spend_energy_over_time with car_id only counts that car."""
+    uid, car1 = seeded_user_car
+    car2 = await _seed_second_car(test_sessionmaker, uid)
+
+    await _mk(test_sessionmaker, user_id=uid, car_id=car1, when=dt.date(2026, 6, 1), kwh=10.0, cost_pence=200)
+    await _mk(test_sessionmaker, user_id=uid, car_id=car2, when=dt.date(2026, 6, 1), kwh=40.0, cost_pence=800)
+
+    async with test_sessionmaker() as s:
+        car1_only = await ins.spend_energy_over_time(
+            s, user_id=uid, date_from=None, date_to=None, granularity="daily", car_id=car1)
+        both = await ins.spend_energy_over_time(
+            s, user_id=uid, date_from=None, date_to=None, granularity="daily")
+
+    assert len(car1_only) == 1
+    assert car1_only[0]["kwh"] == pytest.approx(10.0)
+    assert car1_only[0]["sessions"] == 1
+
+    assert len(both) == 1
+    assert both[0]["kwh"] == pytest.approx(50.0)
+    assert both[0]["sessions"] == 2
+
+
+@pytest.mark.asyncio
+async def test_home_public_split_car_id_filter(test_sessionmaker, seeded_user_car):
+    """home_public_split with car_id excludes the other car's sessions."""
+    uid, car1 = seeded_user_car
+    car2 = await _seed_second_car(test_sessionmaker, uid)
+
+    await _mk(test_sessionmaker, user_id=uid, car_id=car1, when=dt.date(2026, 6, 1),
+              kwh=10.0, cost_pence=200, ctype="ac")
+    await _mk(test_sessionmaker, user_id=uid, car_id=car2, when=dt.date(2026, 6, 2),
+              kwh=30.0, cost_pence=900, ctype="ac")
+
+    async with test_sessionmaker() as s:
+        car1_only = await ins.home_public_split(s, user_id=uid, date_from=None, date_to=None, car_id=car1)
+        both = await ins.home_public_split(s, user_id=uid, date_from=None, date_to=None)
+
+    assert car1_only["home"]["sessions"] == 1
+    assert car1_only["home"]["kwh"] == pytest.approx(10.0)
+    assert both["home"]["sessions"] == 2
+
+
+@pytest.mark.asyncio
+async def test_network_breakdown_car_id_filter(test_sessionmaker, seeded_user_car):
+    """network_breakdown with car_id excludes the other car's sessions."""
+    uid, car1 = seeded_user_car
+    car2 = await _seed_second_car(test_sessionmaker, uid)
+
+    await _mk(test_sessionmaker, user_id=uid, car_id=car1, when=dt.date(2026, 6, 1),
+              kwh=10.0, cost_pence=200, ctype="dc", network="Osprey")
+    await _mk(test_sessionmaker, user_id=uid, car_id=car2, when=dt.date(2026, 6, 2),
+              kwh=20.0, cost_pence=400, ctype="dc", network="Tesla")
+
+    async with test_sessionmaker() as s:
+        car1_only = await ins.network_breakdown(s, user_id=uid, date_from=None, date_to=None, car_id=car1)
+        both = await ins.network_breakdown(s, user_id=uid, date_from=None, date_to=None)
+
+    assert [r["network"] for r in car1_only] == ["Osprey"]
+    assert {r["network"] for r in both} == {"Osprey", "Tesla"}
+
+
+@pytest.mark.asyncio
+async def test_efficiency_over_time_car_id_filter(test_sessionmaker, seeded_user_car):
+    """efficiency_over_time(car_id=car1) must use ONLY car1's odometer mileage,
+    not a blended figure across both cars.
+
+    Setup:
+      car1: odo 1000 → 1160.9344 km  (+100 mi), 25 kWh → 4.0 mi/kWh
+      car2: odo 5000 → 5482.8032 km  (+300 mi), 60 kWh  (blended would dilute car1)
+
+    Without the fix, _miles_driven_km sums both cars' deltas (400 mi total)
+    and the ratio is 400/25 = 16 mi/kWh — clearly wrong for car1 alone.
+    With the fix the ratio is 100/25 = 4.0 mi/kWh.
+    """
+    uid, car1 = seeded_user_car
+    car2 = await _seed_second_car(test_sessionmaker, uid)
+
+    KM_PER_MILE = 1.609344
+
+    # car1: anchor reading before window, then reading inside window (+100 mi)
+    await _mk(test_sessionmaker, user_id=uid, car_id=car1,
+              when=dt.date(2026, 5, 30), kwh=1.0, cost_pence=10,
+              odometer_km=1000.0)
+    await _mk(test_sessionmaker, user_id=uid, car_id=car1,
+              when=dt.date(2026, 6, 2), kwh=25.0, cost_pence=500,
+              odometer_km=1000.0 + 100 * KM_PER_MILE)
+
+    # car2: anchor + reading inside same window (+300 mi) — should be invisible
+    await _mk(test_sessionmaker, user_id=uid, car_id=car2,
+              when=dt.date(2026, 5, 30), kwh=1.0, cost_pence=10,
+              odometer_km=5000.0)
+    await _mk(test_sessionmaker, user_id=uid, car_id=car2,
+              when=dt.date(2026, 6, 2), kwh=60.0, cost_pence=1200,
+              odometer_km=5000.0 + 300 * KM_PER_MILE)
+
+    async with test_sessionmaker() as s:
+        out = await ins.efficiency_over_time(
+            s, user_id=uid,
+            date_from=dt.date(2026, 6, 1), date_to=dt.date(2026, 6, 30),
+            granularity="daily", car_id=car1)
+
+    pt = next(p for p in out if p["period"] == "2026-06-02")
+    # car1 only: 100 mi / 25 kWh = 4.0 mi/kWh
+    assert pt["observed_mi_per_kwh"] == pytest.approx(4.0, abs=0.01), (
+        f"Expected 4.0 mi/kWh (car1 only) but got {pt['observed_mi_per_kwh']!r}; "
+        "mileage side is likely not filtered by car_id"
+    )
