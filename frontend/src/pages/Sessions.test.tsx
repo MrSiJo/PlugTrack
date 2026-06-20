@@ -791,3 +791,134 @@ describe('Sessions page', () => {
     expect(createSpy).not.toHaveBeenCalled()
   })
 })
+
+describe('Sessions page — car filter', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.spyOn(api, 'getSettings').mockResolvedValue({})
+    useSettingsStore.setState({ settings: {}, loaded: true })
+  })
+
+  it('renders a car filter picker with "All cars" option', async () => {
+    vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession({ id: 1 })])
+    vi.spyOn(api, 'getCars').mockResolvedValue([
+      {
+        id: 7,
+        make: 'Cupra',
+        model: 'Born',
+        name: null,
+        display_name: 'Cupra Born',
+        vin: null,
+        battery_kwh: 59,
+        nominal_efficiency_mi_per_kwh: 3.5,
+        provider: 'cupra',
+        provider_vehicle_id: null,
+        active: true,
+      },
+    ])
+
+    render(
+      <MemoryRouter>
+        <Sessions />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('car-filter-picker')).toBeInTheDocument()
+    })
+
+    // The trigger starts with "All cars"
+    expect(screen.getByTestId('car-filter-picker')).toHaveTextContent('All cars')
+  })
+
+  it('selecting a car from the picker refetches sessions with car_id param', async () => {
+    const spy = vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession({ id: 1 })])
+    vi.spyOn(api, 'getCars').mockResolvedValue([
+      {
+        id: 7,
+        make: 'Cupra',
+        model: 'Born',
+        name: null,
+        display_name: 'Cupra Born',
+        vin: null,
+        battery_kwh: 59,
+        nominal_efficiency_mi_per_kwh: 3.5,
+        provider: 'cupra',
+        provider_vehicle_id: null,
+        active: true,
+      },
+    ])
+
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <Sessions />
+      </MemoryRouter>,
+    )
+
+    // Wait for picker to load
+    await waitFor(() => {
+      expect(screen.getByTestId('car-filter-picker')).toBeInTheDocument()
+    })
+
+    // Open the car picker and select the car
+    await user.click(screen.getByTestId('car-filter-picker'))
+    const option = await screen.findByRole('option', { name: 'Cupra Born' })
+    await user.click(option)
+
+    await waitFor(() => {
+      const q = lastQuery(spy)
+      expect(q.get('car_id')).toBe('7')
+    })
+  })
+
+  it('selecting "All cars" clears the car_id from the query', async () => {
+    const spy = vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession({ id: 1 })])
+    vi.spyOn(api, 'getCars').mockResolvedValue([
+      {
+        id: 7,
+        make: 'Cupra',
+        model: 'Born',
+        name: null,
+        display_name: 'Cupra Born',
+        vin: null,
+        battery_kwh: 59,
+        nominal_efficiency_mi_per_kwh: 3.5,
+        provider: 'cupra',
+        provider_vehicle_id: null,
+        active: true,
+      },
+    ])
+
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <Sessions />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('car-filter-picker')).toBeInTheDocument()
+    })
+
+    // Select a car first
+    await user.click(screen.getByTestId('car-filter-picker'))
+    const carOption = await screen.findByRole('option', { name: 'Cupra Born' })
+    await user.click(carOption)
+
+    await waitFor(() => {
+      const q = lastQuery(spy)
+      expect(q.get('car_id')).toBe('7')
+    })
+
+    // Now select "All cars"
+    await user.click(screen.getByTestId('car-filter-picker'))
+    const allCarsOption = await screen.findByRole('option', { name: 'All cars' })
+    await user.click(allCarsOption)
+
+    await waitFor(() => {
+      const q = lastQuery(spy)
+      expect(q.get('car_id')).toBeNull()
+    })
+  })
+})
