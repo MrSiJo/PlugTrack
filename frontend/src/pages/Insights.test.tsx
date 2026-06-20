@@ -100,7 +100,7 @@ describe('Insights page', () => {
       efficiency: [{ period: '2026-06-01', observed_mi_per_kwh: null, cost_per_mile_p: null }],
     })
     vi.spyOn(api, 'getCars').mockResolvedValue([
-      { id: 1, make: 'Cupra', model: 'Born', vin: null, battery_kwh: 58,
+      { id: 1, make: 'Cupra', model: 'Born', name: null, display_name: 'Cupra Born', vin: null, battery_kwh: 58,
         nominal_efficiency_mi_per_kwh: 4.2, provider: 'manual', provider_vehicle_id: null, active: true },
     ])
     vi.spyOn(api, 'getInsightsMileage').mockResolvedValue(DISABLED_MILEAGE)

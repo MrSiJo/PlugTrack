@@ -12,6 +12,15 @@ export function CarFields({ draft, setDraft }: CarFieldsProps) {
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <label className={`${labelClass} sm:col-span-2`}>
+        Name (optional)
+        <input
+          value={draft.name ?? ''}
+          onChange={(e) => setDraft({ ...draft, name: e.target.value || null })}
+          className={fieldClass}
+          placeholder="e.g. Work car (defaults to Make + Model)"
+        />
+      </label>
       <label className={labelClass}>
         Make
         <input
