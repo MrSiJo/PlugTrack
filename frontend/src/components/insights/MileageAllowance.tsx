@@ -116,14 +116,26 @@ export function MileageAllowance({ carId }: MileageAllowanceProps) {
       {burn.length > 0 && (
         <div className="h-48">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={burn} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+            <LineChart
+              data={burn.map((pt) => ({
+                label: pt.label,
+                allowance: pt.allowance != null ? Math.round(unit === 'km' ? pt.allowance : kmToMi(pt.allowance)) : null,
+                used: pt.used != null ? Math.round(unit === 'km' ? pt.used : kmToMi(pt.used)) : null,
+              }))}
+              margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+            >
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor"
                 className="text-slate-200 dark:text-slate-800" />
               <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor"
                 className="text-slate-500 dark:text-slate-400" />
-              <YAxis tickFormatter={(v: number) => `${Math.round(unit === 'km' ? v : kmToMi(v))}`}
+              <YAxis tickFormatter={(v: number) => `${Math.round(v)}`}
                 tick={{ fontSize: 10 }} stroke="currentColor" className="text-slate-500 dark:text-slate-400" width={40} />
-              <Tooltip />
+              <Tooltip
+                formatter={(v) => {
+                  const n = typeof v === 'number' ? v : Number(v)
+                  return isNaN(n) ? String(v ?? '') : `${Math.round(n).toLocaleString()} ${unit}`
+                }}
+              />
               <ReferenceLine x="Today" stroke="#64748b" strokeDasharray="4 4" />
               <Line type="monotone" dataKey="allowance" stroke="#64748b" strokeWidth={2} dot strokeDasharray="5 4" />
               <Line type="monotone" dataKey="used" stroke="#22d3ee" strokeWidth={2} dot connectNulls={false} />

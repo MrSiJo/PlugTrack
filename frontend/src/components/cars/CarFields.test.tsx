@@ -47,4 +47,16 @@ describe('CarFields', () => {
     const dcInput = screen.getByPlaceholderText(/CCS fast-charge/i) as HTMLInputElement
     expect(dcInput.value).toBe('')
   })
+
+  it('Max AC kW input has step="any" so whole numbers and decimals are both valid', () => {
+    render(<CarFields draft={makeDraft()} setDraft={vi.fn()} />)
+    const acInput = screen.getByPlaceholderText(/3-phase Type-2/i) as HTMLInputElement
+    expect(acInput.step).toBe('any')
+  })
+
+  it('Max DC kW input has step="any" so whole numbers like 165 are accepted', () => {
+    render(<CarFields draft={makeDraft()} setDraft={vi.fn()} />)
+    const dcInput = screen.getByPlaceholderText(/CCS fast-charge/i) as HTMLInputElement
+    expect(dcInput.step).toBe('any')
+  })
 })

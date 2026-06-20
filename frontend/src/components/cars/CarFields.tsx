@@ -118,7 +118,7 @@ export function CarFields({ draft, setDraft }: CarFieldsProps) {
         Max AC kW (optional)
         <input
           type="number"
-          step="0.1"
+          step="any"
           min="0.1"
           placeholder="e.g. 11 for 3-phase Type-2"
           value={Number.isFinite(draft.max_ac_kw ?? NaN) ? (draft.max_ac_kw as number) : ''}
@@ -135,7 +135,7 @@ export function CarFields({ draft, setDraft }: CarFieldsProps) {
         Max DC kW (optional)
         <input
           type="number"
-          step="1"
+          step="any"
           min="0.1"
           placeholder="e.g. 100 for CCS fast-charge"
           value={Number.isFinite(draft.max_dc_kw ?? NaN) ? (draft.max_dc_kw as number) : ''}

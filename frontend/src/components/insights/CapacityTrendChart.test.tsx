@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { CapacityTrendChart } from './CapacityTrendChart'
+import { CapacityTrendChart, CapacityChartTooltip } from './CapacityTrendChart'
 
 const SAMPLE_DATA = [
   { date: '2026-01-10', usable_kwh: 56.2, charging_type: 'ac' as const, low_confidence: false },
@@ -54,5 +54,39 @@ describe('CapacityTrendChart', () => {
     // Chart container should be present (not the empty-state message)
     expect(screen.getByTestId('ctc-unknown')).toBeInTheDocument()
     expect(screen.queryByText(/no trend data yet/i)).not.toBeInTheDocument()
+  })
+
+  // Fix 4: low-confidence tooltip label should explain WHY
+  it('Fix 4: low-confidence AC tooltip says "overstates capacity"', () => {
+    const point = {
+      date: '2026-05-20', usable_kwh: 54.9, charging_type: 'ac' as const, low_confidence: true,
+      usable_kwh_ac: 54.9, usable_kwh_dc: null,
+    }
+    const payload = [{ payload: point }]
+    render(<CapacityChartTooltip active={true} payload={payload} />)
+    expect(screen.getByText(/overstates capacity/i)).toBeInTheDocument()
+  })
+
+  it('Fix 4: low-confidence DC tooltip says "few samples"', () => {
+    const point = {
+      date: '2026-05-20', usable_kwh: 54.1, charging_type: 'dc' as const, low_confidence: true,
+      usable_kwh_ac: null, usable_kwh_dc: 54.1,
+    }
+    const payload = [{ payload: point }]
+    render(<CapacityChartTooltip active={true} payload={payload} />)
+    expect(screen.getByText(/few samples/i)).toBeInTheDocument()
+  })
+
+  it('Fix 3: tooltip kWh value is rounded to 1 dp (not raw float)', () => {
+    const point = {
+      date: '2026-05-20', usable_kwh: 54.9378261453, charging_type: 'dc' as const, low_confidence: false,
+      usable_kwh_ac: null, usable_kwh_dc: 54.9378261453,
+    }
+    const payload = [{ payload: point }]
+    const { container } = render(<CapacityChartTooltip active={true} payload={payload} />)
+    // Should render "54.9 kWh" — exactly 1 dp
+    expect(container.textContent).toMatch(/54\.9 kWh/)
+    // Must NOT show 4+ dp
+    expect(container.textContent).not.toMatch(/54\.937/)
   })
 })
