@@ -202,6 +202,8 @@ export interface CarPayload {
   id: number
   make: string
   model: string
+  name: string | null
+  display_name: string
   /** Now masked in list/get payloads (e.g. "········XYZ12"). Use revealCarVin() for the full value. */
   vin: string | null
   battery_kwh: number
@@ -214,6 +216,7 @@ export interface CarPayload {
 export interface CarCreateRequest {
   make: string
   model: string
+  name?: string | null
   vin?: string | null
   battery_kwh: number
   nominal_efficiency_mi_per_kwh: number
