@@ -208,6 +208,8 @@ export interface CarPayload {
   vin: string | null
   battery_kwh: number
   nominal_efficiency_mi_per_kwh: number
+  max_ac_kw?: number | null
+  max_dc_kw?: number | null
   provider: string
   provider_vehicle_id: string | null
   active: boolean
@@ -220,6 +222,8 @@ export interface CarCreateRequest {
   vin?: string | null
   battery_kwh: number
   nominal_efficiency_mi_per_kwh: number
+  max_ac_kw?: number | null
+  max_dc_kw?: number | null
   provider?: string
   provider_vehicle_id?: string | null
   active?: boolean

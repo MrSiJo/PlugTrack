@@ -157,6 +157,17 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         ),
         default_value="7.4",
     ),
+    CatalogueEntry(
+        key="charge_loss_factor",
+        value_type="float",
+        group_name="charging",
+        label="Charging loss factor",
+        description=(
+            "Fraction of grid energy that reaches the battery (e.g. 0.90 = 10% loss). "
+            "Planner inflates charge time accordingly."
+        ),
+        default_value="0.90",
+    ),
     # Telegram screenshot ingestion
     CatalogueEntry(
         key="telegram_bot_enabled",
