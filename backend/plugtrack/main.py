@@ -71,6 +71,203 @@ async def run_scheduled_backup(*, retention: int = 7) -> None:
         _log.exception("Scheduled backup failed — swallowed to protect scheduler.")
 
 
+async def run_digest_tick(
+    *,
+    now=None,
+    sessionmaker=None,
+    client_factory=None,
+    _weekly_builder=None,
+    _monthly_builder=None,
+) -> None:
+    """Run one digest-tick: send weekly/monthly digests if due and not already sent.
+
+    Designed to be called on an hourly schedule (Task 4 registers it with
+    APScheduler).  The whole body is wrapped in a broad try/except so a failure
+    is logged + swallowed — it MUST NOT crash the scheduler.
+
+    Parameters
+    ----------
+    now:
+        The current instant in time (tz-aware recommended; if naive it is treated
+        as already in Europe/London).  Defaults to ``datetime.now(LONDON)``.
+    sessionmaker:
+        Async-sessionmaker to use.  Defaults to ``db_module.SessionLocal``.
+    client_factory:
+        Callable ``token -> TelegramClient-like``.  Defaults to constructing a
+        real ``TelegramClient(token)``.  Injected in tests to avoid network calls.
+    _weekly_builder / _monthly_builder:
+        Injectable digest builders (for testing).  Default to the real ones from
+        ``services.digest``.
+    """
+    from zoneinfo import ZoneInfo as _ZoneInfo
+
+    LONDON = _ZoneInfo("Europe/London")
+
+    if now is None:
+        from datetime import datetime as _datetime
+        now = _datetime.now(LONDON)
+
+    if sessionmaker is None:
+        sessionmaker = db_module.SessionLocal
+
+    if client_factory is None:
+        from .services.telegram_client import TelegramClient as _TC
+        client_factory = lambda token: _TC(token)  # noqa: E731
+
+    if _weekly_builder is None:
+        from .services.digest import build_weekly_digest as _bw
+        _weekly_builder = _bw
+
+    if _monthly_builder is None:
+        from .services.digest import build_monthly_digest as _bm
+        _monthly_builder = _bm
+
+    try:
+        from sqlalchemy import select as _select
+        from .models import Setting as _Setting, User as _User
+
+        async with sessionmaker() as session:
+            # ── Load all relevant settings into a dict ────────────────────
+            rows = {
+                r.key: r.value
+                for r in (await session.execute(_select(_Setting))).scalars().all()
+            }
+
+        def _truthy(v) -> bool:
+            return (v or "").strip().lower() in {"true", "1", "yes", "on"}
+
+        def _parse_ids(v) -> list[int]:
+            return [int(x) for x in (v or "").replace(" ", "").split(",") if x]
+
+        # ── Channel availability gate ─────────────────────────────────────
+        if not _truthy(rows.get("telegram_bot_enabled")):
+            _log.debug("run_digest_tick: bot disabled, skipping")
+            return
+
+        raw_token = rows.get("telegram_bot_token")
+        if not raw_token:
+            _log.debug("run_digest_tick: no telegram_bot_token, skipping")
+            return
+
+        allowed_ids = _parse_ids(rows.get("telegram_allowed_user_ids"))
+        if not allowed_ids:
+            _log.debug("run_digest_tick: no allowed_user_ids, skipping")
+            return
+
+        chat_id = allowed_ids[0]
+
+        # Decrypt the token (may already be plain-text in tests if the value
+        # isn't Fernet-encrypted; fall back gracefully).
+        try:
+            from .bootstrap import get_settings as _gs
+            from .security.crypto import decrypt_secret as _ds
+            token = _ds(raw_token, _gs().app_secret_key)
+        except Exception:  # noqa: BLE001
+            # In unit tests the token is seeded as plain text — use as-is.
+            token = raw_token
+
+        # ── Resolve the single app user ───────────────────────────────────
+        async with sessionmaker() as session:
+            user = (await session.execute(_select(_User))).scalar_one_or_none()
+        if user is None:
+            _log.warning("run_digest_tick: no user row, skipping")
+            return
+        user_id = user.id
+
+        # ── Normalise now to London ───────────────────────────────────────
+        now_local = now.astimezone(LONDON) if now.tzinfo is not None else now.replace(tzinfo=LONDON)
+
+        # Parse send hour
+        try:
+            send_hour = int(rows.get("digest_send_hour") or "8")
+        except (TypeError, ValueError):
+            send_hour = 8
+
+        # Current ISO week string: "YYYY-Www"
+        iso = now_local.date().isocalendar()  # (year, week, weekday)
+        current_iso_week = f"{iso[0]}-W{iso[1]:02d}"
+
+        # Current month string: "YYYY-MM"
+        current_month = now_local.strftime("%Y-%m")
+
+        client = client_factory(token)
+
+        # ── WEEKLY ───────────────────────────────────────────────────────
+        if _truthy(rows.get("digest_weekly_enabled")):
+            # The anchor is: Monday of the current ISO week at send_hour.
+            # It has passed when:
+            #   - weekday > 0 (Tue–Sun, anchor was earlier this week), OR
+            #   - weekday == 0 AND hour >= send_hour (Mon at or after send_hour)
+            weekday = now_local.weekday()  # 0=Mon, 6=Sun
+            weekly_anchor_passed = (weekday > 0) or (weekday == 0 and now_local.hour >= send_hour)
+
+            last_weekly = rows.get("digest_last_weekly_sent") or ""
+
+            if weekly_anchor_passed and last_weekly != current_iso_week:
+                async with sessionmaker() as session:
+                    text = await _weekly_builder(session, user_id=user_id, now=now_local)
+
+                if text is not None:
+                    await client.send_message(chat_id=chat_id, text=text)
+
+                # Always set the marker — even on empty skip — to avoid retry.
+                async with sessionmaker() as session:
+                    marker_row = (await session.execute(
+                        _select(_Setting).where(_Setting.key == "digest_last_weekly_sent")
+                    )).scalar_one_or_none()
+                    if marker_row is None:
+                        session.add(_Setting(
+                            key="digest_last_weekly_sent",
+                            value=current_iso_week,
+                            value_type="string",
+                            group_name="telegram",
+                            label="(internal) last weekly digest",
+                            description="",
+                            default_value=None,
+                        ))
+                    else:
+                        marker_row.value = current_iso_week
+                    await session.commit()
+
+        # ── MONTHLY ──────────────────────────────────────────────────────
+        if _truthy(rows.get("digest_monthly_enabled")):
+            # Anchor: 1st of current month at send_hour.
+            # Passed when: day > 1, OR (day == 1 AND hour >= send_hour)
+            monthly_anchor_passed = (now_local.day > 1) or (
+                now_local.day == 1 and now_local.hour >= send_hour
+            )
+
+            last_monthly = rows.get("digest_last_monthly_sent") or ""
+
+            if monthly_anchor_passed and last_monthly != current_month:
+                async with sessionmaker() as session:
+                    text = await _monthly_builder(session, user_id=user_id, now=now_local)
+
+                if text is not None:
+                    await client.send_message(chat_id=chat_id, text=text)
+
+                async with sessionmaker() as session:
+                    marker_row = (await session.execute(
+                        _select(_Setting).where(_Setting.key == "digest_last_monthly_sent")
+                    )).scalar_one_or_none()
+                    if marker_row is None:
+                        session.add(_Setting(
+                            key="digest_last_monthly_sent",
+                            value=current_month,
+                            value_type="string",
+                            group_name="telegram",
+                            label="(internal) last monthly digest",
+                            description="",
+                            default_value=None,
+                        ))
+                    else:
+                        marker_row.value = current_month
+                    await session.commit()
+
+    except Exception:  # noqa: BLE001
+        _log.exception("run_digest_tick failed — swallowed to protect scheduler.")
+
+
 def _assert_single_worker() -> None:
     """Two-layer multi-worker tripwire.
 
