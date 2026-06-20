@@ -153,6 +153,10 @@ def build_dc_capability(
         observed data (max of curve points and effective averages).
     """
     # --- Pool curve points per SoC band (Tier 1 data) ---
+    # Non-positive power_kw values (zero or negative) are dropped here.
+    # Vision-extracted curves can contain 0.0-power points at the very start
+    # or end of a charge; including them would pollute the band median and
+    # can cause a ZeroDivisionError in estimate_scenario.
     band_points: dict[int, list[float]] = {}
     for sess in dc_sessions:
         if not sess.power_curve:
@@ -161,6 +165,8 @@ def build_dc_capability(
             if len(triplet) < 3:
                 continue
             _t, soc_val, power_kw = triplet[0], triplet[1], triplet[2]
+            if float(power_kw) <= 0:
+                continue  # drop zero/negative points — never a valid capability
             band = _soc_band(int(soc_val))
             band_points.setdefault(band, []).append(float(power_kw))
 
@@ -180,7 +186,9 @@ def build_dc_capability(
         else:
             per_session_eff.append(None)
             continue
-        per_session_eff.append(sess.kwh_added / hours)
+        eff = sess.kwh_added / hours
+        # Ignore non-positive effective averages (degenerate data).
+        per_session_eff.append(eff if eff > 0 else None)
 
     # --- Tier 2: SoC-overlapping average per band ---
     band_average: dict[int, float] = {}
@@ -446,6 +454,15 @@ def estimate_scenario(
             rank = _TAG_RANK.get(tag, 2)
             if rank > worst_tag_rank:
                 worst_tag_rank = rank
+
+            # Skip slices where effective power is zero or negative.
+            # This can only happen when a band's capability resolved to 0
+            # (pathological data; build_dc_capability now filters zero curve
+            # points, so this guard is defence-in-depth).  Skipping means
+            # that 1% SoC slice does not count towards total time — acceptable
+            # because zero-data slices carry no meaningful information.
+            if effective_kw <= 0:
+                continue
 
             # Time with loss applied
             total_time_h += delta_kwh / (effective_kw * loss_factor)
@@ -766,6 +783,7 @@ async def resolve_plan_inputs(
             .join(Location, ChargingSession.location_id == Location.id)
             .where(
                 ChargingSession.user_id == user_id,
+                ChargingSession.car_id == car.id,  # spec: power is per-car, not per-user
                 Location.is_home.is_(True),
                 ChargingSession.charging_type == "ac",
                 ChargingSession.charge_start_at.is_not(None),
