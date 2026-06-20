@@ -208,8 +208,8 @@ export interface CarPayload {
   vin: string | null
   battery_kwh: number
   nominal_efficiency_mi_per_kwh: number
-  max_ac_kw?: number | null
-  max_dc_kw?: number | null
+  max_ac_kw: number | null
+  max_dc_kw: number | null
   provider: string
   provider_vehicle_id: string | null
   active: boolean
@@ -548,33 +548,27 @@ export interface McpTokenCreateResponse {
 // Charge Planner
 // ---------------------------------------------------------------------------
 
-export interface ChargePlanNight {
-  index: number
+export type ScenarioSourceTag = 'history' | 'spec' | 'curve' | 'average' | 'modelled'
+
+export interface ScenarioRow {
+  label: string
+  power_kw: number
   minutes: number
-  end_soc: number
-  finish_at: string
+  source_tag: ScenarioSourceTag
+  finish_at: string | null
+  nights: number | null
+  note: string | null
 }
 
-export interface ChargePlan {
+export interface ScenarioPlanResponse {
   car_id: number
   start_soc: number
   target_soc: number
   battery_kwh: number
-  kwh_needed: number
-  power_kw: number
-  power_basis: 'history' | 'fallback'
-  sample_size: number
-  total_minutes: number
-  window_start: string
-  window_end: string
-  window_minutes: number
-  fits_one_window: boolean
-  nights: ChargePlanNight[]
-  nights_needed: number
-  finish_at: string
-  cost_pence: number
+  loss_factor: number
   home_rate_p_per_kwh: number
   is_free: boolean
+  rows: ScenarioRow[]
 }
 
 // ---------------------------------------------------------------------------
@@ -827,10 +821,12 @@ export const api = {
     carId: number,
     startSoc: number,
     targetSoc: number,
-  ): Promise<ChargePlan> =>
-    fetchJSON<ChargePlan>(
-      `/api/charge-plan?car_id=${carId}&start_soc=${startSoc}&target_soc=${targetSoc}`,
-    ),
+    customKw?: number,
+  ): Promise<ScenarioPlanResponse> => {
+    let path = `/api/charge-plan?car_id=${carId}&start_soc=${startSoc}&target_soc=${targetSoc}`
+    if (customKw !== undefined) path += `&custom_kw=${customKw}`
+    return fetchJSON<ScenarioPlanResponse>(path)
+  },
 
   // ----- MCP / API tokens -----
 

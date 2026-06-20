@@ -33,6 +33,8 @@ function makeCar(over: Partial<CarPayload> = {}): CarPayload {
     vin: '········12345',
     battery_kwh: 58,
     nominal_efficiency_mi_per_kwh: 3.5,
+    max_ac_kw: null,
+    max_dc_kw: null,
     provider: 'cupra_connect',
     provider_vehicle_id: 'VSSZZZK1ZNP123456',
     active: true,

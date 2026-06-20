@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import Planner from './Planner'
-import { ApiError, api, type CarPayload, type ChargePlan } from '@/api/client'
+import { ApiError, api, type CarPayload, type ScenarioPlanResponse } from '@/api/client'
 import { useSettingsStore } from '@/stores/settingsStore'
 
 // ---------------------------------------------------------------------------
@@ -19,6 +20,8 @@ function makeCar(over: Partial<CarPayload> = {}): CarPayload {
     vin: null,
     battery_kwh: 77,
     nominal_efficiency_mi_per_kwh: 3.5,
+    max_ac_kw: 11,
+    max_dc_kw: 100,
     provider: 'cupra_connect',
     provider_vehicle_id: null,
     active: true,
@@ -26,55 +29,53 @@ function makeCar(over: Partial<CarPayload> = {}): CarPayload {
   }
 }
 
-function makePlan(over: Partial<ChargePlan> = {}): ChargePlan {
+function makePlan(over: Partial<ScenarioPlanResponse> = {}): ScenarioPlanResponse {
   return {
     car_id: 1,
     start_soc: 20,
     target_soc: 100,
     battery_kwh: 77,
-    kwh_needed: 61.6,
-    power_kw: 7.4,
-    power_basis: 'fallback',
-    sample_size: 0,
-    total_minutes: 499,
-    window_start: '23:45',
-    window_end: '07:15',
-    window_minutes: 450,
-    fits_one_window: false,
-    nights: [
-      { index: 1, minutes: 450, end_soc: 75, finish_at: '07:15' },
-      { index: 2, minutes: 49, end_soc: 100, finish_at: '00:34' },
+    loss_factor: 0.9,
+    home_rate_p_per_kwh: 28.34,
+    is_free: false,
+    rows: [
+      {
+        label: 'Home AC (from your history)',
+        power_kw: 7.2,
+        minutes: 499,
+        source_tag: 'history',
+        finish_at: '07:15',
+        nights: 2,
+        note: null,
+      },
+      {
+        label: 'Home AC (spec max)',
+        power_kw: 11,
+        minutes: 327,
+        source_tag: 'spec',
+        finish_at: '05:27',
+        nights: 1,
+        note: null,
+      },
+      {
+        label: 'DC rapid (curve-derived)',
+        power_kw: 85,
+        minutes: 42,
+        source_tag: 'curve',
+        finish_at: null,
+        nights: null,
+        note: null,
+      },
+      {
+        label: 'Custom power',
+        power_kw: 7,
+        minutes: 512,
+        source_tag: 'modelled',
+        finish_at: null,
+        nights: null,
+        note: 'car-limited to ~7 kW',
+      },
     ],
-    nights_needed: 2,
-    finish_at: '00:34',
-    cost_pence: 1746,
-    home_rate_p_per_kwh: 28.34,
-    is_free: false,
-    ...over,
-  }
-}
-
-function makeSingleNightPlan(over: Partial<ChargePlan> = {}): ChargePlan {
-  return {
-    car_id: 1,
-    start_soc: 70,
-    target_soc: 100,
-    battery_kwh: 77,
-    kwh_needed: 23.1,
-    power_kw: 7.4,
-    power_basis: 'history',
-    sample_size: 5,
-    total_minutes: 188,
-    window_start: '23:45',
-    window_end: '07:15',
-    window_minutes: 450,
-    fits_one_window: true,
-    nights: [{ index: 1, minutes: 188, end_soc: 100, finish_at: '02:53' }],
-    nights_needed: 1,
-    finish_at: '02:53',
-    cost_pence: 654,
-    home_rate_p_per_kwh: 28.34,
-    is_free: false,
     ...over,
   }
 }
@@ -103,106 +104,93 @@ describe('Planner page', () => {
 
   it('renders the page heading', async () => {
     vi.spyOn(api, 'getCars').mockResolvedValue([makeCar()])
-    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makeSingleNightPlan())
+    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
 
     renderPlanner()
 
     expect(screen.getByText('Charge Planner')).toBeInTheDocument()
   })
 
-  it('shows the duration and cost for a single-night plan', async () => {
-    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar()])
-    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makeSingleNightPlan())
-
-    renderPlanner()
-
-    // Duration: 188 min = 3h 08m
-    const duration = await screen.findByTestId('plan-duration')
-    expect(duration).toHaveTextContent('3h 08m')
-
-    // Cost: 654 pence = £6.54
-    const cost = screen.getByTestId('plan-cost')
-    expect(cost).toHaveTextContent('£6.54')
-  })
-
-  it('shows the single-window verdict when fits_one_window is true', async () => {
-    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar()])
-    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makeSingleNightPlan())
-
-    renderPlanner()
-
-    const verdict = await screen.findByTestId('plan-verdict')
-    expect(verdict).toHaveTextContent('Finishes ~02:53')
-    expect(verdict).toHaveTextContent('23:45–07:15 window')
-  })
-
-  it('shows multi-night verdict and breakdown when fits_one_window is false', async () => {
+  it('renders a table row for each scenario row with label, power, and formatted time', async () => {
     vi.spyOn(api, 'getCars').mockResolvedValue([makeCar()])
     vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
 
     renderPlanner()
 
-    const verdict = await screen.findByTestId('plan-verdict')
-    expect(verdict).toHaveTextContent('Needs 2 nights')
-    expect(verdict).toHaveTextContent('finishes ~00:34 on night 2')
+    // Wait for plan to load
+    const table = await screen.findByTestId('plan-table')
+    expect(table).toBeInTheDocument()
 
-    // Night breakdown should be visible
-    const nights = screen.getByTestId('plan-nights')
-    expect(nights).toBeInTheDocument()
+    // Row 1: history — 499 min = 8h 19m
+    const row0 = screen.getByTestId('plan-row-0')
+    expect(row0).toHaveTextContent('Home AC (from your history)')
+    expect(row0).toHaveTextContent('7.2 kW')
+    expect(row0).toHaveTextContent('8h 19m')
 
-    const night1 = screen.getByTestId('plan-night-1')
-    expect(night1).toHaveTextContent('Night 1')
-    expect(night1).toHaveTextContent('75%')
+    // Row 2: spec — 327 min = 5h 27m
+    const row1 = screen.getByTestId('plan-row-1')
+    expect(row1).toHaveTextContent('11 kW')
+    expect(row1).toHaveTextContent('5h 27m')
 
-    const night2 = screen.getByTestId('plan-night-2')
-    expect(night2).toHaveTextContent('Night 2')
-    expect(night2).toHaveTextContent('100%')
+    // Row 3: curve — 42 min
+    const row2 = screen.getByTestId('plan-row-2')
+    expect(row2).toHaveTextContent('42m')
   })
 
-  it('does NOT show the nights breakdown for a single-night plan', async () => {
+  it('shows the source_tag pill with the correct label for each row', async () => {
     vi.spyOn(api, 'getCars').mockResolvedValue([makeCar()])
-    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makeSingleNightPlan())
+    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
 
     renderPlanner()
 
-    await screen.findByTestId('plan-result')
-    expect(screen.queryByTestId('plan-nights')).not.toBeInTheDocument()
+    await screen.findByTestId('plan-table')
+
+    // history → "from your history"
+    const row0 = screen.getByTestId('plan-row-0')
+    expect(row0).toHaveTextContent('from your history')
+
+    // spec → "spec"
+    const row1 = screen.getByTestId('plan-row-1')
+    expect(row1).toHaveTextContent('spec')
+
+    // curve → "curve-derived"
+    const row2 = screen.getByTestId('plan-row-2')
+    expect(row2).toHaveTextContent('curve-derived')
+
+    // modelled → "modelled"
+    const row3 = screen.getByTestId('plan-row-3')
+    expect(row3).toHaveTextContent('modelled')
   })
 
-  it('shows the fallback power caption when power_basis is fallback', async () => {
+  it('shows finish_at and nights for AC window rows', async () => {
     vi.spyOn(api, 'getCars').mockResolvedValue([makeCar()])
-    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan({ power_basis: 'fallback', power_kw: 7.4 }))
+    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
 
     renderPlanner()
 
-    const caption = await screen.findByTestId('plan-power-caption')
-    expect(caption).toHaveTextContent('Estimated at 7.4 kW')
-    expect(caption).toHaveTextContent('not enough home history yet')
+    await screen.findByTestId('plan-table')
+
+    // Row 0 has finish_at='07:15' and nights=2
+    const row0 = screen.getByTestId('plan-row-0')
+    expect(row0).toHaveTextContent('07:15')
+    expect(row0).toHaveTextContent('2')
+
+    // Row 2 (DC curve) has no finish_at / nights — should show "—"
+    const row2 = screen.getByTestId('plan-row-2')
+    expect(row2).toHaveTextContent('—')
   })
 
-  it('shows the history power caption when power_basis is history', async () => {
+  it('shows the note when a row has a note', async () => {
     vi.spyOn(api, 'getCars').mockResolvedValue([makeCar()])
-    vi.spyOn(api, 'getChargePlan').mockResolvedValue(
-      makeSingleNightPlan({ power_basis: 'history', sample_size: 5, power_kw: 7.4 }),
-    )
+    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
 
     renderPlanner()
 
-    const caption = await screen.findByTestId('plan-power-caption')
-    expect(caption).toHaveTextContent('Based on your last 5 home charges')
-    expect(caption).toHaveTextContent('~7.4 kW')
-  })
+    await screen.findByTestId('plan-table')
 
-  it('shows "Free" when is_free is true', async () => {
-    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar()])
-    vi.spyOn(api, 'getChargePlan').mockResolvedValue(
-      makeSingleNightPlan({ is_free: true, cost_pence: 0 }),
-    )
-
-    renderPlanner()
-
-    const cost = await screen.findByTestId('plan-cost')
-    expect(cost).toHaveTextContent('Free')
+    // Row 3 has note: 'car-limited to ~7 kW'
+    const row3 = screen.getByTestId('plan-row-3')
+    expect(row3).toHaveTextContent('car-limited to ~7 kW')
   })
 
   it('shows an error when the API call fails', async () => {
@@ -217,20 +205,68 @@ describe('Planner page', () => {
     expect(err).toHaveTextContent('Car not found')
   })
 
-  it('calls getChargePlan with the correct car_id, start_soc, target_soc', async () => {
-    const getCars = vi.spyOn(api, 'getCars').mockResolvedValue([makeCar({ id: 42 })])
-    const getChargePlan = vi
-      .spyOn(api, 'getChargePlan')
-      .mockResolvedValue(makeSingleNightPlan())
+  it('shows a loading state while the plan is being fetched', async () => {
+    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar()])
+    // Never resolves to keep loading state visible
+    vi.spyOn(api, 'getChargePlan').mockReturnValue(new Promise(() => {}))
 
     renderPlanner()
 
-    // Wait until cars have loaded and the plan call is triggered.
+    // Cars load, then plan starts loading
     await waitFor(() => {
-      expect(getCars).toHaveBeenCalled()
+      expect(screen.getByTestId('plan-loading')).toBeInTheDocument()
     })
+  })
+
+  it('calls getChargePlan with carId, startSoc, targetSoc on mount', async () => {
+    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar({ id: 42 })])
+    const getChargePlan = vi
+      .spyOn(api, 'getChargePlan')
+      .mockResolvedValue(makePlan())
+
+    renderPlanner()
+
     await waitFor(() => {
-      expect(getChargePlan).toHaveBeenCalledWith(42, 20, 100)
+      expect(getChargePlan).toHaveBeenCalledWith(42, 20, 100, undefined)
     })
+  })
+
+  it('re-calls getChargePlan with customKw when a custom kW is entered', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar({ id: 1 })])
+    const getChargePlan = vi
+      .spyOn(api, 'getChargePlan')
+      .mockResolvedValue(makePlan())
+
+    renderPlanner()
+
+    // Wait for initial load
+    await screen.findByTestId('plan-table')
+
+    // Clear initial calls
+    getChargePlan.mockClear()
+
+    // Enter a custom kW value
+    const customInput = screen.getByTestId('planner-custom-kw')
+    await user.clear(customInput)
+    await user.type(customInput, '22')
+
+    await waitFor(() => {
+      expect(getChargePlan).toHaveBeenCalledWith(1, 20, 100, 22)
+    })
+  })
+
+  it('keeps car selector, start SoC, and target SoC inputs', async () => {
+    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar()])
+    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
+
+    renderPlanner()
+
+    // Wait for cars to load
+    await waitFor(() => {
+      expect(screen.getByTestId('planner-car-select')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('planner-start-soc')).toBeInTheDocument()
+    expect(screen.getByTestId('planner-target-soc')).toBeInTheDocument()
   })
 })
