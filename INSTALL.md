@@ -184,3 +184,36 @@ Run with the default `compose.yaml` (named volumes, managed by Docker):
 | `plugtrack-www`      | `/app/www`  | Cached per-VIN car images served by `/api/cars/:id/image` (no longer auto-refreshed since telematics was removed; any previously cached image still displays). |
 
 Run with `compose-dev.yaml` and the same paths bind to `/dockerdata/plugtrack/{data,logs,www}` on the host instead — easier to inspect, less portable.
+
+## Regenerating screenshots
+
+Screenshots in `assets/screenshots/` are captured against a fully-fictional demo dataset — no real user data.
+
+**Step 1 — seed the demo database** (run from `backend/`):
+
+```bash
+python -m plugtrack.scripts.seed_demo --db ./data/demo.db
+```
+
+**Step 2 — start the backend against the demo DB** (from `backend/`):
+
+```bash
+DATABASE_URL=sqlite+aiosqlite:///./data/demo.db \
+COOKIE_SECURE=false \
+APP_SECRET_KEY=demo-seed-secret-key-for-demo-only-not-production-use \
+uvicorn plugtrack.main:create_app --factory --port 9278
+```
+
+**Step 3 — start the frontend dev server** (from `frontend/`):
+
+```bash
+npm run dev
+```
+
+**Step 4 — capture** (from `frontend/`; install Chromium once with `npx playwright install chromium`):
+
+```bash
+PLUGTRACK_USER=demo PLUGTRACK_PASS=demo-plugtrack npm run screenshots
+```
+
+PNGs are written to `assets/screenshots/`. Commit any you want to update.
