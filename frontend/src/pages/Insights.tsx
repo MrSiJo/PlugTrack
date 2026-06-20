@@ -32,6 +32,8 @@ import { OverTimeChart } from '@/components/insights/OverTimeChart'
 import { HomePublicSplit } from '@/components/insights/HomePublicSplit'
 import { NetworkBreakdown } from '@/components/insights/NetworkBreakdown'
 import { EfficiencyChart } from '@/components/insights/EfficiencyChart'
+import { SeasonalEfficiencyChart } from '@/components/insights/SeasonalEfficiencyChart'
+import { CapacityTrendChart } from '@/components/insights/CapacityTrendChart'
 import { MileageAllowance } from '@/components/insights/MileageAllowance'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -439,6 +441,20 @@ export default function Insights() {
             <h2 className={MODULE_EYEBROW}>Efficiency &amp; cost per mile</h2>
             <EfficiencyChart data={overview.efficiency} />
           </Card>
+
+          {overview.seasonal_efficiency && overview.seasonal_efficiency.length > 0 && (
+            <Card className="mb-6">
+              <h2 className={MODULE_EYEBROW}>Seasonal efficiency &amp; range</h2>
+              <SeasonalEfficiencyChart data={overview.seasonal_efficiency} />
+            </Card>
+          )}
+
+          {overview.capacity_trend && overview.capacity_trend.length > 0 && (
+            <Card className="mb-6">
+              <h2 className={MODULE_EYEBROW}>Estimated battery health</h2>
+              <CapacityTrendChart data={overview.capacity_trend} />
+            </Card>
+          )}
         </>
       )}
 

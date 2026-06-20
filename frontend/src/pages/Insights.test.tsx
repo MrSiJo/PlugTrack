@@ -28,6 +28,8 @@ const EMPTY_OVERVIEW = {
   },
   by_network: [],
   efficiency: [],
+  seasonal_efficiency: [],
+  capacity_trend: [],
 }
 
 const DISABLED_MILEAGE = {
@@ -138,5 +140,83 @@ describe('Insights page', () => {
     expect(screen.getByRole('heading', { name: /network breakdown/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /efficiency & cost per mile/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /mileage allowance/i })).toBeInTheDocument()
+  })
+
+  it('renders seasonal efficiency module when array is present and non-empty', async () => {
+    vi.spyOn(api, 'getInsightsByLocation').mockResolvedValue({
+      rows: [], totals: { spend_pence: 0, kwh: 0, sessions: 0 },
+    })
+    vi.spyOn(api, 'getInsightsOverview').mockResolvedValue({
+      granularity: 'monthly',
+      over_time: [],
+      split: {
+        home: { spend_pence: 0, kwh: 0, sessions: 0, avg_p_per_kwh: null },
+        public: { spend_pence: 0, kwh: 0, sessions: 0, avg_p_per_kwh: null },
+      },
+      by_network: [],
+      efficiency: [],
+      seasonal_efficiency: [
+        { period: '2026-01', mi_per_kwh: 3.2, derived_range_km: 168, low_confidence: false },
+        { period: '2026-06', mi_per_kwh: 4.1, derived_range_km: 215, low_confidence: false },
+      ],
+      capacity_trend: [],
+    })
+    vi.spyOn(api, 'getCars').mockResolvedValue([])
+
+    render(<MemoryRouter><Insights /></MemoryRouter>)
+
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /seasonal efficiency/i })).toBeInTheDocument(),
+    )
+  })
+
+  it('renders battery health module when capacity_trend array is present and non-empty', async () => {
+    vi.spyOn(api, 'getInsightsByLocation').mockResolvedValue({
+      rows: [], totals: { spend_pence: 0, kwh: 0, sessions: 0 },
+    })
+    vi.spyOn(api, 'getInsightsOverview').mockResolvedValue({
+      granularity: 'monthly',
+      over_time: [],
+      split: {
+        home: { spend_pence: 0, kwh: 0, sessions: 0, avg_p_per_kwh: null },
+        public: { spend_pence: 0, kwh: 0, sessions: 0, avg_p_per_kwh: null },
+      },
+      by_network: [],
+      efficiency: [],
+      seasonal_efficiency: [],
+      capacity_trend: [
+        { date: '2026-01-10', usable_kwh: 56.2, charging_type: 'ac', low_confidence: false },
+        { date: '2026-03-15', usable_kwh: 55.8, charging_type: 'dc', low_confidence: false },
+      ],
+    })
+    vi.spyOn(api, 'getCars').mockResolvedValue([])
+
+    render(<MemoryRouter><Insights /></MemoryRouter>)
+
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /estimated battery health/i })).toBeInTheDocument(),
+    )
+  })
+
+  it('does NOT render trend modules when their arrays are empty', async () => {
+    vi.spyOn(api, 'getInsightsByLocation').mockResolvedValue({
+      rows: [], totals: { spend_pence: 0, kwh: 0, sessions: 0 },
+    })
+    vi.spyOn(api, 'getInsightsOverview').mockResolvedValue({
+      ...EMPTY_OVERVIEW,
+      seasonal_efficiency: [],
+      capacity_trend: [],
+    })
+    vi.spyOn(api, 'getCars').mockResolvedValue([])
+
+    render(<MemoryRouter><Insights /></MemoryRouter>)
+
+    // Wait for the page to settle
+    await waitFor(() =>
+      expect(screen.queryByText(/loading/i)).not.toBeInTheDocument(),
+    )
+
+    expect(screen.queryByRole('heading', { name: /seasonal efficiency/i })).toBeNull()
+    expect(screen.queryByRole('heading', { name: /estimated battery health/i })).toBeNull()
   })
 })

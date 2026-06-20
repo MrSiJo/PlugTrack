@@ -499,12 +499,30 @@ export interface InsightsEfficiencyPoint {
   cost_per_mile_p: number | null
 }
 
+export interface SeasonalEfficiencyPoint {
+  /** "YYYY-MM" */
+  period: string
+  mi_per_kwh: number | null
+  derived_range_km: number | null
+  low_confidence: boolean
+}
+
+export interface CapacityTrendPoint {
+  /** "YYYY-MM-DD" */
+  date: string
+  usable_kwh: number
+  charging_type: 'ac' | 'dc'
+  low_confidence: boolean
+}
+
 export interface InsightsOverviewResponse {
   granularity: 'daily' | 'weekly' | 'monthly'
   over_time: InsightsOverTimePoint[]
   split: { home: InsightsSplitBucket; public: InsightsSplitBucket }
   by_network: InsightsNetworkRow[]
   efficiency: InsightsEfficiencyPoint[]
+  seasonal_efficiency?: SeasonalEfficiencyPoint[]
+  capacity_trend?: CapacityTrendPoint[]
 }
 
 export interface InsightsMileageResponse {
