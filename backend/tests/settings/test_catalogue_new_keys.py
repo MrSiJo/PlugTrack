@@ -5,7 +5,6 @@ from plugtrack.settings.catalogue import CATALOGUE
 from plugtrack.settings.seeds import seed_defaults
 
 NEW_KEYS = {
-    "pycupra_enabled": ("bool", False),
     "telegram_bot_enabled": ("bool", False),
     "telegram_bot_token": ("string", True),
     "telegram_allowed_user_ids": ("string", False),
@@ -23,9 +22,8 @@ def test_new_keys_present_with_expected_flags():
         assert by_key[key].is_secret is is_secret, key
 
 
-def test_pycupra_disabled_by_default():
+def test_ingestion_defaults():
     by_key = {e.key: e for e in CATALOGUE}
-    assert by_key["pycupra_enabled"].default_value == "false"
     assert by_key["telegram_bot_enabled"].default_value == "false"
     assert by_key["openai_model"].default_value == "gpt-5.5"
 

@@ -172,14 +172,11 @@ async def _observed_mi_per_kwh(
     odometer legs. Returns None when there's no clean measured leg or the
     result is outside the plausible [1.0, 8.0] band (→ nominal fallback).
     """
-    # Exclude unconfirmed rows: they carry no measured odometer and would
-    # corrupt the SoC-drop / distance legs used to calibrate efficiency (spec §4).
     stmt = (
         select(ChargingSession)
         .where(
             ChargingSession.user_id == user_id,
             ChargingSession.car_id == car_id,
-            ChargingSession.source != "unconfirmed",
         )
         .order_by(ChargingSession.date.asc(), ChargingSession.id.asc())
     )

@@ -12,7 +12,7 @@
  *   │ Top locations                                    │
  *   └──────────────────────────────────────────────────┘
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Zap } from 'lucide-react'
 import {
@@ -23,7 +23,10 @@ import {
   type DashboardSummary,
   type SpendTrendDay,
 } from '@/api/client'
-import { HeroCarCard } from '@/components/dashboard/HeroCarCard'
+import {
+  HeroCarCard,
+  type LatestCharge,
+} from '@/components/dashboard/HeroCarCard'
 import { SpendChart } from '@/components/dashboard/SpendChart'
 import { Card } from '@/components/ui/Card'
 import { GradientNumber } from '@/components/ui/GradientNumber'
@@ -34,7 +37,6 @@ import {
   formatDistance,
   useSetting,
 } from '@/stores/settingsStore'
-import { useSyncStore } from '@/stores/syncStore'
 import { formatCurrency } from '@/utils/currency'
 import { kmToMi } from '@/utils/distance'
 
@@ -144,10 +146,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const currencyCode = useSetting<string>('currency') ?? 'GBP'
-  const activeJobIds = useSyncStore((s) =>
-    Object.keys(s.currentJobsByCarId).sort().join(','),
-  )
-  const prevActiveJobIds = useRef(activeJobIds)
 
   const reload = async () => {
     try {
@@ -175,14 +173,6 @@ export default function Dashboard() {
     void reload()
   }, [])
 
-  useEffect(() => {
-    const prev = prevActiveJobIds.current
-    prevActiveJobIds.current = activeJobIds
-    if (prev && !activeJobIds) {
-      void reload()
-    }
-  }, [activeJobIds])
-
   if (loading) {
     return (
       <main className="mx-auto max-w-7xl px-6 py-8">
@@ -202,6 +192,22 @@ export default function Dashboard() {
   }
 
   if (!summary) return null
+
+  // Latest session per car for the HeroCarCard battery label + most-recent-
+  // charge summary. recent_sessions arrive date-desc / id-desc, so the first
+  // row encountered for a car_id is its most recent.
+  const latestChargeByCar = new Map<number, LatestCharge>()
+  for (const row of summary.recent_sessions) {
+    if (!latestChargeByCar.has(row.car_id)) {
+      latestChargeByCar.set(row.car_id, {
+        date: row.date,
+        end_soc: null,
+        kwh_added: row.kwh_added,
+        cost_pence: row.cost_pence,
+        location_name: row.location_name,
+      })
+    }
+  }
 
   const distance = formatDistance(summary.lifetime_totals.distance_km)
   const avgPerKwh =
@@ -238,7 +244,14 @@ export default function Dashboard() {
           {summary.cars.length === 0 ? (
             <Card className="text-sm text-slate-500">No cars yet.</Card>
           ) : (
-            summary.cars.map((car) => <HeroCarCard key={car.id} car={car} />)
+            summary.cars.map((car) => (
+              <HeroCarCard
+                key={car.id}
+                car={car}
+                latestCharge={latestChargeByCar.get(car.id) ?? null}
+                currency={currencyCode}
+              />
+            ))
           )}
         </div>
         <SpendChart

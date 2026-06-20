@@ -9,14 +9,6 @@ def test_catalogue_includes_required_v1_keys():
     from plugtrack.settings.catalogue import CATALOGUE
 
     keys = {entry.key for entry in CATALOGUE}
-    assert "cupra_username" in keys
-    assert "cupra_password" in keys
-    assert "cupra_spin" in keys
-    assert "vehicle_provider" in keys
-    assert "sync_interval_minutes_idle" in keys
-    assert "sync_interval_minutes_plugged" in keys
-    assert "sync_interval_minutes_charging" in keys
-    assert "sync_enabled" in keys
     assert "default_home_rate_p_per_kwh" in keys
     assert "petrol_price_p_per_litre" in keys
     assert "petrol_mpg" in keys
@@ -29,13 +21,10 @@ def test_catalogue_includes_required_v1_keys():
     assert "location_cluster_radius_m" in keys
 
 
-def test_cupra_credentials_are_marked_secret():
+def test_theme_is_not_secret():
     from plugtrack.settings.catalogue import CATALOGUE
 
     by_key = {e.key: e for e in CATALOGUE}
-    assert by_key["cupra_username"].is_secret is True
-    assert by_key["cupra_password"].is_secret is True
-    assert by_key["cupra_spin"].is_secret is True
     assert by_key["theme"].is_secret is False
 
 

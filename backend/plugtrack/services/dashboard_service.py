@@ -109,8 +109,7 @@ class LocationStat:
 @dataclass
 class CostPerMile:
     # Cost ÷ miles driven, in pence per mile. Null when there isn't enough
-    # odometer coverage to bound the window's distance. Cost numerators exclude
-    # unconfirmed rows (same policy as `LifetimeTotals`).
+    # odometer coverage to bound the window's distance.
     lifetime_pence: Optional[float] = None
     rolling_30d_pence: Optional[float] = None
 
@@ -134,15 +133,14 @@ class DashboardSummary:
 async def dashboard_summary(
     session: AsyncSession,
     user_id: int,
-    orchestrator: Any | None = None,
     today: Optional[date_cls] = None,
 ) -> DashboardSummary:
     """Build a DashboardSummary for the given user.
 
-    `orchestrator`, when supplied, is a `SyncOrchestrator` whose
-    `get_state(car_id)` returns the in-memory `CarSyncState`. We merge
-    its live fields into each car panel; otherwise we fall back to the
-    most-recent session's `end_soc`.
+    The live sync subsystem has been removed, so the per-car panel's
+    battery readout falls back to the most-recent session's `end_soc`;
+    the formerly live-only fields (`last_state`, `next_poll_at`,
+    `active_job_id`, charging power/estimates, etc.) are always None.
 
     `today` anchors the rolling 30-day cost-per-mile window; it defaults to
     the current UTC date and is injectable for deterministic tests.
@@ -187,7 +185,8 @@ async def dashboard_summary(
 
     for car in cars:
         last_cs = last_session_by_car.get(car.id)
-        # Defaults from last session, overridden by live orchestrator state.
+        # The live sync subsystem is gone — battery falls back to the most
+        # recent session's `end_soc`; the formerly live-only fields stay None.
         battery_level: Optional[int] = last_cs.end_soc if last_cs else None
         last_connected: Optional[datetime] = (
             last_cs.charge_end_at or last_cs.charge_start_at if last_cs else None
@@ -196,7 +195,6 @@ async def dashboard_summary(
         last_soc: Optional[int] = battery_level
         next_poll_at: Optional[datetime] = None
         active_job_id: Optional[str] = None
-        location_id: Optional[int] = None
         electric_range_km: Optional[int] = None
         charging_power_kw: Optional[float] = None
         target_soc: Optional[int] = None
@@ -204,42 +202,14 @@ async def dashboard_summary(
         max_charge_current: Optional[str] = None
         charging_estimated_end_at: Optional[datetime] = None
 
-        if orchestrator is not None:
-            try:
-                live = orchestrator.get_state(car.id)
-            except Exception:  # noqa: BLE001 — defensive
-                live = None
-            if live is not None:
-                if live.last_soc is not None:
-                    battery_level = live.last_soc
-                    last_soc = live.last_soc
-                if live.last_car_captured_timestamp is not None:
-                    last_connected = live.last_car_captured_timestamp
-                last_state = live.last_state
-                next_poll_at = live.next_poll_at
-                active_job_id = live.active_job_id
-                location_id = getattr(live, "last_location_id", None)
-                electric_range_km = getattr(live, "last_electric_range_km", None)
-                charging_power_kw = getattr(live, "last_charging_power_kw", None)
-                target_soc = getattr(live, "last_target_soc", None)
-                battery_care = getattr(live, "last_battery_care", None)
-                max_charge_current = getattr(live, "last_max_charge_current", None)
-                charging_estimated_end_at = getattr(
-                    live, "last_charging_estimated_end_at", None
-                )
-
-        # `charging_cable_connected` is derived from the in-memory state
-        # machine: PLUGGED_IN, CHARGING, CHARGING_DONE all imply cable in.
-        cable_connected = last_state in {"PLUGGED_IN", "CHARGING", "CHARGING_DONE"}
-
-        # Resolve current cluster → name + address.
+        # Without live state there is no current cluster to resolve; these
+        # stay None (the response keys are preserved for the frontend).
         location_name: Optional[str] = None
         location_address: Optional[str] = None
-        if location_id is not None:
-            loc_row = await session.get(Location, location_id)
-            if loc_row is not None:
-                location_name = loc_row.name
-                location_address = loc_row.address
+
+        # `charging_cable_connected` was derived from the live state machine,
+        # which no longer exists — always False now.
+        cable_connected = False
 
         # Mileage tracking — active period only. `get_status` materialises
         # any anniversaries that have rolled over since the last visit;
@@ -311,14 +281,12 @@ async def dashboard_summary(
         )
 
     # ---- Lifetime totals ----
-    # Unconfirmed rows are excluded until the user promotes them (spec §4).
     totals_stmt = select(
         func.coalesce(func.sum(ChargingSession.kwh_added), 0.0),
         func.coalesce(func.sum(ChargingSession.cost_pence), 0),
         func.count(ChargingSession.id),
     ).where(
         ChargingSession.user_id == user_id,
-        ChargingSession.source != "unconfirmed",
     )
     kwh_sum, cost_sum, sessions_count = (await session.execute(totals_stmt)).one()
 
@@ -352,9 +320,9 @@ async def dashboard_summary(
     )
 
     # ---- Cost per mile (lifetime + rolling 30 days) ----
-    # Numerators reuse the unconfirmed-excluding cost sums; denominators come
-    # from `_miles_driven_km` (the single source of truth for windowed odometer
-    # deltas), so numerator and denominator share the same exclusion policy.
+    # Numerators reuse the cost sums above; denominators come from
+    # `_miles_driven_km` (the single source of truth for windowed odometer
+    # deltas).
     def _ppm(cost_pence: int, miles_km: Optional[float]) -> Optional[float]:
         if not miles_km or miles_km <= 0:
             return None
@@ -365,7 +333,6 @@ async def dashboard_summary(
         await session.execute(
             select(func.coalesce(func.sum(ChargingSession.cost_pence), 0)).where(
                 ChargingSession.user_id == user_id,
-                ChargingSession.source != "unconfirmed",
                 ChargingSession.date >= lo_30d,
                 ChargingSession.date <= today,
             )
@@ -386,7 +353,6 @@ async def dashboard_summary(
     # Rank by how many charges happened at each location. Locations with zero
     # charging sessions are excluded (HAVING), so a clustered-but-never-charged
     # spot doesn't show up with a "0 charges / £0" row.
-    # Unconfirmed rows are excluded from counts/totals until promoted (spec §4).
     charge_count_col = func.count(ChargingSession.id)
     loc_stmt = (
         select(
@@ -398,8 +364,7 @@ async def dashboard_summary(
         )
         .join(
             ChargingSession,
-            (ChargingSession.location_id == Location.id)
-            & (ChargingSession.source != "unconfirmed"),
+            ChargingSession.location_id == Location.id,
             isouter=True,
         )
         .where(Location.user_id == user_id)

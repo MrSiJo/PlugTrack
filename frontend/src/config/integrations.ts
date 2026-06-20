@@ -20,31 +20,10 @@ export interface IntegrationDef {
   /** Advisory note shown below the card header (e.g. dependency warnings). */
   hint?: string
   /** Named action panels to render inside the card body. */
-  actions?: ('testTelegram' | 'testOpenai' | 'clearPycupraTokens' | 'syncControls')[]
+  actions?: ('testTelegram' | 'testOpenai')[]
 }
 
 export const INTEGRATIONS: IntegrationDef[] = [
-  {
-    key: 'cupra',
-    label: 'Cupra Connect',
-    masterKey: 'pycupra_enabled',
-    settingKeys: [
-      'cupra_username',
-      'cupra_password',
-      'cupra_spin',
-      'vehicle_provider',
-      'sync_enabled',
-      'sync_interval_minutes_idle',
-      'sync_interval_minutes_plugged',
-      'sync_interval_minutes_charging',
-      'sync_daily_request_budget',
-      'sync_quota_soft_fraction',
-      'unconfirmed_soc_delta_threshold',
-      'unconfirmed_regen_ceiling',
-      'unconfirmed_stationary_tolerance_km',
-    ],
-    actions: ['clearPycupraTokens', 'syncControls'],
-  },
   {
     key: 'telegram',
     label: 'Telegram',

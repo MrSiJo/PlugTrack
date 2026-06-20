@@ -79,13 +79,11 @@ async def _effective_bounds(session, user_id, date_from, date_to):
     if lo is None:
         lo = (await session.execute(
             select(func.min(ChargingSession.date)).where(
-                ChargingSession.user_id == user_id,
-                ChargingSession.source != "unconfirmed"))).scalar_one_or_none()
+                ChargingSession.user_id == user_id))).scalar_one_or_none()
     if hi is None:
         hi = (await session.execute(
             select(func.max(ChargingSession.date)).where(
-                ChargingSession.user_id == user_id,
-                ChargingSession.source != "unconfirmed"))).scalar_one_or_none()
+                ChargingSession.user_id == user_id))).scalar_one_or_none()
     return lo, hi
 
 

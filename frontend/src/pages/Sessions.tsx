@@ -4,9 +4,6 @@
  * A single flat, sortable table: Date · Location · Energy · Cost ·
  * Saved vs petrol · SoC · Rate · Type.
  * Filters: source (Tabs) + date range (DropdownMenu, incl. custom range).
- *
- * Phase 4 highlight behaviour preserved — rows in
- * `syncStore.recentlyImportedSessionIds` get `data-highlighted="true"`.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
@@ -29,7 +26,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/cn'
-import { useSyncStore } from '@/stores/syncStore'
 import { formatCurrency } from '@/utils/currency'
 import { useSetting } from '@/stores/settingsStore'
 import {
@@ -41,7 +37,7 @@ import {
   type SortDir,
 } from '@/components/sessions/SessionsTable'
 
-type SourceFilter = 'all' | 'telegram' | 'manual' | 'synthesis' | 'import' | 'unconfirmed'
+type SourceFilter = 'all' | 'telegram' | 'manual' | 'synthesis' | 'import'
 
 type DateRange =
   | 'this_month'
@@ -379,32 +375,13 @@ export default function Sessions() {
   const [customTo, setCustomTo] = useState<string>(todayIso())
   const [sort, setSort] = useState<SortField>('date')
   const [dir, setDir] = useState<SortDir>('desc')
-  /** All-time count of un-triaged unconfirmed rows (source='unconfirmed'). */
-  const [unconfirmedCount, setUnconfirmedCount] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
   /** Bumped after a manual create to force the list effect to refetch. */
   const [reloadToken, setReloadToken] = useState(0)
-  const recentlyImported = useSyncStore((s) => s.recentlyImportedSessionIds)
   const currency = useSetting<string>('currency') ?? 'GBP'
 
   const isCustom = dateRange === 'custom'
   const invalidCustom = isCustom && customFrom > customTo
-
-  /** Fetch the all-time unconfirmed count separately (no date bounds). */
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const count = await api.countUnconfirmedSessions()
-        if (!cancelled) setUnconfirmedCount(count)
-      } catch {
-        // Non-fatal: badge simply doesn't appear.
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   useEffect(() => {
     if (invalidCustom) return
@@ -428,12 +405,6 @@ export default function Sessions() {
         const data = await api.getSessions(qs ? `?${qs}` : undefined)
         if (!cancelled) {
           setSessions(data)
-          // If we are already viewing the unconfirmed filter, the badge count
-          // is exactly the returned set length (no date bounds needed — the
-          // unconfirmed list is always all-time for the badge).
-          if (sourceFilter === 'unconfirmed') {
-            setUnconfirmedCount(data.length)
-          }
           setError(null)
         }
       } catch (err) {
@@ -544,7 +515,7 @@ export default function Sessions() {
       )}
 
       <div className="mb-4 flex flex-wrap gap-2" data-testid="source-tabs">
-        {(['all', 'telegram', 'manual', 'synthesis', 'import', 'unconfirmed'] as SourceFilter[]).map(
+        {(['all', 'telegram', 'manual', 'synthesis', 'import'] as SourceFilter[]).map(
           (f) => (
             <button
               key={f}
@@ -562,15 +533,6 @@ export default function Sessions() {
                 : f === 'synthesis'
                   ? 'Cupra'
                   : SOURCE_LABEL[f]}
-              {f === 'unconfirmed' && unconfirmedCount !== null && unconfirmedCount > 0 && (
-                <span
-                  className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white"
-                  data-testid="unconfirmed-badge"
-                  aria-label={`${unconfirmedCount} unconfirmed`}
-                >
-                  {unconfirmedCount}
-                </span>
-              )}
             </button>
           ),
         )}
@@ -642,7 +604,6 @@ export default function Sessions() {
           sessions={sessions}
           currency={currency}
           breakeven={summary.breakeven}
-          highlightedIds={recentlyImported}
           sortControls={{ sort, dir, onSort: handleSort }}
         />
       )}

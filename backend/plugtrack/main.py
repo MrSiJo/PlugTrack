@@ -132,10 +132,6 @@ async def _apply_additive_migrations(conn) -> None:
         ("charging_session", "battery_care", "BOOLEAN"),
         ("charging_session", "max_charge_current", "VARCHAR(16)"),
         ("charging_session", "actual_charge_seconds", "INTEGER"),
-        ("car_state", "last_battery_care", "BOOLEAN"),
-        ("car_state", "last_max_charge_current", "VARCHAR(16)"),
-        ("car_state", "last_charging_estimated_end_at", "DATETIME"),
-        ("car_state", "last_odometer_km", "INTEGER"),
         # screenshot_import usage columns (token/cost tracking)
         ("screenshot_import", "input_tokens", "INTEGER"),
         ("screenshot_import", "output_tokens", "INTEGER"),
@@ -148,35 +144,6 @@ async def _apply_additive_migrations(conn) -> None:
             await conn.execute(
                 _text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
             )
-
-
-async def _apply_value_migrations(conn) -> None:
-    """Idempotent value-level data migrations.
-
-    Unlike `_apply_additive_migrations` (which adds columns), this
-    function corrects stored values after renames. Each migration is
-    expressed as a conditional UPDATE so re-runs are cheap no-ops (the
-    WHERE clause finds nothing on subsequent runs).
-    """
-    from sqlalchemy import text as _text
-
-    # Rename: source='phantom' -> source='unconfirmed'.
-    # The 'phantom' name was used during initial development; the stored
-    # value was renamed to 'unconfirmed' in the first public release.
-    # Safe to re-run: rows already updated have source='unconfirmed' so
-    # the WHERE clause matches nothing on subsequent startups.
-    await conn.execute(
-        _text(
-            "UPDATE charging_session SET source='unconfirmed' WHERE source='phantom'"
-        )
-    )
-
-    # Standalone pivot: VAG blocked the pycupra API (2026-06-08), so existing
-    # 'cupra_connect' cars become standalone 'manual' cars fed by screenshot
-    # imports. Idempotent: re-runs match nothing once flipped.
-    await conn.execute(
-        _text("UPDATE car SET provider='manual' WHERE provider='cupra_connect'")
-    )
 
 
 async def reconcile_ai_enabled(session) -> None:
@@ -222,166 +189,12 @@ async def _lifespan(app: FastAPI):
     async with db_module.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _apply_additive_migrations(conn)
-        await _apply_value_migrations(conn)
     async with db_module.SessionLocal() as session:
         await seed_defaults(session)
         await session.commit()
         await reconcile_ai_enabled(session)
 
-    # Standalone pivot: VAG blocked the pycupra API (2026-06-08). The sync
-    # stack (orchestrator + scheduler) is only wired when `pycupra_enabled`
-    # is true; by default PlugTrack is fed by Telegram screenshot imports.
-    async with db_module.SessionLocal() as _flag_session:
-        pycupra_enabled = await _read_bool_setting(_flag_session, "pycupra_enabled", False)
-
-    if pycupra_enabled:
-        # Phase 4: orchestrator + scheduler + event bus.
-        from .services.event_bus import get_event_bus
-        from .services.sync_orchestrator import SyncOrchestrator
-        from .services.sync_scheduler import SyncScheduler
-        from .services.sync_worker import (
-            get_user_sync_settings,
-            make_pycupra_adapter_provider,
-            make_settings_provider,
-            make_worker,
-            _quota_cache,
-        )
-
-        # Seed the in-memory quota cache from the DB so the scheduler knows
-        # the current day's count immediately after a restart (before the first
-        # poll). Without this, a restart resets the cache to 0 and the scheduler
-        # would ignore accumulated quota until the next poll fires.
-        from .models.sync_quota import read_today_count as _read_today_count
-        async with db_module.SessionLocal() as _quota_seed_session:
-            _today_count = await _read_today_count(_quota_seed_session)
-            _quota_cache.seed(_today_count)
-
-        bus = get_event_bus()
-        app.state.event_bus = bus
-        # Phase 4.6: wire the production poll worker (StateMachine + DB
-        # writes + cost + clustering + event emission).
-        poll_worker = make_worker(
-            db_sessionmaker=db_module.SessionLocal,
-            settings_provider=make_settings_provider(db_module.SessionLocal),
-            adapter_provider=make_pycupra_adapter_provider(db_module.SessionLocal),
-            bus=bus,
-        )
-        app.state.sync_orchestrator = SyncOrchestrator(poll_worker=poll_worker)
-
-        # Rehydrate per-car state from the persisted snapshots so the
-        # dashboard shows last-known battery/range/state immediately on
-        # cold start (before the first periodic sync fires).
-        from sqlalchemy import select as _select
-        from .models import CarStateSnapshot, PlugInRecord
-        rehydrated_car_ids: list[int] = []
-        async with db_module.SessionLocal() as session:
-            snaps = (
-                await session.execute(_select(CarStateSnapshot))
-            ).scalars().all()
-            for snap in snaps:
-                st = app.state.sync_orchestrator.ensure_state(snap.car_id)
-                st.last_state = snap.last_state or "IDLE"
-                st.last_soc = snap.last_soc
-                st.last_odometer_km = snap.last_odometer_km
-                st.last_target_soc = snap.last_target_soc
-                st.last_electric_range_km = snap.last_electric_range_km
-                st.last_charging_power_kw = snap.last_charging_power_kw
-                st.last_battery_care = snap.last_battery_care
-                st.last_max_charge_current = snap.last_max_charge_current
-                st.last_charging_estimated_end_at = snap.last_charging_estimated_end_at
-                st.last_position_lat = snap.last_position_lat
-                st.last_position_lng = snap.last_position_lng
-                st.last_location_id = snap.last_location_id
-                st.last_car_captured_timestamp = snap.last_car_captured_timestamp
-                rehydrated_car_ids.append(snap.car_id)
-
-                # Orphan-plug-in watchdog: if the snapshot says we're IDLE,
-                # any open PlugInRecord for this car is the leftover of an
-                # unplug missed across a restart. Close it conservatively at
-                # the snapshot's last-known timestamp + SoC so the row stops
-                # haunting subsequent state transitions.
-                if st.last_state == "IDLE":
-                    orphans = (
-                        await session.execute(
-                            _select(PlugInRecord).where(
-                                PlugInRecord.car_id == snap.car_id,
-                                PlugInRecord.plug_out_at.is_(None),
-                            )
-                        )
-                    ).scalars().all()
-                    for pir in orphans:
-                        pir.plug_out_at = snap.last_car_captured_timestamp
-                        pir.plug_out_soc = snap.last_soc
-            await session.commit()
-
-        async def _scheduled_sync(car_id: int) -> None:
-            await app.state.sync_orchestrator.sync_car(car_id, kind="periodic")
-
-        def _settings_provider() -> dict:
-            # Synchronous read used by SyncScheduler.start()/schedule_next.
-            # We block on a fresh session — startup is short-lived; per-tick
-            # reads also pay this cost but APScheduler's loop tolerates it.
-            import asyncio as _asyncio
-
-            async def _read() -> dict:
-                async with db_module.SessionLocal() as session:
-                    # user_id is unused inside; we pass 0 deliberately.
-                    return await get_user_sync_settings(session, 0)
-
-            try:
-                loop = _asyncio.get_event_loop()
-                if loop.is_running():
-                    # Defensive: should only be hit if called during the
-                    # active loop. APScheduler uses the same loop and will
-                    # await `_scheduled_sync` rather than calling this; this
-                    # branch is the fallback for tests.
-                    return {}
-            except RuntimeError:
-                pass
-            return _asyncio.run(_read())
-
-        from .services.sync_worker import get_today_request_count as _quota_provider
-
-        app.state.sync_scheduler = SyncScheduler(
-            sync_callback=_scheduled_sync,
-            settings_provider=_settings_provider,
-            quota_provider=_quota_provider,
-        )
-        app.state.sync_scheduler.start()
-
-        # After every sync (force or periodic) the scheduler arms the next
-        # periodic poll based on the observed state.
-        def _after_sync(car_id: int, state) -> None:  # type: ignore[no-untyped-def]
-            try:
-                app.state.sync_scheduler.schedule_next(
-                    car_id=car_id,
-                    state=state,
-                    telemetry=None,
-                    settings=_settings_provider(),
-                )
-            except Exception:  # noqa: BLE001
-                pass
-
-        app.state.sync_orchestrator.set_on_complete(_after_sync)
-
-        # Arm a periodic poll for every car we just rehydrated. Without this
-        # the scheduler stays idle until the user clicks Force sync, which
-        # leaves "Next sync: never" on the dashboard after every restart.
-        if app.state.sync_scheduler.is_enabled():
-            _bootstrap_settings = _settings_provider()
-            for car_id in rehydrated_car_ids:
-                state = app.state.sync_orchestrator.ensure_state(car_id)
-                try:
-                    app.state.sync_scheduler.schedule_next(
-                        car_id=car_id,
-                        state=state,
-                        telemetry=None,
-                        settings=_bootstrap_settings,
-                    )
-                except Exception:  # noqa: BLE001
-                    pass
-
-    # Telegram screenshot-ingestion bot (independent of pycupra). The manager
+    # Telegram screenshot-ingestion bot. The manager
     # owns the long-poll task and reconciles it against DB settings; it stays
     # off until `telegram_bot_enabled` is true (default off).
     from .services.telegram_manager import TelegramBotManager
@@ -402,7 +215,7 @@ async def _lifespan(app: FastAPI):
         _log.info("MCP session manager started.")
 
     # ---------------------------------------------------------------------------
-    # Backup scheduler — independent of the pycupra sync stack.
+    # Backup scheduler.
     # Starts whenever `backup_enabled` is true (default: true).
     # The interval is read once at startup; changing backup_interval_hours
     # requires a restart (acceptable for v1).  Retention is read fresh inside
@@ -487,9 +300,6 @@ async def _lifespan(app: FastAPI):
     try:
         yield
     finally:
-        scheduler = getattr(app.state, "sync_scheduler", None)
-        if scheduler is not None:
-            scheduler.stop()
         mgr = getattr(app.state, "telegram_manager", None)
         if mgr is not None:
             await mgr.stop()
@@ -533,7 +343,6 @@ def create_app() -> FastAPI:
     from .api.routes import sessions as sessions_routes
     from .api.routes import settings as settings_routes
     from .api.routes import setup as setup_routes
-    from .api.routes import sync as sync_routes
     from .api.routes import telegram as telegram_routes
     from .api.routes import mcp_tokens as mcp_tokens_routes
 
@@ -544,7 +353,6 @@ def create_app() -> FastAPI:
     app.include_router(cars_routes.router)
     app.include_router(sessions_routes.router)
     app.include_router(locations_routes.router)
-    app.include_router(sync_routes.router)
     app.include_router(dashboard_routes.router)
     app.include_router(insights_routes.router)
     app.include_router(geocode_routes.router)

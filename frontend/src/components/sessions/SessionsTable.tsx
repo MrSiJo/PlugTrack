@@ -15,7 +15,6 @@ const SOURCE_TONE: Record<string, PillTone> = {
   manual: 'amber',
   synthesis: 'cyan',
   import: 'purple',
-  unconfirmed: 'slate',
 }
 
 export const SOURCE_LABEL: Record<string, string> = {
@@ -23,7 +22,6 @@ export const SOURCE_LABEL: Record<string, string> = {
   manual: 'Manual',
   synthesis: 'Cupra',
   import: 'Import',
-  unconfirmed: 'Unconfirmed',
 }
 
 const TYPE_LABEL: Record<string, string> = { ac: 'AC', dc: 'DC' }

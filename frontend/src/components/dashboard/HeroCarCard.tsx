@@ -1,93 +1,64 @@
-import { Zap } from 'lucide-react'
 import type { DashboardCarPanel, DashboardMileageYear } from '@/api/client'
 import { Card } from '@/components/ui/Card'
 import { GradientNumber } from '@/components/ui/GradientNumber'
-import { Pill, type PillTone } from '@/components/ui/Pill'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { useDistanceUnit, type DistanceUnit } from '@/stores/settingsStore'
+import { formatCurrency } from '@/utils/currency'
 import { kmToMi } from '@/utils/distance'
 
-interface StateMeta {
-  label: string
-  tone: PillTone
+/**
+ * Snapshot of the car's most recent charging session, derived on the
+ * dashboard from the `recent_sessions` payload. Drives the battery readout
+ * ("after last charge") and the compact most-recent-charge summary.
+ */
+export interface LatestCharge {
+  date: string
+  end_soc: number | null
+  kwh_added: number
+  cost_pence: number | null
+  location_name: string | null
 }
 
-const STATE_META: Record<string, StateMeta> = {
-  IDLE: { label: 'Disconnected', tone: 'slate' },
-  PLUGGED_IN: { label: 'Plugged in', tone: 'amber' },
-  CHARGING: { label: 'Charging', tone: 'cyan' },
-  CHARGING_DONE: { label: 'Charge complete', tone: 'green' },
-}
-
-function formatRelative(iso: string | null): string {
-  if (!iso) return 'never'
-  const t = new Date(iso).getTime()
-  if (Number.isNaN(t)) return 'never'
-  const delta = Date.now() - t
-  if (delta < 0) {
-    const ahead = Math.round(-delta / 1000)
-    if (ahead < 60) return `in ${ahead}s`
-    if (ahead < 3600) return `in ${Math.round(ahead / 60)}m`
-    return `in ${Math.round(ahead / 3600)}h`
-  }
-  const seconds = Math.round(delta / 1000)
-  if (seconds < 60) return `${seconds}s ago`
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`
-  if (seconds < 86_400) return `${Math.round(seconds / 3600)}h ago`
-  return `${Math.round(seconds / 86_400)}d ago`
-}
-
-function formatShortTime(iso: string | null): string | null {
-  if (!iso) return null
-  const t = new Date(iso)
-  if (Number.isNaN(t.getTime())) return null
-  return t.toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
+function formatChargeDate(iso: string): string {
+  // ISO date (yyyy-mm-dd…). Render as a short "27 May" style label.
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
   })
 }
 
 export interface HeroCarCardProps {
   car: DashboardCarPanel
+  /** Most recent session for this car, or null when none exists. */
+  latestCharge?: LatestCharge | null
+  /** ISO 4217 currency code for the last-charge cost (defaults to GBP). */
+  currency?: string
 }
 
-export function HeroCarCard({ car }: HeroCarCardProps) {
-  const meta = car.last_state ? STATE_META[car.last_state] : null
-  const isCharging = car.last_state === 'CHARGING'
+export function HeroCarCard({
+  car,
+  latestCharge = null,
+  currency = 'GBP',
+}: HeroCarCardProps) {
   const unit = useDistanceUnit()
-  const battery = car.battery_level
 
-  const rangeDisplay =
-    car.electric_range_km !== null && car.electric_range_km !== undefined
-      ? unit === 'mi'
-        ? `${Math.round(kmToMi(car.electric_range_km))} mi`
-        : `${car.electric_range_km} km`
+  // Battery readout is a snapshot taken "after last charge", not a live sync
+  // value. The backend already populates `battery_level` from the most recent
+  // session's end_soc; fall back to the passed latest-charge end_soc. Hidden
+  // when there is no session at all.
+  const battery =
+    car.battery_level !== null && car.battery_level !== undefined
+      ? car.battery_level
+      : latestCharge && latestCharge.end_soc !== null
+        ? latestCharge.end_soc
+        : null
+
+  const summaryLocation =
+    latestCharge?.location_name && latestCharge.location_name.trim() !== ''
+      ? latestCharge.location_name
       : null
-
-  let chargeRateDisplay: string | null = null
-  if (
-    isCharging &&
-    car.charging_power_kw !== null &&
-    car.charging_power_kw !== undefined &&
-    car.charging_power_kw > 0 &&
-    car.nominal_efficiency_mi_per_kwh
-  ) {
-    const miPerHour =
-      car.charging_power_kw * car.nominal_efficiency_mi_per_kwh
-    chargeRateDisplay =
-      unit === 'mi'
-        ? `${miPerHour.toFixed(1)} mi/h`
-        : `${(miPerHour / 0.621371).toFixed(1)} km/h`
-  }
-
-  const estEndDisplay =
-    isCharging ? formatShortTime(car.charging_estimated_end_at) : null
-
-  const locationDisplay = car.location_address
-    ? car.location_name
-      ? `${car.location_name} · ${car.location_address}`
-      : car.location_address
-    : car.location_name
 
   return (
     <Card
@@ -100,98 +71,55 @@ export function HeroCarCard({ car }: HeroCarCardProps) {
           <p className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
             {car.make} {car.model}
           </p>
-          {meta && (
-            <Pill tone={meta.tone} className="mt-1.5" data-testid="state-pill">
-              {isCharging && <Zap className="mr-1 h-3 w-3" aria-hidden />}
-              {meta.label}
-            </Pill>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
-          {car.battery_care && (
-            <Pill tone="amber" data-testid="battery-care-pill">
-              Battery care
-            </Pill>
-          )}
-          {isCharging &&
-            car.charging_power_kw !== null &&
-            car.charging_power_kw !== undefined &&
-            car.charging_power_kw > 0 && (
-              <Pill tone="cyan" data-testid="car-charging">
-                {car.charging_power_kw.toFixed(1)} kW
-                {chargeRateDisplay && (
-                  <span className="ml-1 opacity-75">· {chargeRateDisplay}</span>
-                )}
-              </Pill>
-            )}
         </div>
       </div>
 
-      <div className="flex items-baseline gap-2" data-testid="car-soc">
-        {battery !== null && battery !== undefined ? (
-          <>
+      {battery !== null && latestCharge && (
+        <>
+          <div className="flex items-baseline gap-2" data-testid="car-soc">
             <GradientNumber size="xl">{battery}</GradientNumber>
             <span className="text-2xl font-semibold tabular-nums text-slate-400 dark:text-slate-500">
               %
             </span>
-          </>
-        ) : (
-          <span className="text-3xl font-semibold tabular-nums text-slate-400">
-            —
-          </span>
-        )}
-        {car.target_soc !== null && car.target_soc !== undefined && (
-          <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
-            target {car.target_soc}%
-          </span>
-        )}
-      </div>
+            <span
+              className="ml-2 text-xs text-slate-500 dark:text-slate-400"
+              data-testid="car-battery-label"
+            >
+              after last charge · {formatChargeDate(latestCharge.date)}
+            </span>
+          </div>
 
-      <ProgressBar
-        value={battery ?? 0}
-        gradient
-        pulsing={isCharging}
-        className="h-2.5"
-      />
+          <ProgressBar value={battery} gradient className="h-2.5" />
+        </>
+      )}
 
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-        {rangeDisplay && (
-          <div data-testid="car-range">
-            <span className="text-slate-400 dark:text-slate-500">Range </span>
+      {latestCharge && (
+        <div
+          className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400"
+          data-testid="car-last-charge"
+        >
+          <span>
+            <span className="text-slate-400 dark:text-slate-500">Added </span>
             <span className="font-medium tabular-nums text-slate-700 dark:text-slate-200">
-              {rangeDisplay}
+              {latestCharge.kwh_added.toFixed(1)} kWh
             </span>
-          </div>
-        )}
-        {locationDisplay && (
-          <div className="truncate" data-testid="car-location">
-            <span className="text-slate-400 dark:text-slate-500">Where </span>
-            <span className="font-medium text-slate-700 dark:text-slate-200">
-              {locationDisplay}
-            </span>
-          </div>
-        )}
-        <div>
-          <span className="text-slate-400 dark:text-slate-500">Seen </span>
-          <span className="font-medium text-slate-700 dark:text-slate-200">
-            {formatRelative(car.last_connected)}
           </span>
-        </div>
-        <div>
-          <span className="text-slate-400 dark:text-slate-500">Sync </span>
-          <span className="font-medium text-slate-700 dark:text-slate-200">
-            {formatRelative(car.next_poll_at)}
-          </span>
-        </div>
-        {estEndDisplay && (
-          <div data-testid="car-est-end">
-            <span className="text-slate-400 dark:text-slate-500">Full </span>
+          <span>
+            <span className="text-slate-400 dark:text-slate-500">Cost </span>
             <span className="font-medium tabular-nums text-slate-700 dark:text-slate-200">
-              ~{estEndDisplay}
+              {formatCurrency(latestCharge.cost_pence, currency)}
             </span>
-          </div>
-        )}
-      </div>
+          </span>
+          {summaryLocation && (
+            <span className="truncate">
+              <span className="text-slate-400 dark:text-slate-500">At </span>
+              <span className="font-medium text-slate-700 dark:text-slate-200">
+                {summaryLocation}
+              </span>
+            </span>
+          )}
+        </div>
+      )}
 
       {car.mileage_year && (
         <MileageYearTile mileage={car.mileage_year} unit={unit} />

@@ -21,10 +21,8 @@ import Planner from '@/pages/Planner'
 import SessionDetail from '@/pages/SessionDetail'
 import Sessions from '@/pages/Sessions'
 import SetupPage from '@/pages/SetupPage'
-import AuthFailureBanner from '@/components/AuthFailureBanner'
 import CommandPalette from '@/components/CommandPalette'
 import NavBar from '@/components/NavBar'
-import SyncStreamSubscriber from '@/components/SyncStreamSubscriber'
 
 interface BootstrapResult {
   setupNeeded: boolean
@@ -305,9 +303,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AppShell>
-        <SyncStreamSubscriber />
         <CommandPalette />
-        <AuthFailureBanner />
         <AppRoutes result={result} />
       </AppShell>
     </BrowserRouter>

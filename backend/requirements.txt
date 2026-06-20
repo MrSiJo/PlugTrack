@@ -14,11 +14,3 @@ apscheduler==3.10.4
 httpx==0.27.2
 python-multipart==0.0.10
 mcp==1.12.4
-# pycupra: bumped to v0.2.33 (2026-06-07) — resets loginInProgress when
-# authorize() raises, so failed logins can be retried instead of wedging.
-# KNOWN OUTAGE: since 2026-06-08 ~12:00 CEST VW/CARIAD block third-party API
-# access server-side (Akamai 403 on /garage/vehicles even with valid tokens,
-# likely app attestation). NO pycupra version fixes this — official app working
-# no longer implies a pin bump will help. Track HA-pycupra #99; read-only
-# fallback is the EU Data Act portal (WulfgarW/ha_get_euda_data, 15-min lag).
-pycupra @ git+https://github.com/WulfgarW/pycupra.git@v0.2.33

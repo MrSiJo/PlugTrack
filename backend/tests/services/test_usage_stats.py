@@ -38,8 +38,6 @@ async def test_window_totals_and_avg(test_sessionmaker, seeded_user_car):
     await _mk(test_sessionmaker, user_id=user_id, car_id=car_id, when=dt.date(2026, 6, 10), kwh=5.0, cost_pence=None)
     # a last-month charge (excluded from "this month")
     await _mk(test_sessionmaker, user_id=user_id, car_id=car_id, when=dt.date(2026, 5, 20), kwh=8.0, cost_pence=160)
-    # an unconfirmed row (excluded everywhere)
-    await _mk(test_sessionmaker, user_id=user_id, car_id=car_id, when=dt.date(2026, 6, 5), kwh=99.0, cost_pence=9999, source="unconfirmed")
 
     async with test_sessionmaker() as s:
         snap = await build_usage_snapshot(s, user_id=user_id, today=today, distance_unit="mi")
@@ -54,7 +52,7 @@ async def test_window_totals_and_avg(test_sessionmaker, seeded_user_car):
     assert lm.sessions == 1 and lm.spend == "£1.60"
 
     life = _w(snap, "lifetime")
-    assert life.sessions == 3            # unconfirmed excluded
+    assert life.sessions == 3
     assert life.spend == "£3.60"
 
     assert snap.today == "2026-06-17"

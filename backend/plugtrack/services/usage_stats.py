@@ -4,7 +4,7 @@
 All figures are pre-rendered into display strings (money in £, energy in kWh,
 distances in the user's unit) so the answering model performs no arithmetic and
 no unit conversion — it only selects and narrates. Every query filters by
-user_id and excludes `source == "unconfirmed"`.
+user_id.
 """
 from __future__ import annotations
 

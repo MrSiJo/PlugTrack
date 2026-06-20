@@ -1,20 +1,13 @@
 /**
  * Cars browse page (B6 stripped).
  *
- * Shows the car cards (image, specs, mileage display) and the Cupra
- * "discover" flow. Car add/edit/delete and mileage-setup have moved to
- * Admin → CarsManagement.
+ * Shows the car cards (image, specs, mileage display). Car add/edit/delete
+ * and mileage-setup live in Admin → CarsManagement.
  */
 import { useEffect, useState } from 'react'
-import {
-  ApiError,
-  api,
-  type CarPayload,
-  type DiscoveredVehicle,
-} from '@/api/client'
+import { ApiError, api, type CarPayload } from '@/api/client'
 import { CarImage } from '@/components/cars/CarImage'
 import { CarMileageSection } from '@/components/cars/CarMileageSection'
-import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -24,25 +17,6 @@ export default function CarsPage() {
   const [cars, setCars] = useState<CarPayload[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [discovering, setDiscovering] = useState(false)
-  const [discovered, setDiscovered] = useState<DiscoveredVehicle[] | null>(null)
-
-  async function handleDiscover() {
-    setDiscovering(true)
-    setError(null)
-    setDiscovered(null)
-    try {
-      const list = await api.discoverVehicles()
-      setDiscovered(list)
-      if (list.length === 0) {
-        setError('No vehicles returned by Cupra Connect.')
-      }
-    } catch (err) {
-      setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err))
-    } finally {
-      setDiscovering(false)
-    }
-  }
 
   async function reload() {
     setLoading(true)
@@ -63,47 +37,7 @@ export default function CarsPage() {
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-6">
-      <PageHeader
-        title="Cars"
-        actions={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void handleDiscover()}
-            disabled={discovering}
-          >
-            {discovering ? 'Discovering…' : 'Discover from Cupra'}
-          </Button>
-        }
-      />
-
-      {discovered && discovered.length > 0 && (
-        <Card className="mb-6">
-          <p className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-            Vehicles found on your Cupra Connect account
-          </p>
-          <ul className="mt-2 space-y-2">
-            {discovered.map((v) => (
-              <li
-                key={v.vin}
-                className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
-              >
-                <div className="min-w-0 text-sm">
-                  <code className="font-mono text-slate-900 dark:text-slate-100">
-                    {v.vin}
-                  </code>
-                  <span className="ml-3 text-slate-500">
-                    {v.model ?? 'unknown model'} {v.year ?? ''}
-                  </span>
-                </div>
-                <span className="text-xs text-slate-500">
-                  Add via Admin → Cars
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
+      <PageHeader title="Cars" />
 
       {error && (
         <div role="alert" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { api, type DashboardSummary } from '@/api/client'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -167,6 +167,17 @@ describe('Dashboard page', () => {
     // Per-car panels.
     expect(screen.getByTestId('car-panel-1')).toHaveTextContent('Born')
     expect(screen.getByTestId('car-panel-2')).toHaveTextContent('Tavascan')
+
+    // HeroCarCard now shows a snapshot battery labelled "after last charge",
+    // sourced from the latest session derived off recent_sessions.
+    const car1 = screen.getByTestId('car-panel-1')
+    expect(car1).toHaveTextContent('73')
+    expect(car1).toHaveTextContent(/after last charge/i)
+    // Most-recent-charge summary for car 1 (session id 100: 12.5 kWh @ Home).
+    expect(within(car1).getByTestId('car-last-charge')).toHaveTextContent(
+      '12.5 kWh',
+    )
+    expect(within(car1).getByTestId('car-last-charge')).toHaveTextContent('Home')
 
     // Recent session rows present.
     expect(screen.getByTestId('recent-session-100')).toBeInTheDocument()

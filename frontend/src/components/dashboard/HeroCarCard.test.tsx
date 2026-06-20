@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { DashboardCarPanel } from '@/api/client'
-import { HeroCarCard } from './HeroCarCard'
+import { HeroCarCard, type LatestCharge } from './HeroCarCard'
 
 vi.mock('@/stores/settingsStore', async () => {
   const actual: object = await vi.importActual('@/stores/settingsStore')
@@ -15,23 +15,33 @@ const baseCar: DashboardCarPanel = {
   id: 1,
   make: 'Cupra',
   model: 'Born',
+  // Snapshot battery — the backend now sources this from the latest
+  // session's end_soc; the live-sync fields below are always null.
   battery_level: 62,
-  charging_cable_connected: true,
-  last_connected: new Date(Date.now() - 60_000).toISOString(),
-  next_poll_at: new Date(Date.now() + 60_000).toISOString(),
-  last_state: 'CHARGING',
+  charging_cable_connected: false,
+  last_connected: null,
+  next_poll_at: null,
+  last_state: null,
   last_soc: 62,
   active_job_id: null,
-  location_name: 'Home',
+  location_name: null,
   location_address: null,
-  electric_range_km: 320,
-  charging_power_kw: 7.4,
-  target_soc: 80,
+  electric_range_km: null,
+  charging_power_kw: null,
+  target_soc: null,
   battery_care: null,
   max_charge_current: null,
   charging_estimated_end_at: null,
   nominal_efficiency_mi_per_kwh: 4.2,
   mileage_year: null,
+}
+
+const baseCharge: LatestCharge = {
+  date: '2026-05-27',
+  end_soc: 62,
+  kwh_added: 18.4,
+  cost_pence: 240,
+  location_name: 'Home',
 }
 
 describe('HeroCarCard', () => {
@@ -41,70 +51,90 @@ describe('HeroCarCard', () => {
    * The DashboardCarPanel payload does not include a VIN field — VIN is
    * only present on CarPayload (the list/get endpoint) which is masked
    * server-side. The HeroCarCard therefore cannot leak a full VIN.
-   * This test asserts that no 17-character alphanumeric VIN string appears
-   * in the rendered card output.
    */
   it('does not render a 17-character VIN string', () => {
-    render(<HeroCarCard car={baseCar} />)
-    // A standard VIN is exactly 17 uppercase alphanumeric chars.
-    // The card should not contain any such string.
+    render(<HeroCarCard car={baseCar} latestCharge={baseCharge} />)
     const container = screen.getByTestId(`car-panel-${baseCar.id}`)
     const text = container.textContent ?? ''
     expect(text).not.toMatch(/[A-HJ-NPR-Z0-9]{17}/)
   })
 
-  it('renders battery percentage as gradient number', () => {
-    render(<HeroCarCard car={baseCar} />)
-    expect(screen.getByText('62')).toBeInTheDocument()
+  it('renders the make/model identity', () => {
+    render(<HeroCarCard car={baseCar} latestCharge={baseCharge} />)
+    const container = screen.getByTestId('car-panel-1')
+    expect(container).toHaveTextContent('Cupra')
+    expect(container).toHaveTextContent('Born')
   })
 
-  it('shows charging pill with kW when charging', () => {
-    render(<HeroCarCard car={baseCar} />)
-    expect(screen.getByTestId('car-charging').textContent).toMatch(/7\.4 kW/)
+  it('renders the battery percentage as a gradient number', () => {
+    render(<HeroCarCard car={baseCar} latestCharge={baseCharge} />)
+    expect(screen.getByTestId('car-soc')).toHaveTextContent('62')
   })
 
-  it('falls back gracefully when battery_level is null', () => {
-    render(<HeroCarCard car={{ ...baseCar, battery_level: null }} />)
-    expect(screen.getByTestId('car-soc').textContent).toContain('—')
+  it('labels the battery readout "after last charge" with the latest session date', () => {
+    render(<HeroCarCard car={baseCar} latestCharge={baseCharge} />)
+    const label = screen.getByTestId('car-battery-label')
+    expect(label).toHaveTextContent(/after last charge/i)
+    // 2026-05-27 → "27 May" (short day/month, locale-dependent order).
+    expect(label).toHaveTextContent(/27/)
+    expect(label).toHaveTextContent(/May/)
   })
 
-  it('omits charging pill when not charging', () => {
-    render(<HeroCarCard car={{ ...baseCar, last_state: 'IDLE' }} />)
-    expect(screen.queryByTestId('car-charging')).not.toBeInTheDocument()
+  it('shows the most-recent-charge summary: kWh added, cost, and location', () => {
+    render(<HeroCarCard car={baseCar} latestCharge={baseCharge} currency="GBP" />)
+    const summary = screen.getByTestId('car-last-charge')
+    expect(summary).toHaveTextContent('18.4 kWh')
+    expect(summary).toHaveTextContent('£2.40')
+    expect(summary).toHaveTextContent('Home')
   })
 
-  it('shows the state label', () => {
-    render(<HeroCarCard car={baseCar} />)
-    expect(screen.getByTestId('state-pill').textContent).toContain('Charging')
-  })
-
-  it('renders a Battery care pill when battery_care is true', () => {
-    render(<HeroCarCard car={{ ...baseCar, battery_care: true }} />)
-    expect(screen.getByTestId('battery-care-pill').textContent).toContain(
-      'Battery care',
-    )
-  })
-
-  it('omits the Battery care pill when battery_care is falsy', () => {
-    render(<HeroCarCard car={baseCar} />)
-    expect(screen.queryByTestId('battery-care-pill')).not.toBeInTheDocument()
-  })
-
-  it('shows an estimated-end line while charging when set', () => {
-    const end = new Date(Date.now() + 3_600_000).toISOString()
-    render(
-      <HeroCarCard car={{ ...baseCar, charging_estimated_end_at: end }} />,
-    )
-    expect(screen.getByTestId('car-est-end')).toBeInTheDocument()
-  })
-
-  it('omits the estimated-end line when not charging', () => {
-    const end = new Date(Date.now() + 3_600_000).toISOString()
+  it('omits the location from the summary when the latest charge has none', () => {
     render(
       <HeroCarCard
-        car={{ ...baseCar, last_state: 'IDLE', charging_estimated_end_at: end }}
+        car={baseCar}
+        latestCharge={{ ...baseCharge, location_name: null }}
       />,
     )
+    const summary = screen.getByTestId('car-last-charge')
+    expect(summary).toHaveTextContent('18.4 kWh')
+    expect(summary).not.toHaveTextContent('At ')
+  })
+
+  it('hides the battery readout and summary when there is no latest charge', () => {
+    render(<HeroCarCard car={{ ...baseCar, battery_level: null }} latestCharge={null} />)
+    expect(screen.queryByTestId('car-soc')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('car-last-charge')).not.toBeInTheDocument()
+  })
+
+  it('does not render the removed live-sync pills/rows', () => {
+    render(<HeroCarCard car={baseCar} latestCharge={baseCharge} />)
+    // Charging-power pill, live state pill, battery-care pill, estimated-end row.
+    expect(screen.queryByTestId('car-charging')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('state-pill')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('battery-care-pill')).not.toBeInTheDocument()
     expect(screen.queryByTestId('car-est-end')).not.toBeInTheDocument()
+    // The "Seen" (last_connected) and "Sync" (next_poll_at) rows are gone.
+    const container = screen.getByTestId('car-panel-1')
+    expect(container).not.toHaveTextContent(/Seen/)
+    expect(container).not.toHaveTextContent(/Sync/)
+  })
+
+  it('still renders the mileage-year tile when present', () => {
+    render(
+      <HeroCarCard
+        car={{
+          ...baseCar,
+          mileage_year: {
+            period_start_date: '2026-01-01',
+            period_end_date: '2026-12-31',
+            opening_odometer_km: 10_000,
+            current_odometer_km: 15_000,
+            annual_mileage_target_km: 16_000,
+          },
+        }}
+        latestCharge={baseCharge}
+      />,
+    )
+    expect(screen.getByTestId('car-mileage-year')).toBeInTheDocument()
   })
 })

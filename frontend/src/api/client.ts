@@ -168,11 +168,6 @@ export interface SettingPayload {
 
 export type SettingsMap = Record<string, SettingPayload>
 
-export interface ClearTokensResponse {
-  cleared: boolean
-  count: number
-}
-
 // ---------------------------------------------------------------------------
 // Telegram health + OpenAI models
 // ---------------------------------------------------------------------------
@@ -228,12 +223,6 @@ export interface CarCreateRequest {
 }
 
 export type CarUpdateRequest = Partial<CarCreateRequest>
-
-export interface DiscoveredVehicle {
-  vin: string
-  model: string | null
-  year: string | null
-}
 
 // ---------------------------------------------------------------------------
 // Mileage tracking
@@ -369,14 +358,6 @@ export interface SessionCreateRequest {
 // false server-side); everything else mirrors the create payload.
 export type SessionUpdateRequest = Partial<SessionCreateRequest> & {
   interrupted?: boolean | null
-}
-
-export interface SessionConfirmRequest {
-  location_id?: number | null
-  kwh_added?: number | null
-  cost_per_kwh_override_p?: number | null
-  total_cost_pence_override?: number | null
-  notes?: string | null
 }
 
 export interface LocationPayload {
@@ -618,11 +599,6 @@ export const api = {
       body: { key, value },
     }),
 
-  clearPycupraTokens: (): Promise<ClearTokensResponse> =>
-    fetchJSON<ClearTokensResponse>('/api/settings/clear-pycupra-tokens', {
-      method: 'POST',
-    }),
-
   testTelegram: (): Promise<HealthReport> =>
     fetchJSON<HealthReport>('/api/telegram/test', { method: 'POST' }),
 
@@ -630,9 +606,6 @@ export const api = {
     fetchJSON<OpenAiModelsResponse>('/api/openai/models'),
 
   // ----- Cars -----
-
-  discoverVehicles: (): Promise<DiscoveredVehicle[]> =>
-    fetchJSON<DiscoveredVehicle[]>('/api/cars/discover', { method: 'POST' }),
 
   getCars: (): Promise<CarPayload[]> => fetchJSON<CarPayload[]>('/api/cars'),
 
@@ -706,24 +679,6 @@ export const api = {
 
   deleteSession: (id: number): Promise<void> =>
     fetchJSON<void>(`/api/sessions/${id}`, { method: 'DELETE' }),
-
-  confirmSession: (
-    id: number,
-    req: SessionConfirmRequest,
-  ): Promise<ChargingSessionPayload> =>
-    fetchJSON<ChargingSessionPayload>(`/api/sessions/${id}/confirm`, {
-      method: 'POST',
-      body: req,
-    }),
-
-  /** Count sessions with source='unconfirmed'. Uses the list endpoint with no
-   *  date bounds so all-time unconfirmed rows are counted. */
-  countUnconfirmedSessions: async (): Promise<number> => {
-    const rows = await fetchJSON<ChargingSessionPayload[]>(
-      '/api/sessions?source=unconfirmed',
-    )
-    return rows.length
-  },
 
   // ----- Locations -----
 
@@ -803,14 +758,6 @@ export const api = {
   getInsightsMileage: (carId: number): Promise<InsightsMileageResponse> =>
     fetchJSON<InsightsMileageResponse>(`/api/insights/mileage?car_id=${carId}`),
 
-  // ----- Sync -----
-
-  syncCar: (carId: number): Promise<SyncJobResponse> =>
-    fetchJSON<SyncJobResponse>(`/api/sync/${carId}`, { method: 'POST' }),
-
-  getSyncStatus: (): Promise<SyncStatusResponse> =>
-    fetchJSON<SyncStatusResponse>('/api/sync/status'),
-
   // ----- Dashboard -----
 
   getDashboard: (): Promise<DashboardSummary> =>
@@ -877,34 +824,6 @@ export const api = {
 export interface SpendTrendDay {
   date: string
   cost_pence: number
-}
-
-// ---------------------------------------------------------------------------
-// Sync types
-// ---------------------------------------------------------------------------
-
-export interface SyncJobResponse {
-  job_id: string
-  stream_url: string
-  kind: string
-  status: string
-}
-
-export interface CarSyncStatus {
-  last_state: string | null
-  last_soc: number | null
-  next_poll_at: string | null
-  last_error: string | null
-  active_job_id: string | null
-  consecutive_failures: number
-  auth_invalid: boolean
-}
-
-export interface SyncStatusResponse {
-  cars: Record<string, CarSyncStatus>
-  requests_today: number
-  request_budget: number
-  quota_state: 'ok' | 'stretching' | 'paused'
 }
 
 // ---------------------------------------------------------------------------
