@@ -722,4 +722,58 @@ describe('SessionDetail — car reassignment picker', () => {
       expect(updateSpy).toHaveBeenCalledWith(1, expect.objectContaining({ car_id: 8 }))
     })
   })
+
+  it('shows an error alert when updateSession rejects during car reassign', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({ car_id: 7 }),
+    )
+    vi.spyOn(api, 'getCars').mockResolvedValue([
+      {
+        id: 7,
+        make: 'Cupra',
+        model: 'Born',
+        name: null,
+        display_name: 'Cupra Born',
+        vin: null,
+        battery_kwh: 59,
+        nominal_efficiency_mi_per_kwh: 3.5,
+        provider: 'cupra',
+        provider_vehicle_id: null,
+        active: true,
+      },
+      {
+        id: 8,
+        make: 'Tesla',
+        model: 'Model 3',
+        name: null,
+        display_name: 'Tesla Model 3',
+        vin: null,
+        battery_kwh: 75,
+        nominal_efficiency_mi_per_kwh: 4.0,
+        provider: 'manual',
+        provider_vehicle_id: null,
+        active: true,
+      },
+    ])
+    vi.spyOn(api, 'updateSession').mockRejectedValue(new Error('Server error'))
+
+    const user = userEvent.setup()
+    renderDetail()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('car-reassign-picker')).toBeInTheDocument()
+    })
+
+    // Open the picker and select a different car
+    await user.click(screen.getByTestId('car-reassign-picker'))
+    const option = await screen.findByRole('option', { name: 'Tesla Model 3' })
+    await user.click(option)
+
+    // Failure message should appear
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        "Couldn't reassign car — please try again.",
+      )
+    })
+  })
 })

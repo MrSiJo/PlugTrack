@@ -153,7 +153,7 @@ export default function CarPicker({
                     {archivedCars.map((car) => (
                       <CommandItem
                         key={car.id}
-                        value={`${car.display_name} archived`}
+                        value={`${car.display_name} (archived)`}
                         onSelect={() => handleSelect(car.id)}
                       >
                         {car.display_name} (archived)

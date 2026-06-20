@@ -836,6 +836,7 @@ export default function SessionDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [labelToast, setLabelToast] = useState<string | null>(null)
+  const [reassignError, setReassignError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [cars, setCars] = useState<CarPayload[]>([])
 
@@ -867,14 +868,14 @@ export default function SessionDetail() {
 
   async function handleCarReassign(carId: number | null) {
     if (carId === null || session === null || sessionId === null) return
+    setReassignError(null)
     try {
       await api.updateSession(sessionId, { car_id: carId })
       // Refetch to get fresh session data including recomputed metrics.
       const fresh = await api.getSession(sessionId)
       setSession(fresh)
     } catch {
-      // Silently fail for now; the picker reverts to the current value
-      // on next render because session.car_id doesn't change on error.
+      setReassignError("Couldn't reassign car — please try again.")
     }
   }
 
@@ -1075,6 +1076,12 @@ export default function SessionDetail() {
             </Tooltip>
           </div>
         </Card>
+
+        {reassignError && (
+          <p role="alert" className="mb-4 text-xs text-red-600 dark:text-red-400">
+            {reassignError}
+          </p>
+        )}
 
         {session.power_curve && session.power_curve.length > 0 && (
           <section className="mb-6">
