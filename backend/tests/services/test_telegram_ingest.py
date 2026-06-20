@@ -338,7 +338,8 @@ async def test_handle_text_charge_note_stages_and_cards(test_sessionmaker, seede
 
     ctx = IngestContext(
         telegram=tg, sessionmaker=test_sessionmaker, extractor=None,
-        resolve_target=lambda: (user_id, car_id), allowed_user_ids={111},
+        resolve_target=lambda: (user_id, None),  # production-realistic: no car_id
+        allowed_user_ids={111},
         extractor_text=extractor_text)
     await handle_text(ctx, from_id=111, chat_id=9, text="home 9.3kwh 8h31m")
     assert tg.sent and tg.sent[-1]["kb"] is not None       # confirm card with buttons
@@ -498,7 +499,8 @@ async def test_save_reply_includes_committed_cost(test_sessionmaker, seeded_user
 
     ctx = IngestContext(
         telegram=tg, sessionmaker=test_sessionmaker, extractor=None,
-        resolve_target=lambda: (user_id, car_id), allowed_user_ids={111},
+        resolve_target=lambda: (user_id, None),  # production-realistic: no car_id
+        allowed_user_ids={111},
         extractor_text=extractor_text)
 
     # Stage a home charge note, then Save it.
@@ -696,3 +698,67 @@ async def test_zero_active_cars_sends_friendly_message(test_sessionmaker):
     async with test_sessionmaker() as s:
         rows = (await s.execute(select(ScreenshotImport))).scalars().all()
     assert rows == []
+
+
+# ---------------------------------------------------------------------------
+# Task 6 bug fix: text path must resolve car_id (not pass None to commit)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_text_charge_note_save_resolves_car_not_none(test_sessionmaker, seeded_user_car):
+    """Primary bug: handle_text with resolve_target returning car_id=None must
+    still commit the session with the correct car_id (not raise IntegrityError).
+    """
+    from sqlalchemy import select
+    from plugtrack.models import ChargingSession
+
+    user_id, car_id = seeded_user_car
+    tg = FakeTelegram({})
+
+    async def extractor_text(text):
+        return ExtractionResult(extraction=_ex_text(), usage=Usage(10, 10, 0))
+
+    # Production-realistic: resolve_target returns (user_id, None) — no car_id.
+    ctx = IngestContext(
+        telegram=tg, sessionmaker=test_sessionmaker, extractor=None,
+        resolve_target=lambda: (user_id, None),
+        allowed_user_ids={111},
+        extractor_text=extractor_text)
+
+    await handle_text(ctx, from_id=111, chat_id=9, text="home 9.3kwh 8h31m")
+    await handle_callback(ctx, from_id=111, callback_id="cb1", data="save", chat_id=9)
+
+    async with test_sessionmaker() as s:
+        rows = (await s.execute(select(ChargingSession))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].car_id == car_id  # must be the seeded car, not None
+
+
+@pytest.mark.asyncio
+async def test_save_after_bot_restart_resolves_car_from_single_active(test_sessionmaker, seeded_user_car):
+    """I1 — bot restart: pending_car_choice is cleared (simulating process restart).
+    Save must re-resolve from the single active car instead of crashing with IntegrityError.
+    """
+    from sqlalchemy import select
+    from plugtrack.models import ChargingSession
+
+    user_id, car_id = seeded_user_car
+    files = {"osprey.json": b"osprey.json"}
+    tg = FakeTelegram(files)
+    ctx = _ctx(tg, test_sessionmaker, car_id, user_id)
+
+    # Stage a photo (car resolution runs, pending_car_choice is set)
+    await handle_photo(ctx, from_id=111, chat_id=9, message_id=1, file_id="osprey.json")
+
+    # Simulate bot restart: clear in-memory state
+    ctx.pending_car_choice.clear()
+    # Also simulate that resolve_target now returns None for car_id (production reality)
+    ctx.resolve_target = lambda: (user_id, None)
+
+    # Tap Save — must re-resolve car from DB
+    await handle_callback(ctx, from_id=111, callback_id="cb1", data="save", chat_id=9)
+
+    async with test_sessionmaker() as s:
+        rows = (await s.execute(select(ChargingSession))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].car_id == car_id  # correct car despite pending_car_choice being empty

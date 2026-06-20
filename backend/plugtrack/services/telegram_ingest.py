@@ -539,8 +539,6 @@ async def _stage_and_card(
         merged, unplaceable = correlate_batch([parse_extraction(r.extracted) for r in staged])
         # Preview what Save will produce (kWh + home/location-rate cost) so the
         # card shows real figures, not "£?". Best-effort — never block the card.
-        if car_id is None:
-            _uid, car_id = ctx.resolve_target()
         unit = await _distance_unit_for(s)
         from datetime import date as _date
         projected: list[dict] = []
@@ -572,6 +570,57 @@ async def _stage_and_card(
             "so I can place them."
         )
     await _send_or_edit_card(ctx, chat_id=chat_id, text=text)
+
+
+async def _resolve_and_stage(
+    ctx: IngestContext,
+    *,
+    user_id: int,
+    chat_id: int,
+    extraction: "Extraction",
+    usage: "Any",
+    telegram_file_id: Optional[str],
+    message_id: Optional[int],
+    sha: str,
+    caption: Optional[str] = None,
+) -> None:
+    """Shared car-resolution + staging for both photo and text paths.
+
+    Mirrors the block in handle_photo (lines 738-770) so that handle_text
+    goes through identical logic instead of calling _stage_and_card directly
+    with car_id=None.
+    """
+    resolved_car_id: Optional[int] = ctx.pending_car_choice.get(chat_id)
+    if resolved_car_id is None:
+        async with ctx.sessionmaker() as _res_session:
+            resolution = await resolve_car_for_message(
+                _res_session, user_id=user_id, caption=caption)
+        if resolution.kind == "none":
+            await ctx.telegram.send_message(
+                chat_id=chat_id,
+                text="No active car — add or restore one first.")
+            return
+        if resolution.kind == "prompt":
+            # Stage without showing the confirm card yet; send the carpick keyboard.
+            await _stage_and_card(
+                ctx, user_id=user_id, chat_id=chat_id, extraction=extraction,
+                usage=usage, telegram_file_id=telegram_file_id, message_id=message_id, sha=sha,
+                send_card=False,
+            )
+            await ctx.telegram.send_message(
+                chat_id=chat_id,
+                text="Which car is this charge for?",
+                reply_markup=_carpick_kb(resolution.active_cars),
+            )
+            return
+        # kind == "auto" or "matched"
+        resolved_car_id = resolution.car_id
+        ctx.pending_car_choice[chat_id] = resolved_car_id
+
+    await _stage_and_card(
+        ctx, user_id=user_id, car_id=resolved_car_id, chat_id=chat_id, extraction=extraction,
+        usage=usage, telegram_file_id=telegram_file_id, message_id=message_id, sha=sha,
+    )
 
 
 def _extraction_to_edit_kwargs(extraction: "Extraction") -> dict[str, Any]:
@@ -730,43 +779,13 @@ async def handle_photo(
         extraction = dataclasses.replace(extraction, **repl)
 
     # -------------------------------------------------------------------
-    # Car resolution: determine which car this charge belongs to.
-    # Stickiness: if pending_car_choice already set (from a prior carpick
-    # callback or auto-resolved earlier shot in this batch), use it directly
-    # without re-resolving.
+    # Car resolution + staging — delegated to shared helper so that
+    # handle_text goes through identical logic.
     # -------------------------------------------------------------------
-    resolved_car_id: Optional[int] = ctx.pending_car_choice.get(chat_id)
-    if resolved_car_id is None:
-        async with ctx.sessionmaker() as _res_session:
-            resolution = await resolve_car_for_message(
-                _res_session, user_id=user_id, caption=caption)
-        if resolution.kind == "none":
-            await ctx.telegram.send_message(
-                chat_id=chat_id,
-                text="No active car — add or restore one first.")
-            return
-        if resolution.kind == "prompt":
-            # Stage the screenshot so it isn't lost, then ask which car.
-            # send_card=False: no Save/Discard card yet; the carpick keyboard
-            # follows immediately, and the confirm card appears after the user picks.
-            await _stage_and_card(
-                ctx, user_id=user_id, chat_id=chat_id, extraction=extraction,
-                usage=result.usage, telegram_file_id=file_id, message_id=message_id, sha=sha,
-                send_card=False,
-            )
-            await ctx.telegram.send_message(
-                chat_id=chat_id,
-                text="Which car is this charge for?",
-                reply_markup=_carpick_kb(resolution.active_cars),
-            )
-            return
-        # kind == "auto" or "matched"
-        resolved_car_id = resolution.car_id
-        ctx.pending_car_choice[chat_id] = resolved_car_id
-
-    await _stage_and_card(
-        ctx, user_id=user_id, car_id=resolved_car_id, chat_id=chat_id, extraction=extraction,
+    await _resolve_and_stage(
+        ctx, user_id=user_id, chat_id=chat_id, extraction=extraction,
         usage=result.usage, telegram_file_id=file_id, message_id=message_id, sha=sha,
+        caption=caption,
     )
 
 
@@ -871,6 +890,19 @@ async def handle_callback(
     # Resolve car_id: prefer pending_car_choice (set by resolve_car_for_message
     # or carpick callback); fall back to the static config car_id.
     car_id = ctx.pending_car_choice.get(chat_id, car_id)
+    # I1: pending_car_choice lost on bot restart — re-resolve if still None.
+    if car_id is None and data == "save":
+        async with ctx.sessionmaker() as _re_s:
+            _re = await resolve_car_for_message(_re_s, user_id=user_id, caption=None)
+        if _re.kind in ("auto", "matched"):
+            car_id = _re.car_id
+        else:
+            await ctx.telegram.answer_callback(callback_id, "No car")
+            await ctx.telegram.send_message(
+                chat_id=chat_id,
+                text="Couldn't determine which car — open the app to set one.",
+            )
+            return
 
     async with ctx.sessionmaker() as s:
         staged = (
@@ -1005,10 +1037,12 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
         if usable:
             import hashlib as _hashlib
             sha = _hashlib.sha256(("text:" + text.strip().lower()).encode()).hexdigest()
-            user_id, _car_id = ctx.resolve_target()
-            await _stage_and_card(ctx, user_id=user_id, chat_id=chat_id, extraction=e,
-                                  usage=result.usage, telegram_file_id=None,
-                                  message_id=None, sha=sha)
+            user_id, _ = ctx.resolve_target()
+            await _resolve_and_stage(
+                ctx, user_id=user_id, chat_id=chat_id, extraction=e,
+                usage=result.usage, telegram_file_id=None, message_id=None, sha=sha,
+                caption=text,
+            )
             return
     # -----------------------------------------------------------------------
     # Agentic loop (Task 4) — replaces usage_answerer for non-charge messages.
