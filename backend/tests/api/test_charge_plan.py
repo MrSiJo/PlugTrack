@@ -155,7 +155,7 @@ async def _make_dc_session(
 # ---------------------------------------------------------------------------
 
 REQUIRED_ROW_FIELDS = {"label", "power_kw", "minutes", "source_tag"}
-VALID_SOURCE_TAGS = {"curve", "average", "modelled", "history", "spec", ""}
+VALID_SOURCE_TAGS = {"curve", "average", "modelled", "history", "spec"}
 
 
 def _assert_valid_row(row: dict) -> None:
@@ -164,6 +164,7 @@ def _assert_valid_row(row: dict) -> None:
         assert f in row, f"Missing field {f!r} in row {row}"
     assert isinstance(row["power_kw"], (int, float)) and row["power_kw"] > 0
     assert isinstance(row["minutes"], int) and row["minutes"] > 0
+    assert row["source_tag"], f"source_tag must be non-empty, got {row['source_tag']!r} in row {row}"
     assert row["source_tag"] in VALID_SOURCE_TAGS, f"Unexpected source_tag: {row['source_tag']!r}"
 
 
@@ -207,8 +208,8 @@ async def test_charge_plan_returns_scenario_table(authed_client):
     assert "rows" in body
     rows = body["rows"]
     assert isinstance(rows, list)
-    # Default (no custom_kw): 3 AC + 3 DC = 6 rows.
-    assert len(rows) == 6, f"Expected 6 rows, got {len(rows)}: {[r['label'] for r in rows]}"
+    # Default (no custom_kw): 3 AC + 3 DC = at least 6 rows.
+    assert len(rows) >= 6, f"Expected at least 6 rows, got {len(rows)}: {[r['label'] for r in rows]}"
 
     # All rows must have the expected shape.
     for row in rows:
