@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from datetime import date as date_cls
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,6 +48,21 @@ def _image_dir() -> Path:
 
 router = APIRouter(prefix="/api/cars", tags=["cars"])
 
+# VINs are alphanumeric. The decrypted VIN is interpolated into an on-disk
+# image path (`image_<vin>_<view>.png`), so reject anything that could carry
+# a path-traversal sequence before it is ever stored. The mask character
+# (U+00B7) is permitted here so the friendlier "reveal the full VIN" 400 in
+# update_car still handles a re-submitted masked VIN; it is path-safe.
+_VIN_RE = re.compile("^[A-Za-z0-9·]+$")
+
+
+def _validate_vin(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    if not _VIN_RE.match(value):
+        raise ValueError("vin must be alphanumeric (A-Z, a-z, 0-9)")
+    return value
+
 
 class CarPayload(BaseModel):
     id: int
@@ -70,6 +86,8 @@ class CarCreateRequest(BaseModel):
     provider_vehicle_id: Optional[str] = Field(default=None, max_length=64)
     active: bool = True
 
+    _check_vin = field_validator("vin")(_validate_vin)
+
 
 class CarUpdateRequest(BaseModel):
     make: Optional[str] = Field(default=None, min_length=1, max_length=64)
@@ -80,6 +98,8 @@ class CarUpdateRequest(BaseModel):
     provider: Optional[str] = Field(default=None, max_length=32)
     provider_vehicle_id: Optional[str] = Field(default=None, max_length=64)
     active: Optional[bool] = None
+
+    _check_vin = field_validator("vin")(_validate_vin)
 
 
 def _mask_vin(vin: str | None) -> str | None:
@@ -301,7 +321,12 @@ async def get_car_image(
     vin = car.vin  # decrypts on the fly
     if not vin:
         raise HTTPException(status_code=404, detail="car has no VIN")
-    file_path = _image_dir() / f"image_{vin}_{view}.png"
+    base = _image_dir().resolve()
+    file_path = base / f"image_{vin}_{view}.png"
+    # Defence-in-depth: stored VINs are validated alphanumeric on write, but
+    # never let a path escape the image directory regardless of the VIN value.
+    if not file_path.resolve().is_relative_to(base):
+        raise HTTPException(status_code=404, detail="image not cached yet")
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="image not cached yet")
     return FileResponse(

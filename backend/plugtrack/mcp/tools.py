@@ -208,6 +208,27 @@ def _session_to_dict(cs: ChargingSession, *, location_name: Optional[str] = None
 # READ tools
 # ---------------------------------------------------------------------------
 
+_FIND_CHARGES_MAX_LIMIT = 200
+_FIND_CHARGES_DEFAULT_LIMIT = 10
+
+
+def _clamp_limit(
+    value: object,
+    *,
+    default: int = _FIND_CHARGES_DEFAULT_LIMIT,
+    maximum: int = _FIND_CHARGES_MAX_LIMIT,
+) -> int:
+    """Coerce a caller-supplied row limit into ``1 <= n <= maximum``.
+
+    Tokens/agents are authenticated but the limit is otherwise unbounded, so
+    a request for ``limit=10_000_000`` would force a huge serialization.
+    """
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(n, maximum))
+
 
 async def find_charges(
     session: AsyncSession,
@@ -242,7 +263,7 @@ async def find_charges(
         if location_id:  # 0/None -> no filter (models pass 0 for unset optionals)
             stmt = stmt.where(ChargingSession.location_id == location_id)
         stmt = stmt.order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
-        stmt = stmt.limit(limit)
+        stmt = stmt.limit(_clamp_limit(limit))
 
         rows = (await session.execute(stmt)).all()
         return [_session_to_dict(cs, location_name=loc_name, distance_unit=dist_unit) for cs, loc_name in rows]

@@ -26,6 +26,21 @@ from plugtrack.models import Car, ChargingSession, Location, Setting, User
 from plugtrack.settings.seeds import seed_defaults
 
 # ---------------------------------------------------------------------------
+# limit clamping (pure helper)
+# ---------------------------------------------------------------------------
+
+
+def test_clamp_limit_caps_excessive_values():
+    from plugtrack.mcp.tools import _clamp_limit
+
+    assert _clamp_limit(10_000_000) == 200
+    assert _clamp_limit(0) == 1
+    assert _clamp_limit(-5) == 1
+    assert _clamp_limit(25) == 25
+    assert _clamp_limit(None) == 10  # default when unset/invalid
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

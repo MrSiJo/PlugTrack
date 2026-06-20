@@ -6,8 +6,34 @@ from fastapi import FastAPI, Request, Response
 from httpx import ASGITransport, AsyncClient
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from starlette.datastructures import Headers
 
-from plugtrack.api.rate_limit import limiter
+from plugtrack.api.rate_limit import client_ip_key, limiter
+
+
+class _FakeRequest:
+    """Minimal stand-in exposing the .client.host and .headers a key needs."""
+
+    def __init__(self, peer: str, xff: str | None = None):
+        self.client = type("_C", (), {"host": peer})()
+        self.headers = Headers({"x-forwarded-for": xff} if xff else {})
+
+
+def test_client_ip_key_trusts_forwarded_for_from_private_proxy():
+    """Behind nginx (private peer), the real client IP comes from XFF left-most."""
+    req = _FakeRequest("172.18.0.5", xff="8.8.8.8, 172.18.0.5")
+    assert client_ip_key(req) == "8.8.8.8"
+
+
+def test_client_ip_key_ignores_forwarded_for_from_public_peer():
+    """A direct hit on the published port cannot spoof its IP via XFF."""
+    req = _FakeRequest("8.8.8.8", xff="10.0.0.1")
+    assert client_ip_key(req) == "8.8.8.8"
+
+
+def test_client_ip_key_falls_back_to_peer_without_forwarded_header():
+    req = _FakeRequest("8.8.8.8")
+    assert client_ip_key(req) == "8.8.8.8"
 
 
 def _build_app() -> FastAPI:
