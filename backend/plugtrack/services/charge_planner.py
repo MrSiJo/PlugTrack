@@ -341,6 +341,310 @@ def compute_charge_plan(
 
 
 # ---------------------------------------------------------------------------
+# Task 3: Scenario estimator + scenario table (pure, no DB)
+# ---------------------------------------------------------------------------
+
+_TAG_RANK = {"curve": 0, "average": 1, "modelled": 2}
+
+
+@dataclass
+class ScenarioRow:
+    """One row in the scenario comparison table.
+
+    Attributes
+    ----------
+    label       : Display name (e.g. "7 kW", "Car max", "Your home (actual)").
+    power_kw    : Representative effective (pre-loss) power shown to the user.
+                  For DC this is the energy-weighted average of
+                  min(charger_cap, capability) across the range.
+                  For AC this is min(flat_power_kw, charger_cap_kw).
+    minutes     : Total charge time (rounded) in minutes.
+    source_tag  : "curve" | "average" | "modelled" for DC rows.
+                  "history" when AC power came from home-actual;
+                  "spec" for fixed AC scenario rows.
+                  May be "" if not applicable.
+    finish_at   : "HH:MM" (AC rows only, from compute_charge_plan).
+    nights      : Number of nights needed (AC rows only).
+    note        : Optional user-facing caveat (e.g. car-limited note).
+    """
+
+    label: str
+    power_kw: float
+    minutes: int
+    source_tag: str
+    finish_at: Optional[str] = None
+    nights: Optional[int] = None
+    note: Optional[str] = None
+
+
+def estimate_scenario(
+    *,
+    kind: str,
+    label: str,
+    start_soc: int,
+    target_soc: int,
+    battery_kwh: float,
+    charger_cap_kw: float,
+    capability: Optional[DcCapability],
+    flat_power_kw: Optional[float],
+    loss_factor: float,
+    ac_window: Optional[dict],
+    source_tag: str,
+    note: Optional[str] = None,
+) -> ScenarioRow:
+    """Estimate charge time for one scenario row.
+
+    Parameters
+    ----------
+    kind            : "dc" or "ac".
+    label           : Display label for the row.
+    start_soc       : Starting SoC percentage (0–100).
+    target_soc      : Target SoC percentage (0–100), must be > start_soc.
+    battery_kwh     : Usable battery capacity in kWh.
+    charger_cap_kw  : For DC: EVSE/charger hardware cap.
+                      For AC: the AC ceiling (max_ac_kw or observed_ac_max).
+                      Effective power = min(scenario_power, charger_cap_kw).
+    capability      : DcCapability (required for kind=="dc").
+    flat_power_kw   : Flat AC scenario power in kW (required for kind=="ac").
+                      Convention: caller passes the AC scenario kW here and the
+                      AC ceiling as charger_cap_kw.  Effective power =
+                      min(flat_power_kw, charger_cap_kw).
+    loss_factor     : Charger efficiency (0 < loss_factor ≤ 1.0).
+                      Applied by DERATING power:
+                        DC: denominator = min(cap, capability) * loss_factor
+                        AC: passes power_kw * loss_factor into compute_charge_plan
+    ac_window       : Dict with keys: window_minutes, window_start_str,
+                      home_rate_p_per_kwh, is_free  (required for kind=="ac").
+    source_tag      : Seed tag (overridden by dominant-tag logic for DC).
+    note            : Optional pre-set note (passed through).
+
+    DC representative power rule
+    ----------------------------
+    power_kw = total_energy_kwh / total_time_h_without_loss
+    (i.e. energy / time-at-100%-efficiency = the mean effective capability over
+    the range, giving the user an intuitive "what was the average rate" number).
+
+    DC dominant-tag rule (worst-confidence wins)
+    -------------------------------------------
+    "modelled" > "average" > "curve"
+    If ANY SoC step in [start_soc, target_soc) resolves to "modelled", the row
+    tag is "modelled".  Else if any step is "average", tag is "average".  Else
+    "curve".  This ensures the UI signals uncertainty conservatively.
+    """
+    if kind == "dc":
+        assert capability is not None, "capability is required for kind='dc'"
+        total_time_h = 0.0
+        total_time_h_no_loss = 0.0
+        worst_tag_rank = 0  # starts at "curve" rank (0)
+
+        for soc in range(start_soc, target_soc):
+            delta_kwh = battery_kwh * (1 / 100)  # 1% SoC slice
+            cap_kw, tag = capability.power_at(soc)
+            effective_kw = min(charger_cap_kw, cap_kw)
+
+            # Track dominant tag
+            rank = _TAG_RANK.get(tag, 2)
+            if rank > worst_tag_rank:
+                worst_tag_rank = rank
+
+            # Time with loss applied
+            total_time_h += delta_kwh / (effective_kw * loss_factor)
+            # Time without loss (for representative power calculation)
+            total_time_h_no_loss += delta_kwh / effective_kw
+
+        minutes = round(total_time_h * 60)
+        # Representative power = energy / lossless time = the harmonic-mean-like
+        # value for the effective capability across the range.
+        total_energy_kwh = battery_kwh * (target_soc - start_soc) / 100
+        rep_power_kw = (
+            total_energy_kwh / total_time_h_no_loss
+            if total_time_h_no_loss > 0
+            else 0.0
+        )
+
+        # Resolve dominant tag
+        rank_to_tag = {v: k for k, v in _TAG_RANK.items()}
+        dominant_tag = rank_to_tag.get(worst_tag_rank, "modelled")
+
+        return ScenarioRow(
+            label=label,
+            power_kw=round(rep_power_kw, 2),
+            minutes=minutes,
+            source_tag=dominant_tag,
+            note=note,
+        )
+
+    elif kind == "ac":
+        assert flat_power_kw is not None, "flat_power_kw is required for kind='ac'"
+        assert ac_window is not None, "ac_window is required for kind='ac'"
+
+        # Effective power before loss (what the user sees as the "headline kW")
+        effective_kw = min(flat_power_kw, charger_cap_kw)
+
+        # Power passed to compute_charge_plan is loss-derated
+        plan = compute_charge_plan(
+            start_soc=start_soc,
+            target_soc=target_soc,
+            battery_kwh=battery_kwh,
+            power_kw=effective_kw * loss_factor,
+            window_minutes=ac_window["window_minutes"],
+            window_start_str=ac_window["window_start_str"],
+            home_rate_p_per_kwh=ac_window["home_rate_p_per_kwh"],
+            is_free=ac_window["is_free"],
+        )
+
+        return ScenarioRow(
+            label=label,
+            power_kw=round(effective_kw, 2),
+            minutes=plan.total_minutes,
+            source_tag=source_tag,
+            finish_at=plan.finish_at,
+            nights=plan.nights_needed,
+            note=note,
+        )
+
+    else:
+        raise ValueError(f"Unknown scenario kind: {kind!r}")
+
+
+def build_scenario_table(
+    *,
+    start_soc: int,
+    target_soc: int,
+    battery_kwh: float,
+    loss_factor: float,
+    ac: dict,
+    dc: dict,
+    custom_kw: Optional[float],
+) -> list[ScenarioRow]:
+    """Build the fixed ordered scenario comparison table.
+
+    Parameters
+    ----------
+    start_soc, target_soc : SoC range.
+    battery_kwh           : Usable capacity in kWh.
+    loss_factor           : Charger efficiency; derates power (see estimate_scenario).
+    ac                    : Dict with:
+                              home_actual_kw    — observed home AC power (from history)
+                              ac_ceiling_kw     — max AC power (car/EVSE limit)
+                              window_minutes    — nightly charging window length
+                              window_start_str  — "HH:MM" window start
+                              home_rate_p_per_kwh — cost rate in pence/kWh
+                              is_free           — True if home charging is free
+    dc                    : Dict with:
+                              capability  — DcCapability object
+                              ceiling     — float (car max DC power in kW)
+    custom_kw             : Optional user-specified DC power.  When above the car
+                            max (dc["ceiling"]), power is capped at ceiling and a
+                            note is set.  When None, the "Custom kW" row is omitted.
+
+    Fixed row order
+    ---------------
+    AC rows (3):  "Your home (actual)", "7 kW", "11 kW"
+    DC rows (3):  "50 kW", "150 kW", "Car max"
+    DC custom (1, optional): "Custom kW"
+
+    Tagging
+    -------
+    "Your home (actual)" → source_tag="history"
+    "7 kW", "11 kW"      → source_tag="spec"
+    DC rows              → source_tag from estimate_scenario dominant-tag rule
+    """
+    cap: DcCapability = dc["capability"]
+    ceiling: float = dc["ceiling"]
+    ac_ceiling_kw: float = ac["ac_ceiling_kw"]
+    ac_window = {
+        "window_minutes": ac["window_minutes"],
+        "window_start_str": ac["window_start_str"],
+        "home_rate_p_per_kwh": ac["home_rate_p_per_kwh"],
+        "is_free": ac["is_free"],
+    }
+
+    rows: list[ScenarioRow] = []
+
+    # --- AC rows ---
+
+    # "Your home (actual)"
+    rows.append(estimate_scenario(
+        kind="ac", label="Your home (actual)",
+        start_soc=start_soc, target_soc=target_soc, battery_kwh=battery_kwh,
+        charger_cap_kw=ac_ceiling_kw,
+        capability=None,
+        flat_power_kw=ac["home_actual_kw"],
+        loss_factor=loss_factor,
+        ac_window=ac_window,
+        source_tag="history",
+    ))
+
+    # "7 kW"
+    rows.append(estimate_scenario(
+        kind="ac", label="7 kW",
+        start_soc=start_soc, target_soc=target_soc, battery_kwh=battery_kwh,
+        charger_cap_kw=ac_ceiling_kw,
+        capability=None, flat_power_kw=7.0,
+        loss_factor=loss_factor, ac_window=ac_window, source_tag="spec",
+    ))
+
+    # "11 kW"
+    rows.append(estimate_scenario(
+        kind="ac", label="11 kW",
+        start_soc=start_soc, target_soc=target_soc, battery_kwh=battery_kwh,
+        charger_cap_kw=ac_ceiling_kw,
+        capability=None, flat_power_kw=11.0,
+        loss_factor=loss_factor, ac_window=ac_window, source_tag="spec",
+    ))
+
+    # --- DC rows ---
+
+    # "50 kW"
+    rows.append(estimate_scenario(
+        kind="dc", label="50 kW",
+        start_soc=start_soc, target_soc=target_soc, battery_kwh=battery_kwh,
+        charger_cap_kw=50.0,
+        capability=cap, flat_power_kw=None,
+        loss_factor=loss_factor, ac_window=None, source_tag="",
+    ))
+
+    # "150 kW"
+    rows.append(estimate_scenario(
+        kind="dc", label="150 kW",
+        start_soc=start_soc, target_soc=target_soc, battery_kwh=battery_kwh,
+        charger_cap_kw=150.0,
+        capability=cap, flat_power_kw=None,
+        loss_factor=loss_factor, ac_window=None, source_tag="",
+    ))
+
+    # "Car max" — uses ceiling as the charger cap
+    rows.append(estimate_scenario(
+        kind="dc", label="Car max",
+        start_soc=start_soc, target_soc=target_soc, battery_kwh=battery_kwh,
+        charger_cap_kw=ceiling,
+        capability=cap, flat_power_kw=None,
+        loss_factor=loss_factor, ac_window=None, source_tag="",
+    ))
+
+    # --- Optional custom kW row ---
+    if custom_kw is not None:
+        if custom_kw > ceiling:
+            custom_note = f"car-limited to ~{round(ceiling)} kW"
+            effective_cap = ceiling
+        else:
+            custom_note = None
+            effective_cap = custom_kw
+
+        rows.append(estimate_scenario(
+            kind="dc", label="Custom kW",
+            start_soc=start_soc, target_soc=target_soc, battery_kwh=battery_kwh,
+            charger_cap_kw=effective_cap,
+            capability=cap, flat_power_kw=None,
+            loss_factor=loss_factor, ac_window=None, source_tag="",
+            note=custom_note,
+        ))
+
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # DB-backed inputs resolver
 # ---------------------------------------------------------------------------
 
