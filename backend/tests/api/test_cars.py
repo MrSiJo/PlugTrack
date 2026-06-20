@@ -748,6 +748,72 @@ async def test_car_lifetime_404_for_other_user(app, authed_client, test_sessionm
 
 
 @pytest.mark.asyncio
+async def test_create_car_with_max_ac_dc_kw(authed_client):
+    """POST /api/cars with max_ac_kw and max_dc_kw echoes both in the response."""
+    r = await authed_client.post(
+        "/api/cars",
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 3.5,
+            "max_ac_kw": 11.0,
+            "max_dc_kw": 160.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["max_ac_kw"] == pytest.approx(11.0)
+    assert body["max_dc_kw"] == pytest.approx(160.0)
+
+
+@pytest.mark.asyncio
+async def test_create_car_without_max_kw_fields_returns_null(authed_client):
+    """POST /api/cars without max_ac_kw/max_dc_kw → both null in response."""
+    r = await authed_client.post(
+        "/api/cars",
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 3.5,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["max_ac_kw"] is None
+    assert body["max_dc_kw"] is None
+
+
+@pytest.mark.asyncio
+async def test_update_car_max_ac_dc_kw(authed_client):
+    """PUT /api/cars/{id} with max_ac_kw/max_dc_kw updates and echoes them."""
+    r = await authed_client.post(
+        "/api/cars",
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 3.5,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    car_id = r.json()["id"]
+
+    r = await authed_client.put(
+        f"/api/cars/{car_id}",
+        json={"max_ac_kw": 7.4, "max_dc_kw": 50.0},
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["max_ac_kw"] == pytest.approx(7.4)
+    assert body["max_dc_kw"] == pytest.approx(50.0)
+
+
+@pytest.mark.asyncio
 async def test_car_lifetime_archived_car(authed_client, test_sessionmaker):
     """GET /api/cars/{id}/lifetime works for archived (active=False) cars."""
     from datetime import date as date_cls

@@ -48,6 +48,8 @@ class Car(Base):
 
     battery_kwh: Mapped[float] = mapped_column(Float, nullable=False)
     nominal_efficiency_mi_per_kwh: Mapped[float] = mapped_column(Float, nullable=False)
+    max_ac_kw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    max_dc_kw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     provider: Mapped[str] = mapped_column(
         String(32), nullable=False, default="cupra_connect"

@@ -1,4 +1,4 @@
-"""API tests for GET /api/charge-plan.
+"""API tests for GET /api/charge-plan — scenario-table endpoint.
 
 Uses the authed_client fixture (from tests/api/conftest.py) which gives
 a live app with a seeded settings table and a signed session cookie.
@@ -19,15 +19,26 @@ from tests.api.conftest import csrf_headers
 # ---------------------------------------------------------------------------
 
 
-async def _create_car(client, battery_kwh: float = 77.0) -> int:
+async def _create_car(
+    client,
+    battery_kwh: float = 77.0,
+    max_ac_kw: float | None = None,
+    max_dc_kw: float | None = None,
+) -> int:
+    payload: dict = {
+        "make": "Cupra",
+        "model": "Born",
+        "battery_kwh": battery_kwh,
+        "nominal_efficiency_mi_per_kwh": 3.6,
+    }
+    if max_ac_kw is not None:
+        payload["max_ac_kw"] = max_ac_kw
+    if max_dc_kw is not None:
+        payload["max_dc_kw"] = max_dc_kw
+
     r = await client.post(
         "/api/cars",
-        json={
-            "make": "Cupra",
-            "model": "Born",
-            "battery_kwh": battery_kwh,
-            "nominal_efficiency_mi_per_kwh": 3.6,
-        },
+        json=payload,
         headers=csrf_headers(client),
     )
     assert r.status_code == 201, r.text
@@ -73,9 +84,10 @@ async def _make_ac_session(
     location_id: int,
     kwh_added: float,
     duration_hours: float,
+    days_ago: int = 0,
 ) -> None:
     """Insert a home AC charging session directly into the DB."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc) - timedelta(days=days_ago)
     start = now - timedelta(hours=duration_hours)
     async with test_sessionmaker() as session:
         cs = ChargingSession(
@@ -99,8 +111,65 @@ async def _make_ac_session(
         await session.commit()
 
 
+async def _make_dc_session(
+    test_sessionmaker,
+    user_id: int,
+    car_id: int,
+    *,
+    start_soc: int = 20,
+    end_soc: int = 80,
+    kwh_added: float = 40.0,
+    actual_charge_seconds: int | None = 1800,
+    wall_seconds: int | None = 1900,
+    power_curve: list | None = None,
+    days_ago: int = 1,
+) -> None:
+    """Insert a DC charging session directly into the DB."""
+    now = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    start_dt = now - timedelta(seconds=wall_seconds or 1800)
+    async with test_sessionmaker() as session:
+        cs = ChargingSession(
+            user_id=user_id,
+            car_id=car_id,
+            date=now.date(),
+            charge_start_at=start_dt,
+            charge_end_at=now,
+            start_soc=start_soc,
+            end_soc=end_soc,
+            kwh_added=kwh_added,
+            actual_charge_seconds=actual_charge_seconds,
+            charging_type="dc",
+            charging_mode="manual",
+            source="synthesis",
+            interrupted=False,
+            cost_pence=None,
+            cost_basis="unknown",
+            power_curve=power_curve,
+        )
+        session.add(cs)
+        await session.commit()
+
+
 # ---------------------------------------------------------------------------
-# Tests
+# Shared assertion helpers
+# ---------------------------------------------------------------------------
+
+REQUIRED_ROW_FIELDS = {"label", "power_kw", "minutes", "source_tag"}
+VALID_SOURCE_TAGS = {"curve", "average", "modelled", "history", "spec"}
+
+
+def _assert_valid_row(row: dict) -> None:
+    """Assert that a scenario row has the expected shape."""
+    for f in REQUIRED_ROW_FIELDS:
+        assert f in row, f"Missing field {f!r} in row {row}"
+    assert isinstance(row["power_kw"], (int, float)) and row["power_kw"] > 0
+    assert isinstance(row["minutes"], int) and row["minutes"] > 0
+    assert row["source_tag"], f"source_tag must be non-empty, got {row['source_tag']!r} in row {row}"
+    assert row["source_tag"] in VALID_SOURCE_TAGS, f"Unexpected source_tag: {row['source_tag']!r}"
+
+
+# ---------------------------------------------------------------------------
+# Auth test (unchanged)
 # ---------------------------------------------------------------------------
 
 
@@ -110,9 +179,14 @@ async def test_charge_plan_requires_auth(seeded_client):
     assert r.status_code == 401
 
 
+# ---------------------------------------------------------------------------
+# Happy-path: scenario table shape
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
-async def test_charge_plan_happy_path(authed_client):
-    """Happy-path: returns the contract shape with all required fields."""
+async def test_charge_plan_returns_scenario_table(authed_client):
+    """Happy-path: returns new scenario table contract with 'rows' list."""
     car_id = await _create_car(authed_client, battery_kwh=77.0)
     r = await authed_client.get(
         f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
@@ -120,50 +194,199 @@ async def test_charge_plan_happy_path(authed_client):
     assert r.status_code == 200, r.text
     body = r.json()
 
-    # Required top-level fields present and typed correctly.
+    # Top-level envelope fields.
     assert body["car_id"] == car_id
     assert body["start_soc"] == 20
     assert body["target_soc"] == 80
     assert body["battery_kwh"] == 77.0
-    assert isinstance(body["kwh_needed"], float)
-    assert isinstance(body["power_kw"], float)
-    assert body["power_basis"] in ("history", "fallback")
-    assert isinstance(body["sample_size"], int)
-    assert isinstance(body["total_minutes"], int)
-    assert ":" in body["window_start"]
-    assert ":" in body["window_end"]
-    assert isinstance(body["window_minutes"], int)
-    assert isinstance(body["fits_one_window"], bool)
-    assert isinstance(body["nights"], list)
-    assert len(body["nights"]) >= 1
-    assert isinstance(body["nights_needed"], int)
-    assert body["nights_needed"] == len(body["nights"])
-    assert ":" in body["finish_at"]
-    assert isinstance(body["cost_pence"], int)
+    assert isinstance(body["loss_factor"], float)
+    assert 0 < body["loss_factor"] <= 1.0
     assert isinstance(body["home_rate_p_per_kwh"], float)
     assert isinstance(body["is_free"], bool)
 
-    # nights entries have the expected shape.
-    for i, n in enumerate(body["nights"], start=1):
-        assert n["index"] == i
-        assert isinstance(n["minutes"], int)
-        assert isinstance(n["end_soc"], int)
-        assert ":" in n["finish_at"]
+    # 'rows' field.
+    assert "rows" in body
+    rows = body["rows"]
+    assert isinstance(rows, list)
+    # Default (no custom_kw): 3 AC + 3 DC = at least 6 rows.
+    assert len(rows) >= 6, f"Expected at least 6 rows, got {len(rows)}: {[r['label'] for r in rows]}"
+
+    # All rows must have the expected shape.
+    for row in rows:
+        _assert_valid_row(row)
+
+    # Check fixed labels in order.
+    labels = [r["label"] for r in rows]
+    assert labels == ["Your home (actual)", "7 kW", "11 kW", "50 kW", "150 kW", "Car max"]
 
 
 @pytest.mark.asyncio
-async def test_charge_plan_fallback_power_path(authed_client):
-    """When there are no home AC sessions, power_basis should be 'fallback'."""
-    car_id = await _create_car(authed_client)
+async def test_charge_plan_with_custom_kw(authed_client):
+    """custom_kw=120 adds a 7th 'Custom kW' row."""
+    car_id = await _create_car(authed_client, battery_kwh=77.0, max_dc_kw=135.0)
+    r = await authed_client.get(
+        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80&custom_kw=120"
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    rows = body["rows"]
+    assert len(rows) == 7
+    custom_row = rows[-1]
+    assert custom_row["label"] == "Custom kW"
+    _assert_valid_row(custom_row)
+    # No note when custom_kw < car max.
+    assert custom_row.get("note") is None
+
+
+@pytest.mark.asyncio
+async def test_charge_plan_custom_kw_above_car_max(authed_client):
+    """When custom_kw > car max, row note mentions car limit."""
+    car_id = await _create_car(authed_client, battery_kwh=77.0, max_dc_kw=100.0)
+    r = await authed_client.get(
+        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80&custom_kw=200"
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    rows = body["rows"]
+    custom_row = rows[-1]
+    assert custom_row["label"] == "Custom kW"
+    # Should carry a note about car limitation.
+    assert custom_row.get("note") is not None
+    assert "car" in custom_row["note"].lower() or "limited" in custom_row["note"].lower()
+
+
+# ---------------------------------------------------------------------------
+# AC home-actual row reflects seeded AC session median
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_home_actual_row_reflects_ac_session_median(authed_client, test_sessionmaker):
+    """'Your home (actual)' power_kw reflects median of seeded home AC sessions."""
+    # Three sessions each delivering exactly 7.0 kW effective.
+    car_id = await _create_car(authed_client, battery_kwh=77.0)
+    user_id = await _get_user_id(test_sessionmaker)
+    home_loc_id = await _make_home_location(test_sessionmaker, user_id)
+
+    for i in range(3):
+        await _make_ac_session(
+            test_sessionmaker,
+            user_id,
+            car_id,
+            home_loc_id,
+            kwh_added=14.0,
+            duration_hours=2.0,  # → 7.0 kW effective
+            days_ago=i,
+        )
+
     r = await authed_client.get(
         f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["power_basis"] == "fallback"
-    assert body["sample_size"] == 0
-    # Default fallback is 7.4 kW (from catalogue).
-    assert body["power_kw"] == 7.4
+    rows = body["rows"]
+    home_row = rows[0]
+    assert home_row["label"] == "Your home (actual)"
+    assert home_row["source_tag"] == "history"
+    # Median should be ~7.0 kW (capped by ac_ceiling; default fallback 7.4 kW ≥ 7.0 kW).
+    assert abs(home_row["power_kw"] - 7.0) < 0.1
+
+
+# ---------------------------------------------------------------------------
+# DC sessions used for capability
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dc_sessions_inform_capability(authed_client, test_sessionmaker):
+    """Seeding DC sessions provides 'average' or 'curve' source_tag on DC rows."""
+    # Car with known max_dc_kw=100.
+    car_id = await _create_car(authed_client, battery_kwh=77.0, max_dc_kw=100.0)
+    user_id = await _get_user_id(test_sessionmaker)
+
+    # One DC session: 40 kWh in 1800 actual_charge_seconds = 80 kW effective.
+    await _make_dc_session(
+        test_sessionmaker,
+        user_id,
+        car_id,
+        start_soc=20,
+        end_soc=80,
+        kwh_added=40.0,
+        actual_charge_seconds=1800,  # 0.5 h → 80 kW
+        wall_seconds=2000,
+        days_ago=1,
+    )
+
+    r = await authed_client.get(
+        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    rows = body["rows"]
+
+    # DC rows are the last 3 (indices 3,4,5).
+    dc_rows = rows[3:6]
+    dc_tags = {row["source_tag"] for row in dc_rows}
+    # At least one row should use observed data (average or curve), not all modelled.
+    assert dc_tags & {"average", "curve"}, f"Expected average/curve in DC rows, got {dc_tags}"
+
+
+@pytest.mark.asyncio
+async def test_dc_sessions_with_curves_use_curve_tag(authed_client, test_sessionmaker):
+    """DC sessions with power_curve data result in 'curve' source_tag for covered bands."""
+    car_id = await _create_car(authed_client, battery_kwh=77.0, max_dc_kw=100.0)
+    user_id = await _get_user_id(test_sessionmaker)
+
+    # Power curve covering SoC 20-80 (every 10% with ~80 kW).
+    power_curve = [
+        [i * 60, 20 + i * 10, 80.0]  # [t_secs, soc, power_kw]
+        for i in range(7)
+    ]
+    await _make_dc_session(
+        test_sessionmaker,
+        user_id,
+        car_id,
+        start_soc=20,
+        end_soc=80,
+        kwh_added=40.0,
+        actual_charge_seconds=1800,
+        wall_seconds=2000,
+        power_curve=power_curve,
+        days_ago=1,
+    )
+
+    r = await authed_client.get(
+        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    rows = body["rows"]
+    # "Car max" row (index 5) should show 'curve' (bands 20-80 covered).
+    car_max_row = rows[5]
+    assert car_max_row["label"] == "Car max"
+    assert car_max_row["source_tag"] == "curve"
+
+
+# ---------------------------------------------------------------------------
+# loss_factor in response
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_loss_factor_in_response(authed_client):
+    """loss_factor is returned in the response envelope."""
+    car_id = await _create_car(authed_client, battery_kwh=77.0)
+    r = await authed_client.get(
+        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
+    )
+    body = r.json()
+    # Default charge_loss_factor is 0.90.
+    assert abs(body["loss_factor"] - 0.90) < 0.001
+
+
+# ---------------------------------------------------------------------------
+# Error cases (unchanged semantics)
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -205,116 +428,14 @@ async def test_charge_plan_soc_validation_422(authed_client):
     assert r.status_code == 422
 
 
-@pytest.mark.asyncio
-async def test_charge_plan_history_power_path(authed_client, test_sessionmaker):
-    """When >= 3 home AC sessions exist, power_basis should be 'history'."""
-    car_id = await _create_car(authed_client, battery_kwh=77.0)
-    user_id = await _get_user_id(test_sessionmaker)
-
-    home_loc_id = await _make_home_location(test_sessionmaker, user_id)
-
-    # Insert 3 home AC sessions; each delivers 7.0 kW effective (14 kWh in 2h).
-    for _ in range(3):
-        await _make_ac_session(
-            test_sessionmaker,
-            user_id,
-            car_id,
-            home_loc_id,
-            kwh_added=14.0,
-            duration_hours=2.0,  # effective = 7.0 kW
-        )
-
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
-    )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["power_basis"] == "history"
-    assert body["sample_size"] == 3
-    # median effective_kw = 7.0
-    assert abs(body["power_kw"] - 7.0) < 0.05
-
-
-@pytest.mark.asyncio
-async def test_charge_plan_is_free_home_location(authed_client, test_sessionmaker):
-    """Home location with is_free=True → cost_pence=0, is_free=True."""
-    car_id = await _create_car(authed_client, battery_kwh=77.0)
-    user_id = await _get_user_id(test_sessionmaker)
-    await _make_home_location(test_sessionmaker, user_id, is_free=True)
-
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
-    )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["is_free"] is True
-    assert body["cost_pence"] == 0
-
-
-@pytest.mark.asyncio
-async def test_charge_plan_home_location_custom_rate(authed_client, test_sessionmaker):
-    """Home location with default_cost_per_kwh_p uses that rate for cost."""
-    car_id = await _create_car(authed_client, battery_kwh=77.0)
-    user_id = await _get_user_id(test_sessionmaker)
-    await _make_home_location(
-        test_sessionmaker, user_id, default_cost_per_kwh_p=28.5
-    )
-
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
-    )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["is_free"] is False
-    assert body["home_rate_p_per_kwh"] == 28.5
-    expected_cost = round(body["kwh_needed"] * 28.5)
-    assert body["cost_pence"] == expected_cost
-
-
-@pytest.mark.asyncio
-async def test_charge_plan_default_home_rate_fallback(authed_client):
-    """No home location → uses 'default_home_rate_p_per_kwh' setting (7.5 p)."""
-    car_id = await _create_car(authed_client, battery_kwh=77.0)
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
-    )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["is_free"] is False
-    assert body["home_rate_p_per_kwh"] == 7.5
-    expected_cost = round(body["kwh_needed"] * 7.5)
-    assert body["cost_pence"] == expected_cost
-
-
-@pytest.mark.asyncio
-async def test_charge_plan_kwh_needed_formula(authed_client):
-    """kwh_needed == (target-start)/100 * battery_kwh rounded to 2dp."""
-    car_id = await _create_car(authed_client, battery_kwh=77.0)
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
-    )
-    body = r.json()
-    expected = round((80 - 20) / 100 * 77.0, 2)
-    assert abs(body["kwh_needed"] - expected) < 0.005
-
-
-@pytest.mark.asyncio
-async def test_charge_plan_window_minutes_default(authed_client):
-    """Default window 23:45→07:15 = 450 minutes."""
-    car_id = await _create_car(authed_client)
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
-    )
-    body = r.json()
-    assert body["window_minutes"] == 450
-    assert body["window_start"] == "23:45"
-    assert body["window_end"] == "07:15"
+# ---------------------------------------------------------------------------
+# Per-user isolation
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_charge_plan_car_not_owned_by_other_user(authed_client, test_sessionmaker):
     """A car owned by a different user should return 404."""
-    # Create a second user and their car directly in DB.
     async with test_sessionmaker() as session:
         from plugtrack.models import User as UserModel
         other = UserModel(username="other_user", password_hash="x")
@@ -341,3 +462,88 @@ async def test_charge_plan_car_not_owned_by_other_user(authed_client, test_sessi
         f"/api/charge-plan?car_id={other_car_id}&start_soc=20&target_soc=80"
     )
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Archived car still plannable
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_archived_car_still_returns_plan(authed_client, test_sessionmaker):
+    """Archived (active=False) cars should still return a scenario table (no active filter)."""
+    user_id = await _get_user_id(test_sessionmaker)
+    async with test_sessionmaker() as session:
+        car = Car(
+            user_id=user_id,
+            make="Cupra",
+            model="Born (archived)",
+            battery_kwh=77.0,
+            nominal_efficiency_mi_per_kwh=3.6,
+            provider="manual",
+            active=False,
+        )
+        session.add(car)
+        await session.commit()
+        await session.refresh(car)
+        archived_car_id = car.id
+
+    r = await authed_client.get(
+        f"/api/charge-plan?car_id={archived_car_id}&start_soc=20&target_soc=80"
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["car_id"] == archived_car_id
+    assert "rows" in body
+    assert len(body["rows"]) >= 6
+
+
+# ---------------------------------------------------------------------------
+# Home location rate / is_free (preserved from original test suite)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_charge_plan_is_free_home_location(authed_client, test_sessionmaker):
+    """Home location with is_free=True → is_free=True in response."""
+    car_id = await _create_car(authed_client, battery_kwh=77.0)
+    user_id = await _get_user_id(test_sessionmaker)
+    await _make_home_location(test_sessionmaker, user_id, is_free=True)
+
+    r = await authed_client.get(
+        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["is_free"] is True
+
+
+@pytest.mark.asyncio
+async def test_charge_plan_home_location_custom_rate(authed_client, test_sessionmaker):
+    """Home location with default_cost_per_kwh_p reflects that rate in response."""
+    car_id = await _create_car(authed_client, battery_kwh=77.0)
+    user_id = await _get_user_id(test_sessionmaker)
+    await _make_home_location(
+        test_sessionmaker, user_id, default_cost_per_kwh_p=28.5
+    )
+
+    r = await authed_client.get(
+        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["is_free"] is False
+    assert body["home_rate_p_per_kwh"] == 28.5
+
+
+@pytest.mark.asyncio
+async def test_charge_plan_default_home_rate_fallback(authed_client):
+    """No home location → uses 'default_home_rate_p_per_kwh' setting (7.5 p)."""
+    car_id = await _create_car(authed_client, battery_kwh=77.0)
+    r = await authed_client.get(
+        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["is_free"] is False
+    assert body["home_rate_p_per_kwh"] == 7.5
