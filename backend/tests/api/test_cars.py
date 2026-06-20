@@ -491,3 +491,174 @@ async def test_update_car_name(authed_client):
     body = r.json()
     assert body["name"] == "Weekend Warrior"
     assert body["display_name"] == "Weekend Warrior"
+
+
+# ---------------------------------------------------------------------------
+# Delete protection (Task 3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_car_with_sessions_returns_409(authed_client, test_sessionmaker):
+    """DELETE a car that has charging sessions must return 409 with the count."""
+    from datetime import date as date_cls
+    from plugtrack.models import Car, ChargingSession, User
+    from sqlalchemy import select
+
+    # Create a car via the API.
+    r = await authed_client.post(
+        "/api/cars",
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 3.5,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    car_id = r.json()["id"]
+
+    # Retrieve user_id from db so we can insert a ChargingSession directly.
+    async with test_sessionmaker() as session:
+        car = (await session.execute(select(Car).where(Car.id == car_id))).scalar_one()
+        user_id = car.user_id
+
+        session.add(
+            ChargingSession(
+                user_id=user_id,
+                car_id=car_id,
+                date=date_cls(2024, 1, 1),
+                start_soc=20,
+                end_soc=80,
+                kwh_added=30.0,
+                source="manual",
+            )
+        )
+        await session.commit()
+
+    r = await authed_client.delete(
+        f"/api/cars/{car_id}", headers=csrf_headers(authed_client)
+    )
+    assert r.status_code == 409, r.text
+    detail = r.json()["detail"]
+    assert "1" in detail
+    assert "charges" in detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_delete_car_without_sessions_removes_mileage_year_rows(
+    authed_client, test_sessionmaker
+):
+    """DELETE a zero-session car deletes its car_mileage_year rows and returns 204."""
+    from datetime import date as date_cls
+    from plugtrack.models import Car, CarMileageYear
+    from sqlalchemy import select
+
+    # Create a car via the API.
+    r = await authed_client.post(
+        "/api/cars",
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 3.5,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201, r.text
+    car_id = r.json()["id"]
+
+    # Insert a CarMileageYear row for this car directly.
+    async with test_sessionmaker() as session:
+        car = (await session.execute(select(Car).where(Car.id == car_id))).scalar_one()
+        user_id = car.user_id
+
+        session.add(
+            CarMileageYear(
+                user_id=user_id,
+                car_id=car_id,
+                period_start_date=date_cls(2024, 1, 1),
+                period_end_date=date_cls(2025, 1, 1),
+                opening_odometer_km=10000.0,
+            )
+        )
+        await session.commit()
+
+    # Delete should succeed with 204.
+    r = await authed_client.delete(
+        f"/api/cars/{car_id}", headers=csrf_headers(authed_client)
+    )
+    assert r.status_code == 204, r.text
+
+    # Confirm car_mileage_year rows are gone.
+    async with test_sessionmaker() as session:
+        rows = (
+            await session.execute(
+                select(CarMileageYear).where(CarMileageYear.car_id == car_id)
+            )
+        ).scalars().all()
+    assert rows == [], f"Expected no car_mileage_year rows, found {len(rows)}"
+
+
+@pytest.mark.asyncio
+async def test_delete_another_users_car_returns_404(app, test_sessionmaker):
+    """Attempting to delete a car owned by a different user returns 404."""
+    from httpx import ASGITransport, AsyncClient
+    from plugtrack.api.auth_middleware import SESSION_COOKIE_NAME, make_serializer
+    from plugtrack.security.csrf import CSRF_COOKIE_NAME
+    from plugtrack.models import User
+    from plugtrack.security.crypto import hash_password
+    from plugtrack.services.auth_service import bootstrap_user
+
+    async with app.router.lifespan_context(app):
+        async with test_sessionmaker() as session:
+            user_a = await bootstrap_user(session, "alice", "test-password-12chars")
+            user_b = User(
+                username="bob",
+                password_hash=hash_password("test-password-12chars"),
+            )
+            session.add(user_b)
+            await session.commit()
+            await session.refresh(user_b)
+
+        serializer = make_serializer("test-secret-key-for-tests-only-padding-padding")
+        token_a = serializer.dumps({"user_id": user_a.id})
+        token_b = serializer.dumps({"user_id": user_b.id})
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client_a, AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client_b:
+            client_a.cookies.set(SESSION_COOKIE_NAME, token_a)
+            client_b.cookies.set(SESSION_COOKIE_NAME, token_b)
+
+            # Prime CSRF for both.
+            await client_a.get("/api/settings")
+            await client_b.get("/api/settings")
+
+            csrf_a = {"X-CSRF-Token": client_a.cookies.get(CSRF_COOKIE_NAME, "")}
+            csrf_b = {"X-CSRF-Token": client_b.cookies.get(CSRF_COOKIE_NAME, "")}
+
+            # User A creates a car.
+            r = await client_a.post(
+                "/api/cars",
+                json={
+                    "make": "Cupra",
+                    "model": "Born",
+                    "battery_kwh": 77.0,
+                    "nominal_efficiency_mi_per_kwh": 3.6,
+                },
+                headers=csrf_a,
+            )
+            assert r.status_code == 201
+            car_a_id = r.json()["id"]
+
+            # User B cannot delete User A's car.
+            r = await client_b.delete(
+                f"/api/cars/{car_a_id}",
+                headers=csrf_b,
+            )
+            assert r.status_code == 404

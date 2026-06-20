@@ -17,11 +17,11 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
-from ...models import Car
+from ...models import Car, CarMileageYear, ChargingSession
 from ...services import mileage_tracking
 
 
@@ -291,6 +291,28 @@ async def delete_car(
 ) -> Response:
     user_id = _user_id(request)
     car = await _get_owned(session, car_id, user_id)
+
+    # Refuse to delete a car that has charging history.
+    count_result = await session.execute(
+        select(func.count()).where(
+            ChargingSession.car_id == car_id,
+            ChargingSession.user_id == user_id,
+        )
+    )
+    n = count_result.scalar_one()
+    if n > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This car has {n} charges. Archive it instead of deleting.",
+        )
+
+    # No sessions — clean up mileage-year rows then delete the car.
+    await session.execute(
+        delete(CarMileageYear).where(
+            CarMileageYear.car_id == car_id,
+            CarMileageYear.user_id == user_id,
+        )
+    )
     await session.delete(car)
     await session.commit()
     return Response(status_code=204)
