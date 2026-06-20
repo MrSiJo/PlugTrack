@@ -189,3 +189,29 @@ def test_parse_extraction_power_curve_defaults_none():
         "actual_charge_seconds": 1200, "confidence": 0.8,
     }
     assert parse_extraction(raw).power_curve is None
+
+
+# ---------------------------------------------------------------------------
+# FIX 8 — cost_total_pence is coerced to int
+# ---------------------------------------------------------------------------
+
+
+def test_parse_extraction_cost_total_pence_float_coerced_to_int():
+    """A model returning 851.0 (float) must be coerced to int 851 so it
+    doesn't leak a float into an Integer database column (fix 8)."""
+    e = parse_extraction({"source": "osprey", "cost_total_pence": 851.0})
+    assert isinstance(e.cost_total_pence, int), (
+        f"Expected int, got {type(e.cost_total_pence)}"
+    )
+    assert e.cost_total_pence == 851
+
+
+def test_parse_extraction_cost_total_pence_none_stays_none():
+    e = parse_extraction({"source": "mycupra", "cost_total_pence": None})
+    assert e.cost_total_pence is None
+
+
+def test_parse_extraction_cost_total_pence_int_unchanged():
+    e = parse_extraction({"source": "osprey", "cost_total_pence": 1234})
+    assert e.cost_total_pence == 1234
+    assert isinstance(e.cost_total_pence, int)

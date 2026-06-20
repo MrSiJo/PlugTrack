@@ -175,8 +175,14 @@ def test_parse_pending_screenshot_edit_photo_word():
     assert _parse_pending_screenshot_edit("update 42 with a photo") == 42
 
 
-def test_parse_pending_screenshot_edit_screenshot_for_form():
-    assert _parse_pending_screenshot_edit("screenshot for session 42") == 42
+def test_parse_pending_screenshot_edit_screenshot_for_form_no_verb_returns_none():
+    # "screenshot for session N" alone has no intent verb — must NOT match (fix 2).
+    assert _parse_pending_screenshot_edit("screenshot for session 42") is None
+
+
+def test_parse_pending_screenshot_edit_screenshot_for_with_send_verb():
+    # Same "for session N" construct WITH an intent verb → matches.
+    assert _parse_pending_screenshot_edit("I'll send a screenshot for session 42") == 42
 
 
 def test_parse_pending_screenshot_edit_i_will_send():
@@ -505,3 +511,266 @@ async def test_two_step_expired_pending_ignored(test_sessionmaker, seeded_user_c
         rows = (await s.execute(select(ScreenshotImport))).scalars().all()
     assert len(rows) == 1
     assert rows[0].status == "staged"
+
+
+# ---------------------------------------------------------------------------
+# FIX 1 — _parse_update_target: bare #N in a location name must NOT match
+# ---------------------------------------------------------------------------
+
+
+def test_parse_update_target_location_with_hash_not_matched():
+    # "Osprey stall #3" — hash in a location name, NOT the whole caption.
+    assert _parse_update_target("Osprey stall #3") is None
+
+
+def test_parse_update_target_bp_pulse_hash_not_matched():
+    assert _parse_update_target("BP Pulse #1 Oxford") is None
+
+
+def test_parse_update_target_bare_hash_whole_caption():
+    assert _parse_update_target("#42") == 42
+
+
+def test_parse_update_target_bare_hash_with_whitespace():
+    assert _parse_update_target("  #42 ") == 42
+
+
+def test_parse_update_target_update_hash_anywhere():
+    # Verb form may appear anywhere.
+    assert _parse_update_target("update #42") == 42
+
+
+def test_parse_update_target_update_session_anywhere():
+    assert _parse_update_target("update session 7") == 7
+
+
+# ---------------------------------------------------------------------------
+# FIX 2 — _parse_pending_screenshot_edit: read-only questions must NOT match
+# ---------------------------------------------------------------------------
+
+
+def test_parse_pending_screenshot_edit_read_only_question_returns_none():
+    assert _parse_pending_screenshot_edit("Can you show me a screenshot for session 42?") is None
+
+
+def test_parse_pending_screenshot_edit_plain_question_still_none():
+    assert _parse_pending_screenshot_edit("what did I spend") is None
+
+
+def test_parse_pending_screenshot_edit_update_next_screenshot():
+    assert _parse_pending_screenshot_edit("update session 42 with the next screenshot") == 42
+
+
+def test_parse_pending_screenshot_edit_ill_send():
+    assert _parse_pending_screenshot_edit("I'll send a screenshot to update session 42") == 42
+
+
+def test_parse_pending_screenshot_edit_edit_verb():
+    assert _parse_pending_screenshot_edit("edit 7 with this photo") == 7
+
+
+# ---------------------------------------------------------------------------
+# FIX 3 — card_ids is cleared after update proposal
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_proposal_clears_card_ids(test_sessionmaker, seeded_user_car):
+    """After an update proposal the staging card_ids entry is cleared so the
+    next new-session photo starts a fresh card (not an edit of the old one)."""
+    user_id, car_id = seeded_user_car
+    session_id = await _seed_session(test_sessionmaker, user_id, car_id)
+
+    extraction = _make_extraction()
+    tg = FakeTg(files={"img": b"img"})
+    ctx = _stub_ctx(tg, test_sessionmaker, car_id, user_id, extraction)
+
+    # Pre-seed a stale card id for this chat.
+    ctx.card_ids[9] = 99
+
+    await handle_photo(
+        ctx,
+        from_id=111,
+        chat_id=9,
+        message_id=1,
+        file_id="img",
+        caption=f"update {session_id}",
+    )
+
+    # card_ids must be cleared for this chat after the update proposal.
+    assert 9 not in ctx.card_ids, "card_ids should be cleared after update proposal"
+
+
+# ---------------------------------------------------------------------------
+# FIX 4 — handle_callback: token mismatch leaves newer pending_token intact
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_callback_discard_old_token_does_not_pop_newer_token(
+    test_sessionmaker, seeded_user_car
+):
+    """Discarding an old mcpdiscard card must NOT pop a *different* (newer)
+    pending_token stored for the same chat."""
+    from plugtrack.services.telegram_ingest import handle_callback
+
+    user_id, car_id = seeded_user_car
+    tg = FakeTg()
+    ctx = IngestContext(
+        telegram=tg,
+        sessionmaker=test_sessionmaker,
+        extractor=None,
+        resolve_target=lambda: (user_id, car_id),
+        allowed_user_ids={111},
+    )
+
+    newer_token = "newer-token-xyz"
+    ctx.pending_tokens[9] = newer_token
+
+    # Simulate the user clicking Discard on an old card with a stale token.
+    await handle_callback(
+        ctx,
+        from_id=111,
+        callback_id="cb1",
+        data="mcpdiscard:stale-old-token",
+        chat_id=9,
+    )
+
+    # The newer pending_token must survive.
+    assert ctx.pending_tokens.get(9) == newer_token, (
+        "Newer pending_token was incorrectly popped by an old mcpdiscard"
+    )
+
+
+@pytest.mark.asyncio
+async def test_callback_commit_old_token_does_not_pop_newer_token(
+    test_sessionmaker, seeded_user_car
+):
+    """Committing a stale mcpcommit token must NOT pop a *different* (newer)
+    pending_token stored for the same chat (commit_change will fail gracefully)."""
+    from unittest.mock import AsyncMock, patch
+
+    from plugtrack.services.telegram_ingest import handle_callback
+
+    user_id, car_id = seeded_user_car
+    tg = FakeTg()
+    ctx = IngestContext(
+        telegram=tg,
+        sessionmaker=test_sessionmaker,
+        extractor=None,
+        resolve_target=lambda: (user_id, car_id),
+        allowed_user_ids={111},
+    )
+
+    newer_token = "newer-token-abc"
+    ctx.pending_tokens[9] = newer_token
+
+    # Patch commit_change to return an error (stale token scenario).
+    with patch(
+        "plugtrack.mcp.tools.commit_change",
+        new=AsyncMock(return_value={"error": "token not found"}),
+    ):
+        await handle_callback(
+            ctx,
+            from_id=111,
+            callback_id="cb2",
+            data="mcpcommit:stale-old-token",
+            chat_id=9,
+        )
+
+    # The newer pending_token must survive.
+    assert ctx.pending_tokens.get(9) == newer_token, (
+        "Newer pending_token was incorrectly popped by an old mcpcommit"
+    )
+
+
+# ---------------------------------------------------------------------------
+# FIX 5 — pending_edit_target survives extraction failure and is consumed by
+#           a subsequent good photo
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pending_edit_target_survives_extraction_failure(
+    test_sessionmaker, seeded_user_car
+):
+    """When the photo extraction yields no usable fields (bad/blurry photo),
+    the pending_edit_target must NOT be permanently consumed so the user can
+    resend a clearer screenshot."""
+    user_id, car_id = seeded_user_car
+    session_id = await _seed_session(test_sessionmaker, user_id, car_id)
+
+    # First extractor: returns empty extraction (no usable fields).
+    empty_extraction = _make_extraction(
+        energy_kwh=None,
+        cost_total_pence=None,
+        cost_per_kwh_pence=None,
+        soc_start=None,
+        soc_end=None,
+        network=None,
+        has_cost=False,
+    )
+    tg = FakeTg(files={"img": b"img", "img2": b"img2"})
+
+    extractors = [
+        ExtractionResult(extraction=empty_extraction, usage=Usage(10, 10, 0)),
+        ExtractionResult(extraction=_make_extraction(), usage=Usage(10, 10, 0)),
+    ]
+    call_count = 0
+
+    async def extractor(image_bytes: bytes):
+        nonlocal call_count
+        r = extractors[min(call_count, len(extractors) - 1)]
+        call_count += 1
+        return r
+
+    ctx = IngestContext(
+        telegram=tg,
+        sessionmaker=test_sessionmaker,
+        extractor=extractor,
+        resolve_target=lambda: (user_id, car_id),
+        allowed_user_ids={111},
+    )
+
+    # Arm the pending target.
+    ctx.pending_edit_target[9] = (session_id, time.time())
+
+    # First photo: extraction failure → pending should survive.
+    await handle_photo(
+        ctx,
+        from_id=111,
+        chat_id=9,
+        message_id=1,
+        file_id="img",
+        caption=None,
+    )
+
+    assert 9 in ctx.pending_edit_target, (
+        "pending_edit_target must survive an extraction-failure photo"
+    )
+    # An error message should have been sent.
+    assert tg.sent, "Expected an error reply for empty extraction"
+    assert any("couldn't read" in m["text"].lower() for m in tg.sent)
+
+    # Second photo: good extraction → pending is consumed and proposal sent.
+    await handle_photo(
+        ctx,
+        from_id=111,
+        chat_id=9,
+        message_id=2,
+        file_id="img2",
+        caption=None,
+    )
+
+    assert 9 not in ctx.pending_edit_target, (
+        "pending_edit_target should be consumed by the second (good) photo"
+    )
+    proposal_msgs = [
+        m for m in tg.sent if m.get("reply_markup") is not None
+        and any(
+            b["callback_data"].startswith("mcpcommit:")
+            for row in m["reply_markup"]["inline_keyboard"]
+            for b in row
+        )
+    ]
+    assert proposal_msgs, "Expected a proposal card after good extraction"
