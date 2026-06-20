@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0](https://github.com/MrSiJo/PlugTrack/compare/v2.11.1...v3.0.0) (2026-06-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* the Cupra Connect / pycupra sync integration is removed. Charge data is now ingested exclusively via the Telegram screenshot bot.
+
+### Features
+
+* remove pycupra/Cupra sync subsystem (standalone pivot) ([928a5d6](https://github.com/MrSiJo/PlugTrack/commit/928a5d6c35d675cd2f518e2c2fd52420e0fd31c7))
+
 ## [2.11.1](https://github.com/MrSiJo/PlugTrack/compare/v2.11.0...v2.11.1) (2026-06-20)
 
 
