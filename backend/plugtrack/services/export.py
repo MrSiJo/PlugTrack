@@ -148,12 +148,33 @@ async def export_locations_rows(session: AsyncSession, user_id: int) -> list[dic
 # Serialisers
 # ---------------------------------------------------------------------------
 
+# Spreadsheet apps (Excel, LibreOffice, Sheets) interpret a cell whose text
+# begins with one of these characters as a formula. An exported free-text
+# value such as ``=cmd|'/c calc'!A0`` would then execute when the file is
+# opened — CSV injection. See OWASP "CSV Injection".
+_CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe_cell(value: Any) -> Any:
+    """Neutralise CSV/formula injection by quoting risky string cells.
+
+    A string starting with a formula trigger is prefixed with a single quote
+    so the spreadsheet renders it as literal text. Non-string cells (numbers,
+    dates, ``None``) are returned unchanged.
+    """
+    if isinstance(value, str) and value and value[0] in _CSV_FORMULA_TRIGGERS:
+        return "'" + value
+    return value
+
+
 def rows_to_csv(columns: list[str], rows: list[dict[str, Any]]) -> str:
     """Serialise *rows* to a CSV string with *columns* as the header.
 
     Uses ``csv.DictWriter`` with ``extrasaction="ignore"`` so callers can
     pass a full dict even when *columns* is a subset.  All values are
     converted to strings by the CSV writer; ``None`` becomes an empty cell.
+    String cells are passed through :func:`_csv_safe_cell` first to defuse
+    spreadsheet formula injection.
     """
     buf = io.StringIO()
     writer = csv.DictWriter(
@@ -163,7 +184,9 @@ def rows_to_csv(columns: list[str], rows: list[dict[str, Any]]) -> str:
         lineterminator="\n",
     )
     writer.writeheader()
-    writer.writerows(rows)
+    writer.writerows(
+        {k: _csv_safe_cell(v) for k, v in row.items()} for row in rows
+    )
     return buf.getvalue()
 
 

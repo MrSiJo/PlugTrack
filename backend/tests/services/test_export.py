@@ -361,6 +361,31 @@ def test_rows_to_csv_multiple_rows():
 # rows_to_json
 # ---------------------------------------------------------------------------
 
+def test_rows_to_csv_neutralises_formula_injection():
+    """Cells beginning with a spreadsheet formula trigger are prefixed with '.
+
+    Excel/LibreOffice/Sheets execute a cell whose text starts with =, +, -,
+    @, TAB or CR. The exporter must render such values as literal text so a
+    malicious ``notes``/``user_label`` value cannot run on open.
+    """
+    columns = ["notes"]
+    for payload in ("=cmd|'/c calc'!A0", "+1+1", "-2+3", "@SUM(A1)", "\t=1", "\r=1"):
+        output = rows_to_csv(columns, [{"notes": payload}])
+        # csv module quotes the cell; parse it back to compare the raw value.
+        cell = list(csv.DictReader(io.StringIO(output)))[0]["notes"]
+        assert cell == "'" + payload, f"{payload!r} was not neutralised"
+
+
+def test_rows_to_csv_leaves_benign_values_untouched():
+    """Real-world values (apostrophes, commas, leading letters) are unchanged."""
+    columns = ["user_label", "location_name"]
+    rows = [{"user_label": "Land's End Car Park, Penzance",
+             "location_name": "InstaVolt McDonald's (Yeovil)"}]
+    cell = list(csv.DictReader(io.StringIO(rows_to_csv(columns, rows))))[0]
+    assert cell["user_label"] == "Land's End Car Park, Penzance"
+    assert cell["location_name"] == "InstaVolt McDonald's (Yeovil)"
+
+
 def test_rows_to_json_round_trips():
     """rows_to_json must produce valid JSON that round-trips to a list."""
     rows = [{"id": 1, "date": date(2026, 6, 1), "location_name": "Home"}]
