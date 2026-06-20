@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.10.1](https://github.com/MrSiJo/PlugTrack/compare/v2.10.0...v2.10.1) (2026-06-20)
+
+
+### Bug Fixes
+
+* **bot:** flat Responses API function-tool shape ([b383d70](https://github.com/MrSiJo/PlugTrack/commit/b383d7037cf3fc1b64a8b534f2825a83be16643c))
+* **bot:** use flat Responses API function-tool shape ([a0d7af5](https://github.com/MrSiJo/PlugTrack/commit/a0d7af5d73defa6bba1b7735fda2f059869c32bf))
+
 ## [2.10.0](https://github.com/MrSiJo/PlugTrack/compare/v2.9.0...v2.10.0) (2026-06-19)
 
 
