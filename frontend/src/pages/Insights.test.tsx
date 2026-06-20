@@ -94,8 +94,8 @@ describe('Insights page', () => {
       .mockResolvedValue(EMPTY_OVERVIEW)
     vi.spyOn(api, 'getCars').mockResolvedValue([
       { id: 5, make: 'Cupra', model: 'Born', name: null, display_name: 'Cupra Born', vin: null,
-        battery_kwh: 58, nominal_efficiency_mi_per_kwh: 4.2, provider: 'manual',
-        provider_vehicle_id: null, active: true },
+        battery_kwh: 58, nominal_efficiency_mi_per_kwh: 4.2, max_ac_kw: null, max_dc_kw: null,
+        provider: 'manual', provider_vehicle_id: null, active: true },
     ])
 
     render(
@@ -127,7 +127,7 @@ describe('Insights page', () => {
     })
     vi.spyOn(api, 'getCars').mockResolvedValue([
       { id: 1, make: 'Cupra', model: 'Born', name: null, display_name: 'Cupra Born', vin: null, battery_kwh: 58,
-        nominal_efficiency_mi_per_kwh: 4.2, provider: 'manual', provider_vehicle_id: null, active: true },
+        nominal_efficiency_mi_per_kwh: 4.2, max_ac_kw: null, max_dc_kw: null, provider: 'manual', provider_vehicle_id: null, active: true },
     ])
     vi.spyOn(api, 'getInsightsMileage').mockResolvedValue(DISABLED_MILEAGE)
 

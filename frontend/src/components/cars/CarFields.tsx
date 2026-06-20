@@ -114,6 +114,40 @@ export function CarFields({ draft, setDraft }: CarFieldsProps) {
           className={fieldClass}
         />
       </label>
+      <label className={labelClass}>
+        Max AC kW (optional)
+        <input
+          type="number"
+          step="0.1"
+          min="0.1"
+          placeholder="e.g. 11 for 3-phase Type-2"
+          value={Number.isFinite(draft.max_ac_kw ?? NaN) ? (draft.max_ac_kw as number) : ''}
+          onChange={(e) =>
+            setDraft({
+              ...draft,
+              max_ac_kw: e.target.value === '' ? null : Number(e.target.value),
+            })
+          }
+          className={fieldClass}
+        />
+      </label>
+      <label className={labelClass}>
+        Max DC kW (optional)
+        <input
+          type="number"
+          step="1"
+          min="0.1"
+          placeholder="e.g. 100 for CCS fast-charge"
+          value={Number.isFinite(draft.max_dc_kw ?? NaN) ? (draft.max_dc_kw as number) : ''}
+          onChange={(e) =>
+            setDraft({
+              ...draft,
+              max_dc_kw: e.target.value === '' ? null : Number(e.target.value),
+            })
+          }
+          className={fieldClass}
+        />
+      </label>
       <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
         <input
           type="checkbox"

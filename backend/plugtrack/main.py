@@ -138,6 +138,9 @@ async def _apply_additive_migrations(conn) -> None:
         ("screenshot_import", "reasoning_tokens", "INTEGER"),
         # multi-car: friendly name (nullable, falls back to "{make} {model}")
         ("car", "name", "VARCHAR(64)"),
+        # smart-charge-planner: per-car charge capability fields
+        ("car", "max_ac_kw", "FLOAT"),
+        ("car", "max_dc_kw", "FLOAT"),
     )
     for table, column, ddl in additions:
         cols = (await conn.execute(_text(f"PRAGMA table_info({table})"))).all()

@@ -70,6 +70,8 @@ class CarPayload(BaseModel):
     vin: Optional[str] = None
     battery_kwh: float
     nominal_efficiency_mi_per_kwh: float
+    max_ac_kw: Optional[float] = None
+    max_dc_kw: Optional[float] = None
     provider: str
     provider_vehicle_id: Optional[str] = None
     active: bool
@@ -82,6 +84,8 @@ class CarCreateRequest(BaseModel):
     vin: Optional[str] = Field(default=None, max_length=32)
     battery_kwh: float = Field(gt=0, lt=1000)
     nominal_efficiency_mi_per_kwh: float = Field(gt=0, lt=20)
+    max_ac_kw: Optional[float] = Field(default=None, gt=0, lt=1000)
+    max_dc_kw: Optional[float] = Field(default=None, gt=0, lt=1000)
     provider: str = Field(default="cupra_connect", max_length=32)
     provider_vehicle_id: Optional[str] = Field(default=None, max_length=64)
     active: bool = True
@@ -96,6 +100,8 @@ class CarUpdateRequest(BaseModel):
     vin: Optional[str] = Field(default=None, max_length=32)
     battery_kwh: Optional[float] = Field(default=None, gt=0, lt=1000)
     nominal_efficiency_mi_per_kwh: Optional[float] = Field(default=None, gt=0, lt=20)
+    max_ac_kw: Optional[float] = Field(default=None, gt=0, lt=1000)
+    max_dc_kw: Optional[float] = Field(default=None, gt=0, lt=1000)
     provider: Optional[str] = Field(default=None, max_length=32)
     provider_vehicle_id: Optional[str] = Field(default=None, max_length=64)
     active: Optional[bool] = None
@@ -129,6 +135,8 @@ def _to_payload(car: Car) -> CarPayload:
         vin=_mask_vin(car.vin),  # masked — full VIN via GET /{id}/vin
         battery_kwh=car.battery_kwh,
         nominal_efficiency_mi_per_kwh=car.nominal_efficiency_mi_per_kwh,
+        max_ac_kw=car.max_ac_kw,
+        max_dc_kw=car.max_dc_kw,
         provider=car.provider,
         provider_vehicle_id=car.provider_vehicle_id,
         active=car.active,
@@ -168,6 +176,8 @@ async def create_car(
         name=body.name,
         battery_kwh=body.battery_kwh,
         nominal_efficiency_mi_per_kwh=body.nominal_efficiency_mi_per_kwh,
+        max_ac_kw=body.max_ac_kw,
+        max_dc_kw=body.max_dc_kw,
         provider=body.provider,
         provider_vehicle_id=body.provider_vehicle_id,
         active=body.active,

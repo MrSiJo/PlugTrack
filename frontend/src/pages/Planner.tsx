@@ -1,19 +1,16 @@
 /**
  * Home charge planner page.
  *
- * Lets the user pick a car, a start SoC %, and a target SoC %, then
- * calls GET /api/charge-plan and renders:
- *   - Total duration (formatted as Xh YYm / Ym)
- *   - A verdict line (fits one window, or needs N nights)
- *   - Per-night breakdown when nights_needed > 1
- *   - Estimated cost in GBP
- *   - Power basis caption
+ * Lets the user pick a car, a start SoC %, a target SoC %, and an optional
+ * custom kW value, then calls GET /api/charge-plan and renders a multi-scenario
+ * table with one row per scenario: label, effective power, estimated time,
+ * finish/nights for AC window rows, and a confidence/source tag pill.
  */
 import { useEffect, useState } from 'react'
-import { ApiError, api, type CarPayload, type ChargePlan } from '@/api/client'
+import { ApiError, api, type CarPayload, type ScenarioPlanResponse, type ScenarioRow, type ScenarioSourceTag } from '@/api/client'
 import { Card } from '@/components/ui/Card'
-import { GradientNumber } from '@/components/ui/GradientNumber'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { Pill, type PillTone } from '@/components/ui/Pill'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -26,111 +23,101 @@ function fmtMinutes(minutes: number): string {
   return m === 0 ? `${h}h` : `${h}h ${String(m).padStart(2, '0')}m`
 }
 
-function fmtPence(pence: number): string {
-  return `£${(pence / 100).toFixed(2)}`
+// ---------------------------------------------------------------------------
+// Source tag → pill label + tone
+// ---------------------------------------------------------------------------
+
+interface TagDisplay {
+  label: string
+  tone: PillTone
+}
+
+const SOURCE_TAG_DISPLAY: Record<ScenarioSourceTag, TagDisplay> = {
+  history: { label: 'from your history', tone: 'green' },
+  spec: { label: 'spec', tone: 'cyan' },
+  curve: { label: 'curve-derived', tone: 'green' },
+  average: { label: 'average-derived', tone: 'amber' },
+  modelled: { label: 'modelled', tone: 'slate' },
+}
+
+function sourceTagDisplay(tag: ScenarioSourceTag): TagDisplay {
+  return SOURCE_TAG_DISPLAY[tag] ?? { label: tag, tone: 'slate' }
 }
 
 // ---------------------------------------------------------------------------
-// Result card
+// Scenario table
 // ---------------------------------------------------------------------------
 
-interface PlanResultProps {
-  plan: ChargePlan
+interface PlanTableProps {
+  plan: ScenarioPlanResponse
 }
 
-function PlanResult({ plan }: PlanResultProps) {
-  const verdict = plan.fits_one_window
-    ? `Finishes ~${plan.finish_at}, within your ${plan.window_start}–${plan.window_end} window`
-    : `Needs ${plan.nights_needed} nights, finishes ~${plan.finish_at} on night ${plan.nights_needed}`
-
-  const powerCaption =
-    plan.power_basis === 'history'
-      ? `Based on your last ${plan.sample_size} home charge${plan.sample_size === 1 ? '' : 's'} (~${plan.power_kw} kW)`
-      : `Estimated at ${plan.power_kw} kW (not enough home history yet)`
-
+function PlanTable({ plan }: PlanTableProps) {
   return (
-    <div data-testid="plan-result">
-      {/* Hero strip */}
-      <Card variant="hero" className="mb-4 flex flex-wrap items-center gap-6">
-        <div className="flex flex-col">
-          <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-            Duration
-          </span>
-          <GradientNumber size="lg" data-testid="plan-duration">
-            {fmtMinutes(plan.total_minutes)}
-          </GradientNumber>
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            {plan.kwh_needed} kWh needed
-          </span>
-        </div>
-        <div className="flex flex-col">
-          <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-            Est. cost
-          </span>
-          <GradientNumber size="lg" data-testid="plan-cost">
-            {plan.is_free ? 'Free' : fmtPence(plan.cost_pence)}
-          </GradientNumber>
-          {!plan.is_free && (
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              @ {plan.home_rate_p_per_kwh}p / kWh
-            </span>
-          )}
-        </div>
-        <div className="flex flex-col">
-          <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-            SoC
-          </span>
-          <GradientNumber size="lg">
-            {plan.start_soc}→{plan.target_soc}%
-          </GradientNumber>
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            {plan.target_soc - plan.start_soc}% gain
-          </span>
-        </div>
-      </Card>
+    <div data-testid="plan-table">
+      <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50">
+              <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+                Scenario
+              </th>
+              <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+                Power
+              </th>
+              <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+                Est. time
+              </th>
+              <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+                Finishes
+              </th>
+              <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+                Source
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            {plan.rows.map((row: ScenarioRow, i: number) => {
+              const { label: tagLabel, tone } = sourceTagDisplay(row.source_tag)
+              const finishCell =
+                row.finish_at != null
+                  ? `${row.finish_at}${row.nights != null ? ` (${row.nights} night${row.nights === 1 ? '' : 's'})` : ''}`
+                  : '—'
 
-      {/* Verdict */}
-      <p
-        className="mb-4 text-sm text-slate-700 dark:text-slate-300"
-        data-testid="plan-verdict"
-      >
-        {verdict}
-      </p>
-
-      {/* Per-night breakdown */}
-      {plan.nights_needed > 1 && (
-        <section className="mb-4" data-testid="plan-nights">
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-            Night-by-night
-          </h2>
-          <ul className="space-y-1">
-            {plan.nights.map((night) => (
-              <li
-                key={night.index}
-                className="flex items-center gap-3 rounded border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
-                data-testid={`plan-night-${night.index}`}
-              >
-                <span className="font-medium text-slate-700 dark:text-slate-300">
-                  Night {night.index}
-                </span>
-                <span className="text-slate-500 dark:text-slate-400">
-                  {fmtMinutes(night.minutes)} → reaches{' '}
-                  <strong>{night.end_soc}%</strong>, finishes at{' '}
-                  {night.finish_at}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* Power basis caption */}
-      <p
-        className="text-xs text-slate-400 dark:text-slate-500"
-        data-testid="plan-power-caption"
-      >
-        {powerCaption}
-      </p>
+              return (
+                <tr
+                  key={i}
+                  data-testid={`plan-row-${i}`}
+                  className="hover:bg-slate-50 dark:hover:bg-slate-800/30"
+                >
+                  <td className="px-4 py-3">
+                    <span className="font-medium text-slate-800 dark:text-slate-200">
+                      {row.label}
+                    </span>
+                    {row.note != null && (
+                      <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">
+                        {row.note}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                    {row.power_kw} kW
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                    {fmtMinutes(row.minutes)}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-slate-500 dark:text-slate-400">
+                    {finishCell}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Pill tone={tone}>{tagLabel}</Pill>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -147,8 +134,9 @@ export default function Planner() {
   const [carId, setCarId] = useState<number | null>(null)
   const [startSoc, setStartSoc] = useState<number>(20)
   const [targetSoc, setTargetSoc] = useState<number>(100)
+  const [customKw, setCustomKw] = useState<number | undefined>(undefined)
 
-  const [plan, setPlan] = useState<ChargePlan | null>(null)
+  const [plan, setPlan] = useState<ScenarioPlanResponse | null>(null)
   const [planLoading, setPlanLoading] = useState(false)
   const [planError, setPlanError] = useState<string | null>(null)
 
@@ -191,7 +179,7 @@ export default function Planner() {
     setPlanError(null)
     void (async () => {
       try {
-        const result = await api.getChargePlan(carId, startSoc, targetSoc)
+        const result = await api.getChargePlan(carId, startSoc, targetSoc, customKw)
         if (!cancelled) {
           setPlan(result)
           setPlanLoading(false)
@@ -209,7 +197,7 @@ export default function Planner() {
     return () => {
       cancelled = true
     }
-  }, [carId, startSoc, targetSoc])
+  }, [carId, startSoc, targetSoc, customKw])
 
   const inputCls =
     'w-full rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900'
@@ -218,7 +206,7 @@ export default function Planner() {
     <div className="mx-auto max-w-3xl px-6 py-8">
       <PageHeader
         title="Charge Planner"
-        subtitle="Estimate how many nights it will take to reach your target SoC."
+        subtitle="Compare charging scenarios across different power levels."
       />
 
       {/* Inputs */}
@@ -232,7 +220,7 @@ export default function Planner() {
         ) : cars.length === 0 ? (
           <p className="text-sm text-slate-500">No cars found. Add one first.</p>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-4">
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-[0.1em] text-slate-500">
                 Car
@@ -245,7 +233,7 @@ export default function Planner() {
               >
                 {cars.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.make} {c.model}
+                    {c.display_name}
                   </option>
                 ))}
               </select>
@@ -278,6 +266,25 @@ export default function Planner() {
                 data-testid="planner-target-soc"
               />
             </label>
+            <label className="block">
+              <span className="text-xs font-medium uppercase tracking-[0.1em] text-slate-500">
+                Custom kW
+              </span>
+              <input
+                className={inputCls}
+                type="number"
+                min={1}
+                max={350}
+                step={0.1}
+                placeholder="e.g. 22"
+                value={customKw ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setCustomKw(v === '' ? undefined : Number(v))
+                }}
+                data-testid="planner-custom-kw"
+              />
+            </label>
           </div>
         )}
       </Card>
@@ -293,7 +300,7 @@ export default function Planner() {
           {planError}
         </p>
       )}
-      {plan && !planLoading && !planError && <PlanResult plan={plan} />}
+      {plan && !planLoading && !planError && <PlanTable plan={plan} />}
     </div>
   )
 }

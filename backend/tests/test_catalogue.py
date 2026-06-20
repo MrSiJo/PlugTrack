@@ -75,6 +75,18 @@ async def test_seed_defaults_is_idempotent(test_sessionmaker):
     assert second == 0
 
 
+def test_charge_loss_factor_in_catalogue():
+    """charge_loss_factor must be in the catalogue with default '0.90'."""
+    from plugtrack.settings.catalogue import CATALOGUE
+
+    by_key = {e.key: e for e in CATALOGUE}
+    assert "charge_loss_factor" in by_key
+    entry = by_key["charge_loss_factor"]
+    assert entry.default_value == "0.90"
+    assert entry.value_type == "float"
+    assert entry.group_name == "charging"
+
+
 @pytest.mark.asyncio
 async def test_seed_defaults_does_not_overwrite_user_values(test_sessionmaker):
     from plugtrack.models import Setting
