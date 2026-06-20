@@ -297,6 +297,47 @@ async def test_ambiguous_caption_is_prompt(test_sessionmaker):
 
 
 # ---------------------------------------------------------------------------
+# Word-boundary matching regression tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_word_boundary_no_false_positive_airborne(test_sessionmaker):
+    """Car named 'Born' must NOT match a caption containing 'airborne'."""
+    from plugtrack.services.telegram_ingest import resolve_car_for_message
+
+    async with test_sessionmaker() as s:
+        uid = await _seed_user(s)
+        _born = await _add_car(s, user_id=uid, make="Cupra", model="Born", name="Born")
+        _other = await _add_car(s, user_id=uid, make="Tesla", model="Model 3")
+        await s.commit()
+
+    async with test_sessionmaker() as s:
+        result = await resolve_car_for_message(s, user_id=uid, caption="Took an airborne photo")
+
+    # Should be prompt (no unique match), NOT matched to "Born"
+    assert result.kind == "prompt"
+
+
+@pytest.mark.asyncio
+async def test_word_boundary_born_matches_standalone_word(test_sessionmaker):
+    """Car named 'Born' MUST match a caption where 'Born' appears as a whole word."""
+    from plugtrack.services.telegram_ingest import resolve_car_for_message
+
+    async with test_sessionmaker() as s:
+        uid = await _seed_user(s)
+        born = await _add_car(s, user_id=uid, make="Cupra", model="Born", name="Born")
+        _other = await _add_car(s, user_id=uid, make="Tesla", model="Model 3")
+        await s.commit()
+        born_id = born.id
+
+    async with test_sessionmaker() as s:
+        result = await resolve_car_for_message(s, user_id=uid, caption="Born home 12000mi")
+
+    assert result.kind == "matched"
+    assert result.car_id == born_id
+
+
+# ---------------------------------------------------------------------------
 # IngestContext — pending_car_choice field exists
 # ---------------------------------------------------------------------------
 

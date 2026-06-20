@@ -237,26 +237,30 @@ class CarResolution:
       "prompt"  — 2+ active cars and no unique caption match; active_cars lists them for the user.
       "none"    — zero active cars and no unique caption match; nothing can be done.
     """
-    kind: str                               # "auto" | "matched" | "prompt" | "none"
-    car_id: Optional[int] = None            # set for "auto" and "matched"
-    active_cars: list = field(default_factory=list)  # set for "prompt" (list[Car])
+    kind: str                                    # "auto" | "matched" | "prompt" | "none"
+    car_id: Optional[int] = None                 # set for "auto" and "matched"
+    active_cars: list[Any] = field(default_factory=list)  # set for "prompt" (list[Car])
 
 
 def _car_matches_caption(car, caption_lower: str) -> bool:
-    """Return True if the car's name or 'make model' appears as a
-    case-insensitive substring in caption_lower.
+    """Return True if the car's name or 'make model' appears on word boundaries
+    in caption_lower (already lower-cased by the caller).
 
-    Matching rule: we lower-case the candidate token and check whether it is
-    a substring of the already-lower-cased caption.  This is deliberately
-    simple and deterministic — no tokenisation boundary requirements — so
-    "Born" matches "Cupra Born home 80%" and "Cupra Born" also matches.
+    Matching rule: each candidate (name, or "make model") is matched against
+    the caption using \\b word-boundary anchors so that a car named "Born" does
+    NOT match "airborne" but DOES match "Born home 12000mi".  Multi-word
+    candidates ("Cupra Born") match when those words appear consecutively.
+    Matching is case-insensitive (caption_lower is already lowered; candidates
+    are lowered here).
     """
-    from ..models import Car as _Car  # local import to avoid circular at module level
     candidates: list[str] = []
     if car.name:
         candidates.append(car.name.lower())
     candidates.append(f"{car.make} {car.model}".lower())
-    return any(c in caption_lower for c in candidates)
+    return any(
+        bool(re.search(r"\b" + re.escape(c) + r"\b", caption_lower))
+        for c in candidates
+    )
 
 
 async def resolve_car_for_message(
