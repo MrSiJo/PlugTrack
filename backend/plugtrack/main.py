@@ -568,7 +568,7 @@ async def _lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="PlugTrack", version="3.6.0", lifespan=_lifespan)  # x-release-please-version
+    app = FastAPI(title="PlugTrack", version="3.6.1", lifespan=_lifespan)  # x-release-please-version
 
     # Slowapi wiring.
     app.state.limiter = limiter
