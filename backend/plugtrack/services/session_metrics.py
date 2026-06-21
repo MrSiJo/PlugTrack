@@ -129,6 +129,85 @@ def _is_before(a: ChargingSession, b: ChargingSession) -> bool:
     return (a.date, a.id) < (b.date, b.id)
 
 
+# Real-world EV efficiency tops out around 5-6 mi/kWh; anything well beyond
+# this is an artefact (e.g. an odometer span that includes an unrecorded
+# charge, or a typo), so we reject it and fall back to nominal.
+_MAX_PLAUSIBLE_MI_PER_KWH = 10.0
+
+
+async def _immediately_previous_session(
+    session: AsyncSession,
+    *,
+    car_id: int,
+    user_id: int,
+    current_session_id: int,
+    current_date,
+) -> Optional[ChargingSession]:
+    """The single most recent prior session for this car (regardless of
+    odometer). Used to bound the per-session efficiency to one real drive
+    cycle — only an *adjacent* pair is trustworthy."""
+    stmt = (
+        select(ChargingSession)
+        .where(
+            ChargingSession.user_id == user_id,
+            ChargingSession.car_id == car_id,
+            ChargingSession.id != current_session_id,
+        )
+        .where(
+            (ChargingSession.date < current_date)
+            | (
+                (ChargingSession.date == current_date)
+                & (ChargingSession.id < current_session_id)
+            )
+        )
+        .order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+def _per_session_efficiency(
+    cs: ChargingSession,
+    prev: Optional[ChargingSession],
+    *,
+    battery_kwh: Optional[float],
+    nominal_mi_per_kwh: Optional[float],
+) -> tuple[Optional[float], Optional[str]]:
+    """Return `(mi_per_kwh, basis)` for one session.
+
+    "measured" — the genuine per-cycle efficiency: odometer miles driven since
+    the immediately-preceding session, divided by the battery energy consumed
+    over that cycle (the SoC drop from that session's end to this session's
+    start). This needs an *adjacent* prior session with an odometer reading and
+    a positive SoC drop, and the result must be physically plausible.
+
+    "nominal" — the car's configured spec figure, used whenever a trustworthy
+    measured value can't be derived.
+    """
+    if (
+        prev is not None
+        and prev.odometer_at_session_km is not None
+        and cs.odometer_at_session_km is not None
+        and battery_kwh
+        and battery_kwh > 0
+        and prev.end_soc is not None
+        and cs.start_soc is not None
+    ):
+        span_km = float(cs.odometer_at_session_km) - float(prev.odometer_at_session_km)
+        soc_used = float(prev.end_soc) - float(cs.start_soc)
+        if span_km > 0 and soc_used > 0:
+            miles = span_km / _KM_PER_MILE
+            energy_kwh = soc_used / 100.0 * float(battery_kwh)
+            if energy_kwh > 0:
+                eff = miles / energy_kwh
+                if 0 < eff <= _MAX_PLAUSIBLE_MI_PER_KWH:
+                    return round(eff, 2), "measured"
+
+    if nominal_mi_per_kwh:
+        return round(float(nominal_mi_per_kwh), 2), "nominal"
+    return None, None
+
+
 def _previous_with_odometer_in_memory(
     history: list[ChargingSession], cs: ChargingSession
 ) -> Optional[ChargingSession]:
@@ -355,24 +434,23 @@ async def compute_session_metrics(
             if span_km > 0:
                 base.measured_miles_since_previous = round(span_km / _KM_PER_MILE, 2)
 
-    # Per-session real-world efficiency for the detail page. When a genuine
-    # odometer span to the previous reading exists, this is the actual miles
-    # driven on that cycle divided by the energy added this charge — a real,
-    # per-session "miles per kWh" that varies charge-to-charge. With no trip
-    # span we fall back to the car's nominal spec figure (clearly flagged), so
-    # we never present the car-level average as if it were this charge's.
-    if (
-        base.measured_miles_since_previous is not None
-        and cs.kwh_added
-        and cs.kwh_added > 0
-    ):
-        base.efficiency_mi_per_kwh = round(
-            base.measured_miles_since_previous / float(cs.kwh_added), 2
-        )
-        base.efficiency_basis = "measured"
-    elif car is not None and car.nominal_efficiency_mi_per_kwh:
-        base.efficiency_mi_per_kwh = round(float(car.nominal_efficiency_mi_per_kwh), 2)
-        base.efficiency_basis = "nominal"
+    # Per-session real-world efficiency for the detail page — miles driven on
+    # this drive cycle ÷ battery energy consumed (see _per_session_efficiency).
+    prev_adjacent = await _immediately_previous_session(
+        session,
+        car_id=cs.car_id,
+        user_id=cs.user_id,
+        current_session_id=cs.id,
+        current_date=cs.date,
+    )
+    base.efficiency_mi_per_kwh, base.efficiency_basis = _per_session_efficiency(
+        cs,
+        prev_adjacent,
+        battery_kwh=float(car.battery_kwh) if car is not None else None,
+        nominal_mi_per_kwh=(
+            car.nominal_efficiency_mi_per_kwh if car is not None else None
+        ),
+    )
 
     # Per-charge energy-based savings — uniform for every row.
     return await _estimate_from_energy(
@@ -540,6 +618,60 @@ async def compute_savings_for_sessions(
                 car=car,
                 ppm=ppm,
                 observed_eff=observed_eff,
+            )
+
+    return out
+
+
+async def compute_efficiency_for_sessions(
+    session: AsyncSession, rows: list[ChargingSession]
+) -> dict[int, tuple[Optional[float], Optional[str]]]:
+    """Batch per-session efficiency `{ session_id: (mi_per_kwh, basis) }`.
+
+    Loads each car's full ascending history once and resolves the immediately
+    preceding session in memory, so the result matches what the detail page
+    computes via `_per_session_efficiency`.
+    """
+    out: dict[int, tuple[Optional[float], Optional[str]]] = {}
+    if not rows:
+        return out
+
+    by_car: dict[int, list[ChargingSession]] = {}
+    for r in rows:
+        by_car.setdefault(r.car_id, []).append(r)
+
+    for car_id, car_rows in by_car.items():
+        user_id = car_rows[0].user_id
+        car = await session.get(Car, car_id)
+        battery_kwh = float(car.battery_kwh) if car is not None else None
+        nominal = car.nominal_efficiency_mi_per_kwh if car is not None else None
+
+        # Full ascending history for this car so we can find the immediately
+        # preceding session for each requested row.
+        hist_stmt = (
+            select(ChargingSession)
+            .where(
+                ChargingSession.user_id == user_id,
+                ChargingSession.car_id == car_id,
+            )
+            .order_by(ChargingSession.date.asc(), ChargingSession.id.asc())
+        )
+        history = list((await session.execute(hist_stmt)).scalars().all())
+
+        for cs in car_rows:
+            prev_adjacent: Optional[ChargingSession] = None
+            for h in history:
+                if h.id == cs.id:
+                    continue
+                if _is_before(h, cs):
+                    prev_adjacent = h  # ascending → last match is immediately prior
+                else:
+                    break
+            out[cs.id] = _per_session_efficiency(
+                cs,
+                prev_adjacent,
+                battery_kwh=battery_kwh,
+                nominal_mi_per_kwh=nominal,
             )
 
     return out
