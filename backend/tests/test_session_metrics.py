@@ -409,6 +409,28 @@ async def test_odometer_session_uses_estimated_basis(test_sessionmaker):
 
 
 @pytest.mark.asyncio
+async def test_efficiency_mi_per_kwh_is_per_session_from_odometer_span(test_sessionmaker):
+    """With a real odometer span, efficiency = miles driven / kWh added this
+    charge — a per-session value that varies, basis 'measured'."""
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s)
+        s.add(_session(id=1, date=date(2026, 4, 28), odo_km=1000.0, cost_pence=200))
+        s.add(_session(id=2, date=date(2026, 4, 30), odo_km=1100.0, cost_pence=500))
+        await s.commit()
+
+        cs = await s.get(ChargingSession, 2)
+        m = await compute_session_metrics(s, cs)
+
+        # 100 km span = 62.14 mi over 10 kWh added → 6.21 mi/kWh.
+        expected = (100.0 / _KM_PER_MILE) / 10.0
+        assert m.efficiency_mi_per_kwh == pytest.approx(expected, abs=0.02)
+        assert m.efficiency_basis == "measured"
+        # It must differ from the car's nominal (3.6) — i.e. genuinely per-session.
+        assert m.efficiency_mi_per_kwh != pytest.approx(3.6, abs=0.01)
+
+
+@pytest.mark.asyncio
 async def test_same_odometer_no_longer_suppresses_estimate(test_sessionmaker):
     """Previously a same-odometer follow-up suppressed its own estimate and
     pointed at an anchor (chain_anchor_id). The per-charge model removes this

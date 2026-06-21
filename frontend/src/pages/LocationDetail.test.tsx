@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { api, type LocationListPayload } from '@/api/client'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -49,7 +50,9 @@ describe('LocationDetail page', () => {
     await waitFor(() => expect(screen.getByText('Home')).toBeInTheDocument())
     // Stats header: total cost £15.00, sessions 10.
     expect(screen.getByText('£15.00')).toBeInTheDocument()
-    // Edit form is present (Save button keyed by id).
+    // Edit form is collapsed by default — opens via the Edit toggle.
+    expect(screen.queryByTestId('save-button-5')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByTestId('toggle-edit-location'))
     expect(screen.getByTestId('save-button-5')).toBeInTheDocument()
     // Sessions fetched scoped to this location.
     expect(api.getSessions).toHaveBeenCalledWith('?location_id=5')
