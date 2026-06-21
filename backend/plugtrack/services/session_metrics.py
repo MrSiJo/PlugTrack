@@ -340,23 +340,6 @@ async def compute_session_metrics(
         else None
     )
 
-    # Surface the efficiency actually used for this session's estimates so the
-    # detail page can show mi/kWh + Wh/mi. Observed (odometer-calibrated) wins;
-    # nominal is the fallback. None only when the car itself is missing.
-    if car is not None:
-        eff_used = (
-            observed_eff
-            if observed_eff is not None
-            else (
-                float(car.nominal_efficiency_mi_per_kwh)
-                if car.nominal_efficiency_mi_per_kwh
-                else None
-            )
-        )
-        if eff_used is not None and eff_used > 0:
-            base.efficiency_mi_per_kwh = round(eff_used, 2)
-            base.efficiency_basis = "observed" if observed_eff is not None else "nominal"
-
     # Informational: genuine odometer span to the previous odometer-bearing
     # session — does NOT feed savings.
     if cs.odometer_at_session_km is not None:
@@ -371,6 +354,25 @@ async def compute_session_metrics(
             span_km = float(cs.odometer_at_session_km) - float(prev_with_odo.odometer_at_session_km)
             if span_km > 0:
                 base.measured_miles_since_previous = round(span_km / _KM_PER_MILE, 2)
+
+    # Per-session real-world efficiency for the detail page. When a genuine
+    # odometer span to the previous reading exists, this is the actual miles
+    # driven on that cycle divided by the energy added this charge — a real,
+    # per-session "miles per kWh" that varies charge-to-charge. With no trip
+    # span we fall back to the car's nominal spec figure (clearly flagged), so
+    # we never present the car-level average as if it were this charge's.
+    if (
+        base.measured_miles_since_previous is not None
+        and cs.kwh_added
+        and cs.kwh_added > 0
+    ):
+        base.efficiency_mi_per_kwh = round(
+            base.measured_miles_since_previous / float(cs.kwh_added), 2
+        )
+        base.efficiency_basis = "measured"
+    elif car is not None and car.nominal_efficiency_mi_per_kwh:
+        base.efficiency_mi_per_kwh = round(float(car.nominal_efficiency_mi_per_kwh), 2)
+        base.efficiency_basis = "nominal"
 
     # Per-charge energy-based savings — uniform for every row.
     return await _estimate_from_energy(

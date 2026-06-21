@@ -41,6 +41,7 @@ export default function LocationDetail() {
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
+  const [editing, setEditing] = useState(false)
 
   const load = useCallback(async () => {
     if (!Number.isFinite(numericId)) {
@@ -167,12 +168,29 @@ export default function LocationDetail() {
       </div>
 
       <Card className="mb-6">
-        <h2 className="mb-3 text-sm font-semibold">Edit location</h2>
-        <LocationEditForm
-          location={location}
-          onSaved={load}
-          onToast={setToast}
-        />
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold">Edit location</h2>
+          <button
+            type="button"
+            onClick={() => setEditing((v) => !v)}
+            className="rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200"
+            data-testid="toggle-edit-location"
+          >
+            {editing ? 'Cancel' : 'Edit'}
+          </button>
+        </div>
+        {editing && (
+          <div className="mt-3">
+            <LocationEditForm
+              location={location}
+              onSaved={() => {
+                void load()
+                setEditing(false)
+              }}
+              onToast={setToast}
+            />
+          </div>
+        )}
       </Card>
 
       <h2 className="mb-3 text-sm font-semibold">

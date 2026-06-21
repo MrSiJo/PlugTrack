@@ -173,7 +173,7 @@ describe('SessionDetail — charge details', () => {
       makeSession({
         metrics: makeMetrics({
           efficiency_mi_per_kwh: 3.6,
-          efficiency_basis: 'observed',
+          efficiency_basis: 'measured',
         }),
       }),
     )

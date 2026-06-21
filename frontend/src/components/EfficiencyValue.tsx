@@ -41,14 +41,11 @@ export function EfficiencyValue({
 
   return (
     <span className={className} data-testid={testId}>
-      <span className="tabular-nums">{eff.primary.display}</span>
+      <span className="block tabular-nums">{eff.primary.display}</span>
       {!primaryOnly && (
-        <>
-          {' '}
-          <span className="tabular-nums text-slate-400 dark:text-slate-500">
-            {eff.secondary.display}
-          </span>
-        </>
+        <span className="block text-xs font-normal tabular-nums text-slate-400 dark:text-slate-500">
+          {eff.secondary.display}
+        </span>
       )}
     </span>
   )
