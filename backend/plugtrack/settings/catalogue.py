@@ -73,6 +73,19 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         default_value="mi",
     ),
     CatalogueEntry(
+        key="efficiency_priority",
+        value_type="enum",
+        group_name="display",
+        label="Efficiency figure",
+        description=(
+            "Which efficiency figure to show as the primary value. "
+            "'distance_per_energy' = mi/kWh (km/kWh) with Wh/mi (Wh/km) secondary; "
+            "'energy_per_distance' = Wh/mi primary with mi/kWh secondary. "
+            "Both follow the distance unit."
+        ),
+        default_value="distance_per_energy",
+    ),
+    CatalogueEntry(
         key="public_base_url",
         value_type="string",
         group_name="display",

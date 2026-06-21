@@ -5,12 +5,13 @@
  * ownership span) and lifetime tiles (total sessions, kWh, cost, avg p/kWh,
  * mi/kWh, home/public split). Links to Insights filtered for this car.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ApiError, api, type CarLifetimePayload, type CarPayload } from '@/api/client'
 import { Card } from '@/components/ui/Card'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Pill } from '@/components/ui/Pill'
+import { EfficiencyValue } from '@/components/EfficiencyValue'
 import { formatCurrency } from '@/utils/currency'
 import { formatDistance, useSetting } from '@/stores/settingsStore'
 
@@ -123,8 +124,8 @@ export default function CarDetail() {
           testId="tile-avg-p-per-kwh"
         />
         <LifetimeTile
-          label="mi/kWh"
-          value={lifetime.lifetime_mi_per_kwh !== null ? lifetime.lifetime_mi_per_kwh.toFixed(2) : '—'}
+          label="Efficiency"
+          value={<EfficiencyValue miPerKwh={lifetime.lifetime_mi_per_kwh} />}
           testId="tile-mi-per-kwh"
         />
         <LifetimeTile
@@ -154,7 +155,7 @@ export default function CarDetail() {
   )
 }
 
-function LifetimeTile({ label, value, testId }: { label: string; value: string; testId?: string }) {
+function LifetimeTile({ label, value, testId }: { label: string; value: ReactNode; testId?: string }) {
   return (
     <Card className="flex flex-col gap-1 p-3">
       <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">{label}</dt>

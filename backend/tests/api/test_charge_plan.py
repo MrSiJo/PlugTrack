@@ -547,3 +547,125 @@ async def test_charge_plan_default_home_rate_fallback(authed_client):
     body = r.json()
     assert body["is_free"] is False
     assert body["home_rate_p_per_kwh"] == 7.5
+
+
+# ---------------------------------------------------------------------------
+# Blended two-phase plan: GET /api/charge-plan/blended
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_blended_requires_auth(seeded_client):
+    r = await seeded_client.get(
+        "/api/charge-plan/blended?car_id=1&start_soc=20&dc_stop_soc=60&home_target_soc=80"
+    )
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_blended_happy_path_shape(authed_client):
+    """Returns the blended envelope with dc_phase / home_phase / total."""
+    car_id = await _create_car(authed_client, battery_kwh=77.0, max_dc_kw=150.0)
+    r = await authed_client.get(
+        f"/api/charge-plan/blended?car_id={car_id}"
+        "&start_soc=20&dc_stop_soc=60&home_target_soc=80&dc_rate_p=50"
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert body["car_id"] == car_id
+    assert body["start_soc"] == 20
+    assert body["dc_stop_soc"] == 60
+    assert body["target_soc"] == 80
+    assert body["dc_rate_p"] == 50.0
+    assert isinstance(body["is_free"], bool)
+
+    # Phase energy: DC 30.8 kWh, home 15.4 kWh.
+    assert abs(body["dc_phase"]["kwh"] - 30.8) < 0.05
+    assert abs(body["home_phase"]["kwh"] - 15.4) < 0.05
+    # Total energy + cost are the sum of phases.
+    assert abs(body["total"]["kwh"] - 46.2) < 0.05
+    assert (
+        body["total"]["cost_pence"]
+        == body["dc_phase"]["cost_pence"] + body["home_phase"]["cost_pence"]
+    )
+    assert body["total"]["minutes"] == body["dc_phase"]["minutes"] + body["home_phase"]["minutes"]
+    # DC cost uses the supplied DC rate: 30.8 * 50 = 1540p.
+    assert body["dc_phase"]["cost_pence"] == 1540
+    # Efficiency echoed (car nominal 3.6) and cost-per-mile present.
+    assert abs(body["total"]["mi_per_kwh"] - 3.6) < 0.001
+    assert body["total"]["cost_per_mile_p"] is not None
+
+
+@pytest.mark.asyncio
+async def test_blended_default_dc_rate_when_omitted(authed_client):
+    """dc_rate_p defaults to the public fallback (45 p) when not supplied."""
+    car_id = await _create_car(authed_client, battery_kwh=77.0, max_dc_kw=150.0)
+    r = await authed_client.get(
+        f"/api/charge-plan/blended?car_id={car_id}"
+        "&start_soc=20&dc_stop_soc=60&home_target_soc=80"
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["dc_rate_p"] == 45.0
+
+
+@pytest.mark.asyncio
+async def test_blended_pure_dc_when_stop_equals_target(authed_client):
+    """dc_stop_soc == home_target_soc → home phase is empty."""
+    car_id = await _create_car(authed_client, battery_kwh=77.0, max_dc_kw=150.0)
+    r = await authed_client.get(
+        f"/api/charge-plan/blended?car_id={car_id}"
+        "&start_soc=20&dc_stop_soc=80&home_target_soc=80"
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["home_phase"]["kwh"] == 0
+    assert body["home_phase"]["minutes"] == 0
+    assert body["home_phase"]["cost_pence"] == 0
+
+
+@pytest.mark.asyncio
+async def test_blended_400_bad_ordering(authed_client):
+    car_id = await _create_car(authed_client, battery_kwh=77.0)
+    # dc_stop above target.
+    r = await authed_client.get(
+        f"/api/charge-plan/blended?car_id={car_id}"
+        "&start_soc=20&dc_stop_soc=90&home_target_soc=80"
+    )
+    assert r.status_code == 400
+    # target not above start.
+    r = await authed_client.get(
+        f"/api/charge-plan/blended?car_id={car_id}"
+        "&start_soc=50&dc_stop_soc=50&home_target_soc=50"
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_blended_404_car_not_owned(authed_client, test_sessionmaker):
+    """A car owned by another user returns 404 (per-user isolation)."""
+    async with test_sessionmaker() as session:
+        from plugtrack.models import User as UserModel
+        other = UserModel(username="other_blended", password_hash="x")
+        session.add(other)
+        await session.commit()
+        await session.refresh(other)
+        car = Car(
+            user_id=other.id,
+            make="Tesla",
+            model="Model 3",
+            battery_kwh=75.0,
+            nominal_efficiency_mi_per_kwh=4.0,
+            provider="manual",
+            active=True,
+        )
+        session.add(car)
+        await session.commit()
+        await session.refresh(car)
+        other_car_id = car.id
+
+    r = await authed_client.get(
+        f"/api/charge-plan/blended?car_id={other_car_id}"
+        "&start_soc=20&dc_stop_soc=60&home_target_soc=80"
+    )
+    assert r.status_code == 404

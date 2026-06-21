@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom'
 import { ApiError, api, type CarPayload } from '@/api/client'
 import { CarImage } from '@/components/cars/CarImage'
 import { CarMileageSection } from '@/components/cars/CarMileageSection'
+import { EfficiencyValue } from '@/components/EfficiencyValue'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -104,7 +105,7 @@ function CarCard({ car }: { car: CarPayload }) {
                 Efficiency
               </dt>
               <dd className="font-medium text-slate-900 dark:text-slate-100">
-                {car.nominal_efficiency_mi_per_kwh} mi/kWh
+                <EfficiencyValue miPerKwh={car.nominal_efficiency_mi_per_kwh} />
               </dd>
             </div>
             <div>
