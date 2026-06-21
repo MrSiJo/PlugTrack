@@ -73,6 +73,12 @@ class SessionMetrics:
     # Genuine odometer-measured span to the previous odometer-bearing
     # session — informational only, does not feed savings.
     measured_miles_since_previous: Optional[float] = None
+    # The real-world efficiency (mi/kWh) used to derive this session's range
+    # and savings estimates: the car's observed efficiency (Method B, from
+    # odometer history) when available, else its configured nominal. The
+    # `efficiency_basis` flags which one ("observed" | "nominal" | None).
+    efficiency_mi_per_kwh: Optional[float] = None
+    efficiency_basis: Optional[str] = None
     # The charge rate (p/kWh) above which this charge costs more than an
     # equivalent petrol trip. None when ppm or efficiency is unavailable.
     breakeven_p_per_kwh: Optional[float] = None
@@ -333,6 +339,23 @@ async def compute_session_metrics(
         if car is not None
         else None
     )
+
+    # Surface the efficiency actually used for this session's estimates so the
+    # detail page can show mi/kWh + Wh/mi. Observed (odometer-calibrated) wins;
+    # nominal is the fallback. None only when the car itself is missing.
+    if car is not None:
+        eff_used = (
+            observed_eff
+            if observed_eff is not None
+            else (
+                float(car.nominal_efficiency_mi_per_kwh)
+                if car.nominal_efficiency_mi_per_kwh
+                else None
+            )
+        )
+        if eff_used is not None and eff_used > 0:
+            base.efficiency_mi_per_kwh = round(eff_used, 2)
+            base.efficiency_basis = "observed" if observed_eff is not None else "nominal"
 
     # Informational: genuine odometer span to the previous odometer-bearing
     # session — does NOT feed savings.

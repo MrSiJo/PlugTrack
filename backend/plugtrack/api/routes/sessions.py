@@ -99,6 +99,10 @@ class SessionMetricsPayload(BaseModel):
     average_power_kw: Optional[float] = None
     peak_power_kw: Optional[float] = None
     efficiency_percent: Optional[float] = None
+    # Real-world efficiency (mi/kWh) used for this session's estimates, plus
+    # whether it came from observed odometer history or the nominal spec.
+    efficiency_mi_per_kwh: Optional[float] = None
+    efficiency_basis: Optional[str] = None
 
 
 class SessionPayload(BaseModel):
@@ -488,6 +492,8 @@ async def get_session(
         average_power_kw=metrics.average_power_kw,
         peak_power_kw=metrics.peak_power_kw,
         efficiency_percent=metrics.efficiency_percent,
+        efficiency_mi_per_kwh=getattr(metrics, "efficiency_mi_per_kwh", None),
+        efficiency_basis=getattr(metrics, "efficiency_basis", None),
     )
     # Mirror the per-charge savings + break-even onto the top-level payload
     # so list and detail shape are consistent.

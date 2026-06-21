@@ -168,6 +168,33 @@ describe('SessionDetail — charge details', () => {
     expect(screen.queryByTestId('charge-context')).not.toBeInTheDocument()
   })
 
+  it('renders an Efficiency tile (mi/kWh + Wh/mi) when efficiency is known', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({
+        metrics: makeMetrics({
+          efficiency_mi_per_kwh: 3.6,
+          efficiency_basis: 'observed',
+        }),
+      }),
+    )
+
+    renderDetail()
+
+    const tile = await screen.findByTestId('metric-efficiency')
+    expect(tile).toHaveTextContent('3.60 mi/kWh')
+    expect(tile).toHaveTextContent('278 Wh/mi')
+    expect(tile).toHaveTextContent('measured')
+  })
+
+  it('hides the Efficiency tile when efficiency is unknown', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({ metrics: makeMetrics({ efficiency_mi_per_kwh: null }) }),
+    )
+    renderDetail()
+    await screen.findByTestId('charge-details')
+    expect(screen.queryByTestId('metric-efficiency')).not.toBeInTheDocument()
+  })
+
   it('renders the spine even when mode/type/care are unknown', async () => {
     vi.spyOn(api, 'getSession').mockResolvedValue(
       makeSession({
@@ -316,6 +343,8 @@ function makeMetrics(
     peak_power_kw: null,
     efficiency_percent: null,
     breakeven_p_per_kwh: null,
+    efficiency_mi_per_kwh: null,
+    efficiency_basis: null,
     ...over,
   }
 }
