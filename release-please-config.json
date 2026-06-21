@@ -11,7 +11,9 @@
       "component": "",
       "include-component-in-tag": false,
       "changelog-path": "CHANGELOG.md",
-      "extra-files": []
+      "extra-files": [
+        "backend/plugtrack/main.py"
+      ]
     }
   }
 }
