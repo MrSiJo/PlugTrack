@@ -302,7 +302,7 @@ async def _get_owned_location(
 # is no longer offered in the UI; 'telegram'/'import' are the standalone-pivot
 # ingest sources.
 _VALID_SOURCES = frozenset({"manual", "synthesis", "telegram", "import"})
-_VALID_SORTS = frozenset({"date", "cost", "energy", "saved"})
+_VALID_SORTS = frozenset({"date", "cost", "energy", "saved", "efficiency"})
 _VALID_DIRS = frozenset({"asc", "desc"})
 
 # Maps the SQL-backed sort fields to their ChargingSession columns. `saved`
@@ -366,7 +366,9 @@ async def list_sessions(
     # `saved` is not a column — order by date for a stable base set, then
     # re-sort the computed value in memory below. For the SQL-backed fields
     # apply ORDER BY directly, keeping id as a stable tiebreaker.
-    if sort == "saved":
+    if sort in ("saved", "efficiency"):
+        # Computed in memory after the bulk pass — order by date for a stable
+        # base set, then re-sort the computed value below.
         order_col = ChargingSession.date
         order_dir = "desc"
     else:
@@ -411,6 +413,14 @@ async def list_sessions(
             key=lambda p: (
                 p.saved_vs_petrol_p is None,
                 -(p.saved_vs_petrol_p or 0) if reverse else (p.saved_vs_petrol_p or 0),
+            )
+        )
+    elif sort == "efficiency":
+        reverse = dir == "desc"
+        payloads.sort(
+            key=lambda p: (
+                p.efficiency_mi_per_kwh is None,
+                -(p.efficiency_mi_per_kwh or 0) if reverse else (p.efficiency_mi_per_kwh or 0),
             )
         )
 
