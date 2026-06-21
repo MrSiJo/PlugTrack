@@ -303,6 +303,24 @@ async def test_efficiency_none_when_kwh_calculated_missing(test_sessionmaker):
         assert m.efficiency_percent is None
 
 
+@pytest.mark.asyncio
+async def test_efficiency_mi_per_kwh_falls_back_to_nominal(test_sessionmaker):
+    """With no odometer history, efficiency_mi_per_kwh = the car's nominal, basis 'nominal'."""
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, mi_per_kwh=3.6)
+        s.add(ChargingSession(
+            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
+            start_soc=60, end_soc=86, kwh_added=18.0,
+            cost_basis="override_total", source="manual",
+        ))
+        await s.commit()
+        cs = await s.get(ChargingSession, 1)
+        m = await compute_session_metrics(s, cs)
+        assert m.efficiency_mi_per_kwh == pytest.approx(3.6, abs=0.01)
+        assert m.efficiency_basis == "nominal"
+
+
 # ---------------------------------------------------------------------------
 # Energy-based petrol-comparison fallback (comparison_basis = "estimated").
 # ---------------------------------------------------------------------------

@@ -355,6 +355,8 @@ export interface SessionMetricsPayload {
   peak_power_kw: number | null
   efficiency_percent: number | null
   breakeven_p_per_kwh: number | null
+  efficiency_mi_per_kwh: number | null
+  efficiency_basis: string | null
 }
 
 export interface SessionCreateRequest {
