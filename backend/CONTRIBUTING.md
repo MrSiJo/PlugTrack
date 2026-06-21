@@ -33,21 +33,16 @@ cd backend
 pytest tests -v
 ```
 
-### Integration tests (real Cupra account)
+### Integration tests
 
-`backend/tests/integration/` contains tests that hit the real Cupra
-Connect cloud via pycupra. They are **gated** — skipped unless both:
-
-- `INTEGRATION=1` is set in the environment, AND
-- `.env.probe` exists at the repo root with valid Cupra credentials
-  (`CUPRA_USERNAME` + `CUPRA_PASSWORD`; `CUPRA_SPIN` optional).
-
-`.env.probe` is gitignored. **Never commit it.**
-
-Run integration tests after pycupra version bumps:
+`backend/tests/integration/` is reserved for tests that exercise real
+network paths, **gated** behind `INTEGRATION=1`. It is currently empty —
+the former real-account Cupra/pycupra probe was removed in the v3.0.0
+standalone pivot (the app no longer talks to the Cupra Connect cloud; it
+ingests charge screenshots via a Telegram bot instead).
 
 ```bash
 INTEGRATION=1 pytest backend/tests/integration -v
 ```
 
-The default `pytest backend/tests` invocation skips them.
+The default `pytest backend/tests` invocation skips this directory.
