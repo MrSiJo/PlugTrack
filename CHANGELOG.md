@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.1](https://github.com/MrSiJo/PlugTrack/compare/v3.6.0...v3.6.1) (2026-06-21)
+
+
+### Bug Fixes
+
+* per-session efficiency, map tiles (CSP), stacked Wh/mi, collapsed location edit ([#45](https://github.com/MrSiJo/PlugTrack/issues/45)) ([52f0bda](https://github.com/MrSiJo/PlugTrack/commit/52f0bda4c5ff6670926e714e2303af133d44b255))
+
 ## [3.6.0](https://github.com/MrSiJo/PlugTrack/compare/v3.5.0...v3.6.0) (2026-06-21)
 
 
