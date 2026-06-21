@@ -55,6 +55,8 @@ function makeSession(
     saved_vs_petrol_p: null,
     comparison_basis: null,
     breakeven_p_per_kwh: null,
+    efficiency_mi_per_kwh: null,
+    efficiency_basis: null,
     power_curve: null,
     metrics: null,
     ...over,
@@ -159,8 +161,8 @@ describe('SessionDetail — charge details', () => {
     // Known context tiles.
     expect(section).toHaveTextContent('Timer')
     expect(section).toHaveTextContent('AC')
-    expect(section).toHaveTextContent('Battery care')
-    // The dead tiles are gone.
+    // The dead tiles are gone (battery-care tile removed entirely).
+    expect(screen.queryByTestId('ctx-battery-care')).not.toBeInTheDocument()
     expect(screen.queryByTestId('metric-peak-power')).not.toBeInTheDocument()
     expect(screen.queryByTestId('ctx-max-current')).not.toBeInTheDocument()
     // There is no separate mechanics/context section any more.

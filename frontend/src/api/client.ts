@@ -329,6 +329,8 @@ export interface ChargingSessionPayload {
   saved_vs_petrol_p: number | null
   comparison_basis: string | null
   breakeven_p_per_kwh: number | null
+  efficiency_mi_per_kwh: number | null
+  efficiency_basis: string | null
   // [[delta_seconds, soc, power_kw], ...] — live during charge.
   power_curve?: number[][] | null
   // True when power_curve is vision-extracted (source != 'synthesis').

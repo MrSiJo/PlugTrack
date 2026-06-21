@@ -409,12 +409,14 @@ async def test_odometer_session_uses_estimated_basis(test_sessionmaker):
 
 
 @pytest.mark.asyncio
-async def test_efficiency_mi_per_kwh_is_per_session_from_odometer_span(test_sessionmaker):
-    """With a real odometer span, efficiency = miles driven / kWh added this
-    charge — a per-session value that varies, basis 'measured'."""
+async def test_efficiency_mi_per_kwh_is_per_session_from_drive_cycle(test_sessionmaker):
+    """With an adjacent odometer span, efficiency = miles driven ÷ battery
+    energy consumed over that cycle (the SoC drop), basis 'measured'."""
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
-        _seed_car(s)
+        _seed_car(s, battery_kwh=59.0)
+        # _session: start_soc=40, end_soc=80. Between charge 1 (end 80%) and
+        # charge 2 (start 40%) the car used 40% of 59 kWh = 23.6 kWh.
         s.add(_session(id=1, date=date(2026, 4, 28), odo_km=1000.0, cost_pence=200))
         s.add(_session(id=2, date=date(2026, 4, 30), odo_km=1100.0, cost_pence=500))
         await s.commit()
@@ -422,12 +424,30 @@ async def test_efficiency_mi_per_kwh_is_per_session_from_odometer_span(test_sess
         cs = await s.get(ChargingSession, 2)
         m = await compute_session_metrics(s, cs)
 
-        # 100 km span = 62.14 mi over 10 kWh added → 6.21 mi/kWh.
-        expected = (100.0 / _KM_PER_MILE) / 10.0
+        # 100 km = 62.14 mi over 23.6 kWh consumed → 2.63 mi/kWh.
+        expected = (100.0 / _KM_PER_MILE) / (0.40 * 59.0)
         assert m.efficiency_mi_per_kwh == pytest.approx(expected, abs=0.02)
         assert m.efficiency_basis == "measured"
-        # It must differ from the car's nominal (3.6) — i.e. genuinely per-session.
         assert m.efficiency_mi_per_kwh != pytest.approx(3.6, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_efficiency_falls_back_to_nominal_when_span_implausible(test_sessionmaker):
+    """A huge odometer span over a small SoC drop (e.g. an unrecorded charge in
+    between) yields an absurd mi/kWh — reject it and use nominal."""
+    async with test_sessionmaker() as s:
+        s.add(User(id=1, username="alice", password_hash="x"))
+        _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.6)
+        # 1000 km on 23.6 kWh consumed is physically impossible → rejected.
+        s.add(_session(id=1, date=date(2026, 4, 28), odo_km=1000.0, cost_pence=200))
+        s.add(_session(id=2, date=date(2026, 4, 30), odo_km=2000.0, cost_pence=500))
+        await s.commit()
+
+        cs = await s.get(ChargingSession, 2)
+        m = await compute_session_metrics(s, cs)
+
+        assert m.efficiency_mi_per_kwh == pytest.approx(3.6, abs=0.01)
+        assert m.efficiency_basis == "nominal"
 
 
 @pytest.mark.asyncio

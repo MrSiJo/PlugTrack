@@ -315,8 +315,6 @@ function ChargeDetails({ session, metrics, unit }: ChargeDetailsProps) {
     return Math.max(0, Math.round((end - start) / 60_000))
   })()
 
-  const careLabel = session.battery_care ? 'On' : 'Off'
-
   return (
     <section className="mb-6" data-testid="charge-details">
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
@@ -376,12 +374,6 @@ function ChargeDetails({ session, metrics, unit }: ChargeDetailsProps) {
                   ?? session.charging_type}
               </span>
             }
-          />
-        )}
-        {session.battery_care !== null && (
-          <StatTile
-            label="Battery care"
-            value={<span data-testid="ctx-battery-care">{careLabel}</span>}
           />
         )}
         {windowMinutes !== null && (
