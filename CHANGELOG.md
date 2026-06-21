@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.7.0](https://github.com/MrSiJo/PlugTrack/compare/v3.6.1...v3.7.0) (2026-06-21)
+
+
+### Features
+
+* correct per-session efficiency + add efficiency column to sessions table ([#47](https://github.com/MrSiJo/PlugTrack/issues/47)) ([cfd9b11](https://github.com/MrSiJo/PlugTrack/commit/cfd9b11b3439a3250923afcaf900c817a30f45b8))
+
 ## [3.6.1](https://github.com/MrSiJo/PlugTrack/compare/v3.6.0...v3.6.1) (2026-06-21)
 
 
