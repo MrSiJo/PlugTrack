@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.0](https://github.com/MrSiJo/PlugTrack/compare/v3.5.0...v3.6.0) (2026-06-21)
+
+
+### Features
+
+* show per-session mi/kWh + Wh/mi efficiency on session detail ([#43](https://github.com/MrSiJo/PlugTrack/issues/43)) ([cfb2af2](https://github.com/MrSiJo/PlugTrack/commit/cfb2af23e19292af876464cf19e644729e4a4054))
+
 ## [3.5.0](https://github.com/MrSiJo/PlugTrack/compare/v3.4.2...v3.5.0) (2026-06-21)
 
 
