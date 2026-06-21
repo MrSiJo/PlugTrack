@@ -670,6 +670,139 @@ def build_scenario_table(
 
 
 # ---------------------------------------------------------------------------
+# Blended two-phase plan (rapid DC → home AC) — pure, no DB
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BlendedPhase:
+    """One leg of a blended charge: energy added, time, and cost."""
+
+    kwh: float
+    minutes: int
+    cost_pence: int
+
+
+@dataclass
+class BlendedTotal:
+    """Blended totals across both phases."""
+
+    kwh: float
+    minutes: int
+    cost_pence: int
+    cost_per_mile_p: Optional[float]  # None when efficiency is unknown / non-positive
+    mi_per_kwh: Optional[float]       # efficiency used (echoed for the UI's Wh/mi figure)
+
+
+@dataclass
+class BlendedPlan:
+    dc_phase: BlendedPhase
+    home_phase: BlendedPhase
+    total: BlendedTotal
+
+
+def build_blended_plan(
+    *,
+    start_soc: int,
+    dc_stop_soc: int,
+    target_soc: int,
+    battery_kwh: float,
+    dc_capability: DcCapability,
+    dc_rate_p: float,
+    dc_charger_cap_kw: float,
+    home_power_kw: float,
+    home_window: dict,
+    home_rate_p: float,
+    is_free: bool,
+    loss_factor: float,
+    mi_per_kwh: Optional[float],
+) -> BlendedPlan:
+    """Compose a two-phase charge: rapid DC up to ``dc_stop_soc``, then home AC to ``target_soc``.
+
+    Energy is battery-side (SoC delta × capacity); cost = battery-side kWh × rate
+    (loss is applied to *time*, not cost — consistent with ``compute_charge_plan``
+    and ``estimate_scenario``).  ``cost_per_mile_p`` uses battery energy delivered
+    × ``mi_per_kwh`` for miles gained.
+
+    Requires ``start_soc <= dc_stop_soc <= target_soc``.  Degenerate splits are
+    valid: ``dc_stop_soc == target_soc`` ⇒ pure DC; ``dc_stop_soc == start_soc`` ⇒
+    pure home.
+    """
+    if not (start_soc <= dc_stop_soc <= target_soc):
+        raise ValueError(
+            "require start_soc <= dc_stop_soc <= target_soc "
+            f"(got {start_soc}, {dc_stop_soc}, {target_soc})"
+        )
+
+    # --- DC phase (rapid) ---
+    dc_kwh = round(battery_kwh * (dc_stop_soc - start_soc) / 100.0, 2)
+    if dc_stop_soc > start_soc:
+        dc_row = estimate_scenario(
+            kind="dc",
+            label="DC phase",
+            start_soc=start_soc,
+            target_soc=dc_stop_soc,
+            battery_kwh=battery_kwh,
+            charger_cap_kw=dc_charger_cap_kw,
+            capability=dc_capability,
+            flat_power_kw=None,
+            loss_factor=loss_factor,
+            ac_window=None,
+            source_tag="",
+        )
+        dc_minutes = dc_row.minutes
+    else:
+        dc_minutes = 0
+    dc_cost = round(dc_kwh * dc_rate_p)
+    dc_phase = BlendedPhase(kwh=dc_kwh, minutes=dc_minutes, cost_pence=dc_cost)
+
+    # --- Home phase (overnight AC) ---
+    home_kwh = round(battery_kwh * (target_soc - dc_stop_soc) / 100.0, 2)
+    if target_soc > dc_stop_soc:
+        home_plan = compute_charge_plan(
+            start_soc=dc_stop_soc,
+            target_soc=target_soc,
+            battery_kwh=battery_kwh,
+            power_kw=home_power_kw * loss_factor,
+            window_minutes=home_window["window_minutes"],
+            window_start_str=home_window["window_start_str"],
+            home_rate_p_per_kwh=home_rate_p,
+            is_free=is_free,
+        )
+        home_minutes = home_plan.total_minutes
+        home_cost = home_plan.cost_pence
+    else:
+        home_minutes = 0
+        home_cost = 0
+    home_phase = BlendedPhase(kwh=home_kwh, minutes=home_minutes, cost_pence=home_cost)
+
+    # --- Blended total ---
+    total_kwh = round(dc_kwh + home_kwh, 2)
+    total_cost = dc_cost + home_cost
+    total_minutes = dc_minutes + home_minutes
+
+    if mi_per_kwh is not None and mi_per_kwh > 0 and total_kwh > 0:
+        miles_gained = total_kwh * mi_per_kwh
+        cost_per_mile_p: Optional[float] = round(total_cost / miles_gained, 2)
+        eff: Optional[float] = mi_per_kwh
+    else:
+        cost_per_mile_p = None
+        eff = mi_per_kwh if (mi_per_kwh and mi_per_kwh > 0) else None
+
+    return BlendedPlan(
+        dc_phase=dc_phase,
+        home_phase=home_phase,
+        total=BlendedTotal(
+            kwh=total_kwh,
+            minutes=total_minutes,
+            cost_pence=total_cost,
+            cost_per_mile_p=cost_per_mile_p,
+            mi_per_kwh=eff,
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # DB-backed inputs resolver
 # ---------------------------------------------------------------------------
 

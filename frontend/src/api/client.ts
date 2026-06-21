@@ -599,6 +599,35 @@ export interface ScenarioPlanResponse {
   rows: ScenarioRow[]
 }
 
+export interface BlendedPhase {
+  kwh: number
+  minutes: number
+  cost_pence: number
+}
+
+export interface BlendedTotal {
+  kwh: number
+  minutes: number
+  cost_pence: number
+  cost_per_mile_p: number | null
+  mi_per_kwh: number | null
+}
+
+export interface BlendedPlanResponse {
+  car_id: number
+  start_soc: number
+  dc_stop_soc: number
+  target_soc: number
+  battery_kwh: number
+  loss_factor: number
+  dc_rate_p: number
+  home_rate_p_per_kwh: number
+  is_free: boolean
+  dc_phase: BlendedPhase
+  home_phase: BlendedPhase
+  total: BlendedTotal
+}
+
 // ---------------------------------------------------------------------------
 // File download helper — fetch with cookie credentials, convert to blob,
 // trigger an anchor-click download, then revoke the object URL.
@@ -854,6 +883,22 @@ export const api = {
     let path = `/api/charge-plan?car_id=${carId}&start_soc=${startSoc}&target_soc=${targetSoc}`
     if (customKw !== undefined) path += `&custom_kw=${customKw}`
     return fetchJSON<ScenarioPlanResponse>(path)
+  },
+
+  getBlendedChargePlan: (
+    carId: number,
+    startSoc: number,
+    dcStopSoc: number,
+    homeTargetSoc: number,
+    dcRateP?: number,
+    dcChargerCapKw?: number,
+  ): Promise<BlendedPlanResponse> => {
+    let path =
+      `/api/charge-plan/blended?car_id=${carId}` +
+      `&start_soc=${startSoc}&dc_stop_soc=${dcStopSoc}&home_target_soc=${homeTargetSoc}`
+    if (dcRateP !== undefined) path += `&dc_rate_p=${dcRateP}`
+    if (dcChargerCapKw !== undefined) path += `&dc_charger_cap_kw=${dcChargerCapKw}`
+    return fetchJSON<BlendedPlanResponse>(path)
   },
 
   // ----- MCP / API tokens -----

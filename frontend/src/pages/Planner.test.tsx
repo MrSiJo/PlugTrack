@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import Planner from './Planner'
-import { ApiError, api, type CarPayload, type ScenarioPlanResponse } from '@/api/client'
+import { ApiError, api, type BlendedPlanResponse, type CarPayload, type ScenarioPlanResponse } from '@/api/client'
 import { useSettingsStore } from '@/stores/settingsStore'
 
 // ---------------------------------------------------------------------------
@@ -405,5 +405,96 @@ describe('Planner page', () => {
     await waitFor(() => {
       expect(getChargePlan).toHaveBeenCalledWith(1, 50, 90, undefined)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Blended mode
+// ---------------------------------------------------------------------------
+
+function makeBlended(over: Partial<BlendedPlanResponse> = {}): BlendedPlanResponse {
+  return {
+    car_id: 1,
+    start_soc: 60,
+    dc_stop_soc: 70,
+    target_soc: 80,
+    battery_kwh: 77,
+    loss_factor: 0.9,
+    dc_rate_p: 45,
+    home_rate_p_per_kwh: 7.5,
+    is_free: false,
+    dc_phase: { kwh: 7.7, minutes: 8, cost_pence: 347 },
+    home_phase: { kwh: 7.7, minutes: 75, cost_pence: 58 },
+    total: { kwh: 15.4, minutes: 83, cost_pence: 405, cost_per_mile_p: 7.3, mi_per_kwh: 3.6 },
+    ...over,
+  }
+}
+
+describe('Planner page — blended mode', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    useSettingsStore.setState({ settings: {}, loaded: true })
+  })
+
+  it('switching to Blended fetches the blended plan and renders the three cards', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar({ id: 1 })])
+    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
+    const getBlended = vi.spyOn(api, 'getBlendedChargePlan').mockResolvedValue(makeBlended())
+
+    renderPlanner()
+    await screen.findByTestId('plan-table')
+
+    await user.click(screen.getByTestId('planner-mode-blended'))
+
+    // Default blended inputs: start 60, dc-stop 70, target 80, dc rate 45.
+    await waitFor(() => {
+      expect(getBlended).toHaveBeenCalledWith(1, 60, 70, 80, 45)
+    })
+
+    const view = await screen.findByTestId('blended-view')
+    expect(view).toBeInTheDocument()
+    expect(screen.getByTestId('blended-dc-phase')).toBeInTheDocument()
+    expect(screen.getByTestId('blended-home-phase')).toBeInTheDocument()
+    expect(screen.getByTestId('blended-total')).toHaveTextContent('Blended total')
+  })
+
+  it('shows DC-stop and DC-rate inputs in blended mode', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar({ id: 1 })])
+    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
+    vi.spyOn(api, 'getBlendedChargePlan').mockResolvedValue(makeBlended())
+
+    renderPlanner()
+    await screen.findByTestId('plan-table')
+    await user.click(screen.getByTestId('planner-mode-blended'))
+
+    expect(screen.getByTestId('planner-dc-stop-soc')).toBeInTheDocument()
+    expect(screen.getByTestId('planner-dc-rate')).toBeInTheDocument()
+    // Custom kW is scenarios-only.
+    expect(screen.queryByTestId('planner-custom-kw')).not.toBeInTheDocument()
+  })
+
+  it('validates start ≤ dc-stop ≤ target before fetching', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'getCars').mockResolvedValue([makeCar({ id: 1 })])
+    vi.spyOn(api, 'getChargePlan').mockResolvedValue(makePlan())
+    const getBlended = vi.spyOn(api, 'getBlendedChargePlan').mockResolvedValue(makeBlended())
+
+    renderPlanner()
+    await screen.findByTestId('plan-table')
+    await user.click(screen.getByTestId('planner-mode-blended'))
+    await waitFor(() => expect(getBlended).toHaveBeenCalled())
+    getBlended.mockClear()
+
+    // Push DC-stop above the target (80) → should error, not fetch.
+    const dcStop = screen.getByTestId('planner-dc-stop-soc')
+    await user.clear(dcStop)
+    await user.type(dcStop, '90')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('blended-error')).toBeInTheDocument()
+    })
+    expect(getBlended).not.toHaveBeenCalled()
   })
 })

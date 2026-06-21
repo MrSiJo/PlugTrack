@@ -7,10 +7,13 @@
  * finish/nights for AC window rows, and a confidence/source tag pill.
  */
 import { useEffect, useState } from 'react'
-import { ApiError, api, type CarPayload, type ScenarioPlanResponse, type ScenarioRow, type ScenarioSourceTag } from '@/api/client'
+import { ApiError, api, type BlendedPlanResponse, type CarPayload, type ScenarioPlanResponse, type ScenarioRow, type ScenarioSourceTag } from '@/api/client'
 import { Card } from '@/components/ui/Card'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Pill, type PillTone } from '@/components/ui/Pill'
+import { EfficiencyValue } from '@/components/EfficiencyValue'
+import { formatCurrency } from '@/utils/currency'
+import { useSetting } from '@/stores/settingsStore'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -123,22 +126,127 @@ function PlanTable({ plan }: PlanTableProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Blended two-phase view (rapid DC → home AC)
+// ---------------------------------------------------------------------------
+
+interface PhaseCardProps {
+  title: string
+  subtitle: string
+  kwh: number
+  minutes: number
+  costPence: number
+  currency: string
+  testId: string
+}
+
+function PhaseCard({ title, subtitle, kwh, minutes, costPence, currency, testId }: PhaseCardProps) {
+  return (
+    <Card className="flex flex-col gap-2 p-4" data-testid={testId}>
+      <div>
+        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{title}</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>
+      </div>
+      <dl className="grid grid-cols-3 gap-2 text-sm">
+        <div>
+          <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400">Energy</dt>
+          <dd className="tabular-nums font-medium text-slate-800 dark:text-slate-200">{kwh.toFixed(1)} kWh</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400">Time</dt>
+          <dd className="tabular-nums font-medium text-slate-800 dark:text-slate-200">{fmtMinutes(minutes)}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400">Cost</dt>
+          <dd className="tabular-nums font-medium text-slate-800 dark:text-slate-200">{formatCurrency(costPence, currency)}</dd>
+        </div>
+      </dl>
+    </Card>
+  )
+}
+
+function BlendedView({ plan, currency }: { plan: BlendedPlanResponse; currency: string }) {
+  return (
+    <div className="space-y-4" data-testid="blended-view">
+      <PhaseCard
+        title="DC phase (rapid)"
+        subtitle={`${plan.start_soc}% → ${plan.dc_stop_soc}% · ${plan.dc_rate_p}p/kWh`}
+        kwh={plan.dc_phase.kwh}
+        minutes={plan.dc_phase.minutes}
+        costPence={plan.dc_phase.cost_pence}
+        currency={currency}
+        testId="blended-dc-phase"
+      />
+      <PhaseCard
+        title="Home phase (overnight AC)"
+        subtitle={`${plan.dc_stop_soc}% → ${plan.target_soc}% · ${plan.is_free ? 'free' : `${plan.home_rate_p_per_kwh}p/kWh`}`}
+        kwh={plan.home_phase.kwh}
+        minutes={plan.home_phase.minutes}
+        costPence={plan.home_phase.cost_pence}
+        currency={currency}
+        testId="blended-home-phase"
+      />
+      <Card className="flex flex-col gap-2 border-indigo-200 p-4 dark:border-indigo-900" data-testid="blended-total">
+        <p className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">Blended total</p>
+        <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+          <div>
+            <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400">Energy</dt>
+            <dd className="tabular-nums font-semibold text-slate-900 dark:text-slate-100">{plan.total.kwh.toFixed(1)} kWh</dd>
+          </div>
+          <div>
+            <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400">Total time</dt>
+            <dd className="tabular-nums font-semibold text-slate-900 dark:text-slate-100">{fmtMinutes(plan.total.minutes)}</dd>
+          </div>
+          <div>
+            <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400">Total cost</dt>
+            <dd className="tabular-nums font-semibold text-slate-900 dark:text-slate-100" data-testid="blended-total-cost">
+              {formatCurrency(plan.total.cost_pence, currency)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[10px] uppercase tracking-[0.1em] text-slate-400">Cost / mile</dt>
+            <dd className="tabular-nums font-semibold text-slate-900 dark:text-slate-100">
+              {plan.total.cost_per_mile_p != null ? `${plan.total.cost_per_mile_p.toFixed(1)}p` : '—'}
+            </dd>
+          </div>
+        </dl>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Efficiency: <EfficiencyValue miPerKwh={plan.total.mi_per_kwh} />
+          <span className="ml-1 text-slate-400">(drive time between chargers not included)</span>
+        </p>
+      </Card>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
+type PlannerMode = 'scenarios' | 'blended'
+
 export default function Planner() {
+  const currency = useSetting<string>('currency') ?? 'GBP'
   const [cars, setCars] = useState<CarPayload[]>([])
   const [carsLoading, setCarsLoading] = useState(true)
   const [carsError, setCarsError] = useState<string | null>(null)
 
+  const [mode, setMode] = useState<PlannerMode>('scenarios')
   const [carId, setCarId] = useState<number | null>(null)
   const [startSoc, setStartSoc] = useState<number | ''>(60)
   const [targetSoc, setTargetSoc] = useState<number | ''>(80)
   const [customKw, setCustomKw] = useState<number | undefined>(undefined)
 
+  // Blended-mode inputs.
+  const [dcStopSoc, setDcStopSoc] = useState<number | ''>(70)
+  const [dcRateP, setDcRateP] = useState<number | ''>(45)
+
   const [plan, setPlan] = useState<ScenarioPlanResponse | null>(null)
   const [planLoading, setPlanLoading] = useState(false)
   const [planError, setPlanError] = useState<string | null>(null)
+
+  const [blended, setBlended] = useState<BlendedPlanResponse | null>(null)
+  const [blendedLoading, setBlendedLoading] = useState(false)
+  const [blendedError, setBlendedError] = useState<string | null>(null)
 
   // Load cars once on mount.
   useEffect(() => {
@@ -166,8 +274,9 @@ export default function Planner() {
     }
   }, [])
 
-  // Fetch the plan whenever inputs change (and cars are ready).
+  // Fetch the scenario plan whenever inputs change (and cars are ready).
   useEffect(() => {
+    if (mode !== 'scenarios') return
     if (carId === null) return
     if (startSoc === '' || targetSoc === '') {
       setPlan(null)
@@ -202,7 +311,55 @@ export default function Planner() {
     return () => {
       cancelled = true
     }
-  }, [carId, startSoc, targetSoc, customKw])
+  }, [mode, carId, startSoc, targetSoc, customKw])
+
+  // Fetch the blended plan whenever its inputs change.
+  useEffect(() => {
+    if (mode !== 'blended') return
+    if (carId === null) return
+    if (startSoc === '' || dcStopSoc === '' || targetSoc === '') {
+      setBlended(null)
+      setBlendedError('Enter start, DC-stop and target SoC.')
+      return
+    }
+    if (!(startSoc <= dcStopSoc && dcStopSoc <= targetSoc)) {
+      setBlended(null)
+      setBlendedError('Need start ≤ DC-stop ≤ target.')
+      return
+    }
+    if (targetSoc <= startSoc) {
+      setBlended(null)
+      setBlendedError('Target must be higher than start.')
+      return
+    }
+    let cancelled = false
+    setBlendedLoading(true)
+    setBlendedError(null)
+    void (async () => {
+      try {
+        const result = await api.getBlendedChargePlan(
+          carId,
+          startSoc,
+          dcStopSoc,
+          targetSoc,
+          dcRateP === '' ? undefined : dcRateP,
+        )
+        if (!cancelled) {
+          setBlended(result)
+          setBlendedLoading(false)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setBlendedError(err instanceof ApiError ? err.message : 'Failed to load plan')
+          setBlended(null)
+          setBlendedLoading(false)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [mode, carId, startSoc, dcStopSoc, targetSoc, dcRateP])
 
   const inputCls =
     'w-full rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900'
@@ -211,8 +368,30 @@ export default function Planner() {
     <div className="mx-auto max-w-3xl px-6 py-8">
       <PageHeader
         title="Charge Planner"
-        subtitle="Compare charging scenarios across different power levels."
+        subtitle="Compare charging scenarios, or split a charge across rapid + home."
       />
+
+      {/* Mode toggle */}
+      <div className="mb-4 inline-flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700" role="tablist">
+        {(['scenarios', 'blended'] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            role="tab"
+            aria-selected={mode === m}
+            onClick={() => setMode(m)}
+            data-testid={`planner-mode-${m}`}
+            className={
+              'rounded-md px-3 py-1 text-sm font-medium transition ' +
+              (mode === m
+                ? 'bg-indigo-600 text-white'
+                : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800')
+            }
+          >
+            {m === 'scenarios' ? 'Scenarios' : 'Blended'}
+          </button>
+        ))}
+      </div>
 
       {/* Inputs */}
       <Card className="mb-6">
@@ -225,7 +404,7 @@ export default function Planner() {
         ) : cars.length === 0 ? (
           <p className="text-sm text-slate-500">No cars found. Add one first.</p>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-[0.1em] text-slate-500">
                 Car
@@ -263,9 +442,33 @@ export default function Planner() {
                 data-testid="planner-start-soc"
               />
             </label>
+
+            {mode === 'blended' && (
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-[0.1em] text-slate-500">
+                  DC stop SoC %
+                </span>
+                <input
+                  className={inputCls}
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={dcStopSoc}
+                  onChange={(e) => {
+                    const raw = e.target.value
+                    if (raw === '') { setDcStopSoc(''); return }
+                    const n = Number(raw)
+                    if (!Number.isFinite(n)) return
+                    setDcStopSoc(Math.min(100, Math.max(0, Math.floor(n))))
+                  }}
+                  data-testid="planner-dc-stop-soc"
+                />
+              </label>
+            )}
+
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-[0.1em] text-slate-500">
-                Target SoC %
+                {mode === 'blended' ? 'Home target SoC %' : 'Target SoC %'}
               </span>
               <input
                 className={inputCls}
@@ -283,41 +486,88 @@ export default function Planner() {
                 data-testid="planner-target-soc"
               />
             </label>
-            <label className="block">
-              <span className="text-xs font-medium uppercase tracking-[0.1em] text-slate-500">
-                Custom kW
-              </span>
-              <input
-                className={inputCls}
-                type="number"
-                min={1}
-                max={350}
-                step={0.1}
-                placeholder="e.g. 22"
-                value={customKw ?? ''}
-                onChange={(e) => {
-                  const v = e.target.value
-                  setCustomKw(v === '' ? undefined : Number(v))
-                }}
-                data-testid="planner-custom-kw"
-              />
-            </label>
+
+            {mode === 'scenarios' ? (
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-[0.1em] text-slate-500">
+                  Custom kW
+                </span>
+                <input
+                  className={inputCls}
+                  type="number"
+                  min={1}
+                  max={350}
+                  step={0.1}
+                  placeholder="e.g. 22"
+                  value={customKw ?? ''}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setCustomKw(v === '' ? undefined : Number(v))
+                  }}
+                  data-testid="planner-custom-kw"
+                />
+              </label>
+            ) : (
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-[0.1em] text-slate-500">
+                  DC rate (p/kWh)
+                </span>
+                <input
+                  className={inputCls}
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  placeholder="e.g. 45"
+                  value={dcRateP}
+                  onChange={(e) => {
+                    const raw = e.target.value
+                    if (raw === '') { setDcRateP(''); return }
+                    const n = Number(raw)
+                    if (!Number.isFinite(n)) return
+                    setDcRateP(Math.max(0, n))
+                  }}
+                  data-testid="planner-dc-rate"
+                />
+              </label>
+            )}
           </div>
         )}
       </Card>
 
       {/* Result area */}
-      {planLoading && (
-        <p className="text-sm text-slate-500" data-testid="plan-loading">
-          Calculating…
-        </p>
+      {mode === 'scenarios' && (
+        <>
+          {planLoading && (
+            <p className="text-sm text-slate-500" data-testid="plan-loading">
+              Calculating…
+            </p>
+          )}
+          {planError && !planLoading && (
+            <p role="alert" className="text-sm text-red-600" data-testid="plan-error">
+              {planError}
+            </p>
+          )}
+          {plan && !planLoading && !planError && <PlanTable plan={plan} />}
+        </>
       )}
-      {planError && !planLoading && (
-        <p role="alert" className="text-sm text-red-600" data-testid="plan-error">
-          {planError}
-        </p>
+
+      {mode === 'blended' && (
+        <>
+          {blendedLoading && (
+            <p className="text-sm text-slate-500" data-testid="blended-loading">
+              Calculating…
+            </p>
+          )}
+          {blendedError && !blendedLoading && (
+            <p role="alert" className="text-sm text-red-600" data-testid="blended-error">
+              {blendedError}
+            </p>
+          )}
+          {blended && !blendedLoading && !blendedError && (
+            <BlendedView plan={blended} currency={currency} />
+          )}
+        </>
       )}
-      {plan && !planLoading && !planError && <PlanTable plan={plan} />}
     </div>
   )
 }
