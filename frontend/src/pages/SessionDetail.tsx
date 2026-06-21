@@ -39,6 +39,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useDistanceUnit } from '@/stores/settingsStore'
+import { EfficiencyValue } from '@/components/EfficiencyValue'
 import { kmToMi, miToKm } from '@/utils/distance'
 
 const COST_BASIS_LABEL: Record<CostBasis, string> = {
@@ -339,6 +340,21 @@ function ChargeDetails({ session, metrics, unit }: ChargeDetailsProps) {
             </span>
           }
         />
+        {metrics.efficiency_mi_per_kwh !== null && (
+          <StatTile
+            label="Efficiency"
+            value={
+              <span data-testid="metric-efficiency">
+                <EfficiencyValue miPerKwh={metrics.efficiency_mi_per_kwh} />
+                {metrics.efficiency_basis && (
+                  <span className="ml-1 text-[10px] uppercase tracking-wide text-slate-400">
+                    {metrics.efficiency_basis === 'observed' ? 'measured' : 'nominal'}
+                  </span>
+                )}
+              </span>
+            }
+          />
+        )}
         {/* Context tiles — only when known. */}
         {modeKnown && (
           <StatTile
