@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.8.0](https://github.com/MrSiJo/PlugTrack/compare/v3.7.0...v3.8.0) (2026-06-21)
+
+
+### Features
+
+* sortable efficiency column + de-spiked efficiency chart with rolling lifetime ([#49](https://github.com/MrSiJo/PlugTrack/issues/49)) ([249c60c](https://github.com/MrSiJo/PlugTrack/commit/249c60c36ba00744eb6e63b7ed83af3d3b104545))
+
 ## [3.7.0](https://github.com/MrSiJo/PlugTrack/compare/v3.6.1...v3.7.0) (2026-06-21)
 
 
