@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.5.0](https://github.com/MrSiJo/PlugTrack/compare/v3.4.2...v3.5.0) (2026-06-21)
+
+
+### Features
+
+* blended two-phase charge planner + Wh/mi efficiency figure ([#41](https://github.com/MrSiJo/PlugTrack/issues/41)) ([425adf5](https://github.com/MrSiJo/PlugTrack/commit/425adf5fba55304b2049ac0d367579678d88227c))
+
 ## [3.4.2](https://github.com/MrSiJo/PlugTrack/compare/v3.4.1...v3.4.2) (2026-06-20)
 
 
