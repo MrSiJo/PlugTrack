@@ -28,6 +28,7 @@ feed savings.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date as date_cls
 from typing import Optional
 
 from sqlalchemy import select
@@ -166,23 +167,20 @@ async def _immediately_previous_session(
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
-def _per_session_efficiency(
+def _per_session_cycle(
     cs: ChargingSession,
     prev: Optional[ChargingSession],
     *,
     battery_kwh: Optional[float],
-    nominal_mi_per_kwh: Optional[float],
-) -> tuple[Optional[float], Optional[str]]:
-    """Return `(mi_per_kwh, basis)` for one session.
+) -> Optional[tuple[float, float]]:
+    """Return `(miles_driven, energy_consumed_kwh)` for the one real drive cycle
+    ending at this session, or None.
 
-    "measured" — the genuine per-cycle efficiency: odometer miles driven since
-    the immediately-preceding session, divided by the battery energy consumed
-    over that cycle (the SoC drop from that session's end to this session's
-    start). This needs an *adjacent* prior session with an odometer reading and
-    a positive SoC drop, and the result must be physically plausible.
-
-    "nominal" — the car's configured spec figure, used whenever a trustworthy
-    measured value can't be derived.
+    The cycle runs from the *immediately-preceding* session (so miles and energy
+    line up) — miles from the odometer span, energy from the SoC drop between
+    that session's end and this session's start. Returns None unless both
+    odometer readings exist, the SoC drop is positive, and the implied
+    efficiency is physically plausible (guards typos / unrecorded charges).
     """
     if (
         prev is not None
@@ -198,10 +196,28 @@ def _per_session_efficiency(
         if span_km > 0 and soc_used > 0:
             miles = span_km / _KM_PER_MILE
             energy_kwh = soc_used / 100.0 * float(battery_kwh)
-            if energy_kwh > 0:
-                eff = miles / energy_kwh
-                if 0 < eff <= _MAX_PLAUSIBLE_MI_PER_KWH:
-                    return round(eff, 2), "measured"
+            if energy_kwh > 0 and 0 < miles / energy_kwh <= _MAX_PLAUSIBLE_MI_PER_KWH:
+                return miles, energy_kwh
+    return None
+
+
+def _per_session_efficiency(
+    cs: ChargingSession,
+    prev: Optional[ChargingSession],
+    *,
+    battery_kwh: Optional[float],
+    nominal_mi_per_kwh: Optional[float],
+) -> tuple[Optional[float], Optional[str]]:
+    """Return `(mi_per_kwh, basis)` for one session.
+
+    "measured" — the genuine per-cycle efficiency (miles ÷ energy consumed, see
+    `_per_session_cycle`). "nominal" — the car's spec figure, used whenever a
+    trustworthy measured value can't be derived.
+    """
+    cycle = _per_session_cycle(cs, prev, battery_kwh=battery_kwh)
+    if cycle is not None:
+        miles, energy_kwh = cycle
+        return round(miles / energy_kwh, 2), "measured"
 
     if nominal_mi_per_kwh:
         return round(float(nominal_mi_per_kwh), 2), "nominal"
@@ -675,6 +691,57 @@ async def compute_efficiency_for_sessions(
             )
 
     return out
+
+
+async def drive_cycles(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    car_id: Optional[int] = None,
+) -> list[tuple[date_cls, float, float]]:
+    """Every adjacent drive cycle for the user's cars (optionally one car) as
+    `(date, miles_driven, energy_consumed_kwh)`, sorted by (date, id).
+
+    Each cycle pairs a session with its immediately-preceding session so miles
+    and energy line up (see `_per_session_cycle`). Aggregating these — rather
+    than dividing period miles by period energy *charged* — is what de-spikes
+    the efficiency-over-time and seasonal charts.
+    """
+    car_filter = [ChargingSession.user_id == user_id]
+    if car_id is not None:
+        car_filter.append(ChargingSession.car_id == car_id)
+    car_ids = list(
+        (
+            await session.execute(
+                select(ChargingSession.car_id).where(*car_filter).distinct()
+            )
+        ).scalars().all()
+    )
+
+    rows: list[tuple[date_cls, int, float, float]] = []
+    for cid in car_ids:
+        car = await session.get(Car, cid)
+        battery = float(car.battery_kwh) if car is not None else None
+        history = list(
+            (
+                await session.execute(
+                    select(ChargingSession)
+                    .where(
+                        ChargingSession.user_id == user_id,
+                        ChargingSession.car_id == cid,
+                    )
+                    .order_by(ChargingSession.date.asc(), ChargingSession.id.asc())
+                )
+            ).scalars().all()
+        )
+        for i in range(1, len(history)):
+            cycle = _per_session_cycle(history[i], history[i - 1], battery_kwh=battery)
+            if cycle is not None:
+                miles, energy = cycle
+                rows.append((history[i].date, history[i].id, miles, energy))
+
+    rows.sort(key=lambda t: (t[0], t[1]))
+    return [(d, miles, energy) for d, _id, miles, energy in rows]
 
 
 def _savings_for_row(

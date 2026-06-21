@@ -56,8 +56,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import ChargingSession
-from .insights_stats import _miles_driven_km, window_totals
 from .mileage_tracking import KM_PER_MILE
+from .session_metrics import drive_cycles
 
 # Rolling-median window for current_estimated_capacity
 _CAPACITY_N = 10
@@ -145,6 +145,11 @@ async def efficiency_by_month(
     if not months:
         return []
 
+    # Drive cycles (miles, consumed kWh) for this car — aggregated per month so
+    # mi/kWh is consistent with the de-spiked efficiency-over-time chart rather
+    # than dividing month miles by month energy charged.
+    cycles = await drive_cycles(session, user_id=user_id, car_id=car_id)
+
     out: list[dict] = []
     for year, month in months:
         lo, hi = _month_bounds(year, month)
@@ -154,24 +159,17 @@ async def efficiency_by_month(
             session, user_id=user_id, car_id=car_id, lo=lo, hi=hi
         )
 
-        totals = await window_totals(
-            session, user_id=user_id, lo=lo, hi=hi, car_id=car_id
-        )
-        month_kwh = totals["kwh"]
-
-        driven_km = await _miles_driven_km(
-            session, user_id=user_id, lo=lo, hi=hi, car_id=car_id
-        )
+        month_miles = sum(m for (d, m, _e) in cycles if lo <= d <= hi)
+        month_energy = sum(e for (d, _m, e) in cycles if lo <= d <= hi)
 
         mi_per_kwh: Optional[float] = None
         derived_range_km: Optional[float] = None
 
-        if driven_km is not None and driven_km > 0 and month_kwh > 0:
-            miles = driven_km / KM_PER_MILE
-            mi_per_kwh = miles / month_kwh
+        if month_miles > 0 and month_energy > 0:
+            mi_per_kwh = month_miles / month_energy
             derived_range_km = mi_per_kwh * battery_kwh * KM_PER_MILE
 
-        low_confidence = n_sessions < 2 or driven_km is None
+        low_confidence = n_sessions < 2 or mi_per_kwh is None
 
         out.append(
             {

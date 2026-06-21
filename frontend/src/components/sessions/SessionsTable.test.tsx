@@ -48,6 +48,21 @@ describe('SessionsTable', () => {
     expect(screen.getByTestId('session-efficiency')).toHaveTextContent('3.60 mi/kWh')
   })
 
+  it('makes the Efficiency header sortable and fires onSort', () => {
+    const onSort = vi.fn()
+    render(
+      <MemoryRouter>
+        <SessionsTable
+          sessions={[makeSession()]}
+          currency="GBP"
+          sortControls={{ sort: 'date', dir: 'desc', onSort }}
+        />
+      </MemoryRouter>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Efficiency/i }))
+    expect(onSort).toHaveBeenCalledWith('efficiency')
+  })
+
   it('renders sortable headers and fires onSort when controls provided', () => {
     const onSort = vi.fn()
     render(

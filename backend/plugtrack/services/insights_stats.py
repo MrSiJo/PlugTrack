@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import ChargingSession
 from . import mileage_tracking
 from .mileage_tracking import KM_PER_MILE
+from .session_metrics import drive_cycles
 
 
 def _base_filter(user_id: int, car_id: Optional[int] = None):
@@ -233,21 +234,42 @@ async def efficiency_over_time(
     date_from: Optional[dt.date], date_to: Optional[dt.date], granularity: str,
     car_id: Optional[int] = None,
 ) -> list[dict]:
+    """Per-period real-world efficiency, de-spiked.
+
+    Each period's `observed_mi_per_kwh` aggregates *drive cycles* whose session
+    falls in the period — Σ miles driven ÷ Σ battery energy consumed — instead
+    of dividing period miles by period energy *charged* (which spiked/gapped
+    because driving and charging don't line up period-to-period).
+
+    `rolling_mi_per_kwh` is the cumulative lifetime efficiency: every cycle up
+    to and including the period, so it converges to the car's true mi/kWh.
+
+    `cost_per_mile_p` is the period's charging spend ÷ miles driven that period.
+    """
     over = await spend_energy_over_time(
         session, user_id=user_id, date_from=date_from, date_to=date_to,
         granularity=granularity, car_id=car_id)
+    # All cycles across full history (so the rolling lifetime includes data
+    # before the window). Each is (date, miles, energy_consumed_kwh).
+    cycles = await drive_cycles(session, user_id=user_id, car_id=car_id)
+
     out: list[dict] = []
     for b in over:
         lo, hi = _period_bounds(b["period"], granularity)
-        driven_km = await _miles_driven_km(session, user_id=user_id, lo=lo, hi=hi, car_id=car_id)
-        observed = cost_per_mile = None
-        if driven_km is not None and driven_km > 0 and b["kwh"] > 0:
-            miles = driven_km / KM_PER_MILE
-            observed = round(miles / b["kwh"], 3)
-            cost_per_mile = round(b["spend_pence"] / miles, 2)
+        period_miles = sum(m for (d, m, _e) in cycles if lo <= d <= hi)
+        period_energy = sum(e for (d, _m, e) in cycles if lo <= d <= hi)
+        cum_miles = sum(m for (d, m, _e) in cycles if d <= hi)
+        cum_energy = sum(e for (d, _m, e) in cycles if d <= hi)
+
+        observed = round(period_miles / period_energy, 3) if period_energy > 0 else None
+        rolling = round(cum_miles / cum_energy, 3) if cum_energy > 0 else None
+        cost_per_mile = (
+            round(b["spend_pence"] / period_miles, 2) if period_miles > 0 else None
+        )
         out.append({
             "period": b["period"],
             "observed_mi_per_kwh": observed,
+            "rolling_mi_per_kwh": rolling,
             "cost_per_mile_p": cost_per_mile,
         })
     return out

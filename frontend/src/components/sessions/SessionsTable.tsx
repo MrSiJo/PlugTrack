@@ -8,7 +8,7 @@ import { Pill, type PillTone } from '@/components/ui/Pill'
 import { cn } from '@/lib/cn'
 import { formatCurrency } from '@/utils/currency'
 
-export type SortField = 'date' | 'cost' | 'energy' | 'saved'
+export type SortField = 'date' | 'cost' | 'energy' | 'saved' | 'efficiency'
 export type SortDir = 'asc' | 'desc'
 
 const SOURCE_TONE: Record<string, PillTone> = {
@@ -220,7 +220,7 @@ export function SessionsTable({
   highlightedIds = [],
   sortControls,
 }: SessionsTableProps) {
-  const sortable = (label: string, field: SortField) =>
+  const sortable = (label: string, field: SortField, className?: string) =>
     sortControls ? (
       <SortHeader
         label={label}
@@ -228,9 +228,10 @@ export function SessionsTable({
         sort={sortControls.sort}
         dir={sortControls.dir}
         onSort={sortControls.onSort}
+        className={className}
       />
     ) : (
-      <th scope="col" className={PLAIN_TH}>
+      <th scope="col" className={cn(PLAIN_TH, className)}>
         {label}
       </th>
     )
@@ -250,9 +251,7 @@ export function SessionsTable({
             <th scope="col" className={cn(PLAIN_TH, 'hidden md:table-cell')}>
               SoC
             </th>
-            <th scope="col" className={cn(PLAIN_TH, 'hidden md:table-cell')}>
-              Efficiency
-            </th>
+            {sortable('Efficiency', 'efficiency', 'hidden md:table-cell')}
             <th scope="col" className={cn(PLAIN_TH, 'hidden md:table-cell')}>
               <span>Rate</span>
               {breakeven !== null && (
