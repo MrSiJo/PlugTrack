@@ -134,7 +134,12 @@ async def test_efficiency_null_without_odometer(test_sessionmaker, seeded_user_c
     async with test_sessionmaker() as s:
         out = await ins.efficiency_over_time(
             s, user_id=uid, date_from=dt.date(2026, 6, 1), date_to=dt.date(2026, 6, 30), granularity="daily")
-    assert out == [{"period": "2026-06-02", "observed_mi_per_kwh": None, "cost_per_mile_p": None}]
+    assert out == [{
+        "period": "2026-06-02",
+        "observed_mi_per_kwh": None,
+        "rolling_mi_per_kwh": None,
+        "cost_per_mile_p": None,
+    }]
 
 
 @pytest.mark.asyncio
@@ -147,7 +152,11 @@ async def test_efficiency_with_odometer_span(test_sessionmaker, seeded_user_car)
         out = await ins.efficiency_over_time(
             s, user_id=uid, date_from=dt.date(2026, 6, 1), date_to=dt.date(2026, 6, 30), granularity="daily")
     pt = next(p for p in out if p["period"] == "2026-06-02")
-    assert pt["observed_mi_per_kwh"] == pytest.approx(4.0, abs=0.01)   # 100 mi / 25 kWh
+    # Cycle-based: 100 mi driven over the SoC drop consumed (80%→20% = 60% of
+    # 58 kWh = 34.8 kWh) → 100 / 34.8 = 2.87 mi/kWh.
+    assert pt["observed_mi_per_kwh"] == pytest.approx(2.87, abs=0.01)
+    # Only one cycle → rolling lifetime equals the period value.
+    assert pt["rolling_mi_per_kwh"] == pytest.approx(2.87, abs=0.01)
     assert pt["cost_per_mile_p"] == pytest.approx(5.0, abs=0.01)        # 500 p / 100 mi
 
 
@@ -355,8 +364,9 @@ async def test_efficiency_over_time_car_id_filter(test_sessionmaker, seeded_user
             granularity="daily", car_id=car1)
 
     pt = next(p for p in out if p["period"] == "2026-06-02")
-    # car1 only: 100 mi / 25 kWh = 4.0 mi/kWh
-    assert pt["observed_mi_per_kwh"] == pytest.approx(4.0, abs=0.01), (
-        f"Expected 4.0 mi/kWh (car1 only) but got {pt['observed_mi_per_kwh']!r}; "
-        "mileage side is likely not filtered by car_id"
+    # car1 only, cycle-based: 100 mi over 60% of 58 kWh (34.8 kWh) = 2.87 mi/kWh.
+    # car2's +300 mi must NOT leak in (would blend the figure).
+    assert pt["observed_mi_per_kwh"] == pytest.approx(2.87, abs=0.01), (
+        f"Expected 2.87 mi/kWh (car1 only) but got {pt['observed_mi_per_kwh']!r}; "
+        "drive cycles are likely not filtered by car_id"
     )

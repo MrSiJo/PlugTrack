@@ -125,7 +125,7 @@ describe('Insights page', () => {
         public: { spend_pence: 0, kwh: 0, sessions: 0, avg_p_per_kwh: null },
       },
       by_network: [{ network: 'Tesla', spend_pence: 200, kwh: 10, sessions: 1, avg_p_per_kwh: 20 }],
-      efficiency: [{ period: '2026-06-01', observed_mi_per_kwh: null, cost_per_mile_p: null }],
+      efficiency: [{ period: '2026-06-01', observed_mi_per_kwh: null, rolling_mi_per_kwh: null, cost_per_mile_p: null }],
     })
     vi.spyOn(api, 'getCars').mockResolvedValue([
       { id: 1, make: 'Cupra', model: 'Born', name: null, display_name: 'Cupra Born', vin: null, battery_kwh: 58,

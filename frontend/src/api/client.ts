@@ -502,6 +502,7 @@ export interface InsightsNetworkRow {
 export interface InsightsEfficiencyPoint {
   period: string
   observed_mi_per_kwh: number | null
+  rolling_mi_per_kwh: number | null
   cost_per_mile_p: number | null
 }
 

@@ -117,10 +117,10 @@ async def test_efficiency_by_month_basic(test_sessionmaker, seeded_user_car):
     assert "2026-02" in periods
 
     jan = next(p for p in pts if p["period"] == "2026-01")
-    # Jan: 100 mi driven (1000+100mi - 1000 start), 25 kWh → 4.0 mi/kWh
-    assert jan["mi_per_kwh"] == pytest.approx(4.0, abs=0.01)
-    # derived_range_km = 4.0 * 58.0 * KM_PER_MILE
-    expected_range = 4.0 * battery_kwh * KM_PER_MILE
+    # Cycle-based: two Jan cycles drive 50+50=100 mi; each consumes the SoC drop
+    # (80%→20% = 60% of 58 kWh = 34.8 kWh, ×2 = 69.6) → 100/69.6 = 1.44 mi/kWh.
+    assert jan["mi_per_kwh"] == pytest.approx(100 / 69.6, abs=0.02)
+    expected_range = jan["mi_per_kwh"] * battery_kwh * KM_PER_MILE
     assert jan["derived_range_km"] == pytest.approx(expected_range, abs=0.5)
     assert "low_confidence" in jan
 
@@ -636,8 +636,10 @@ async def test_seasonal_range_span_min_max_avg(test_sessionmaker, seeded_user_ca
         result = await seasonal_range_span(s, user_id=uid, car_id=car, battery_kwh=battery_kwh)
 
     assert result is not None
-    range_jan = 4.0 * battery_kwh * KM_PER_MILE
-    range_mar = 2.5 * battery_kwh * KM_PER_MILE
+    # Cycle-based mi/kWh: each cycle consumes 60% of 58 kWh = 34.8 kWh.
+    # Jan drives 100 mi / 69.6 kWh; Mar drives 50 mi / 69.6 kWh.
+    range_jan = (100 / 69.6) * battery_kwh * KM_PER_MILE
+    range_mar = (50 / 69.6) * battery_kwh * KM_PER_MILE
     assert result["min_km"] == pytest.approx(min(range_jan, range_mar), abs=0.5)
     assert result["max_km"] == pytest.approx(max(range_jan, range_mar), abs=0.5)
     assert result["avg_km"] == pytest.approx((range_jan + range_mar) / 2, abs=0.5)
@@ -683,8 +685,8 @@ async def test_seasonal_range_span_skips_none_months(test_sessionmaker, seeded_u
         result = await seasonal_range_span(s, user_id=uid, car_id=car, battery_kwh=battery_kwh)
 
     assert result is not None
-    expected_range = 4.0 * battery_kwh * KM_PER_MILE
-    # Only Jan contributes
+    # Only Jan contributes (Feb has no odometer). Cycle-based: 100 mi / 69.6 kWh.
+    expected_range = (100 / 69.6) * battery_kwh * KM_PER_MILE
     assert result["min_km"] == pytest.approx(expected_range, abs=0.5)
     assert result["max_km"] == pytest.approx(expected_range, abs=0.5)
     assert result["avg_km"] == pytest.approx(expected_range, abs=0.5)
