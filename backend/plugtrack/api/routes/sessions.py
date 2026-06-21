@@ -22,6 +22,7 @@ from ...db import get_db
 from ...models import Car, ChargingSession, Location
 from ...services.cost_apply import apply_cost
 from ...services.session_metrics import (
+    compute_efficiency_for_sessions,
     compute_savings_for_sessions,
     compute_session_metrics,
 )
@@ -151,6 +152,10 @@ class SessionPayload(BaseModel):
     saved_vs_petrol_p: Optional[int] = None
     comparison_basis: Optional[str] = None
     breakeven_p_per_kwh: Optional[float] = None
+    # Per-session efficiency surfaced top-level so the sessions list/table can
+    # show it without the full metrics payload.
+    efficiency_mi_per_kwh: Optional[float] = None
+    efficiency_basis: Optional[str] = None
     metrics: Optional[SessionMetricsPayload] = None
 
 
@@ -214,6 +219,8 @@ def _to_payload(
     saved_vs_petrol_p: Optional[int] = None,
     comparison_basis: Optional[str] = None,
     breakeven_p_per_kwh: Optional[float] = None,
+    efficiency_mi_per_kwh: Optional[float] = None,
+    efficiency_basis: Optional[str] = None,
 ) -> SessionPayload:
     return SessionPayload(
         id=cs.id,
@@ -254,6 +261,8 @@ def _to_payload(
         saved_vs_petrol_p=saved_vs_petrol_p,
         comparison_basis=comparison_basis,
         breakeven_p_per_kwh=breakeven_p_per_kwh,
+        efficiency_mi_per_kwh=efficiency_mi_per_kwh,
+        efficiency_basis=efficiency_basis,
     )
 
 
@@ -371,13 +380,14 @@ async def list_sessions(
     result = await session.execute(stmt)
     rows = result.all()
 
-    savings = await compute_savings_for_sessions(
-        session, [cs for cs, *_ in rows]
-    )
+    session_rows = [cs for cs, *_ in rows]
+    savings = await compute_savings_for_sessions(session, session_rows)
+    efficiency = await compute_efficiency_for_sessions(session, session_rows)
 
     payloads = []
     for cs, name, address, lat, lng in rows:
         saved_p, basis, breakeven = savings.get(cs.id, (None, None, None))
+        eff_mpk, eff_basis = efficiency.get(cs.id, (None, None))
         payloads.append(
             _to_payload(
                 cs,
@@ -388,6 +398,8 @@ async def list_sessions(
                 saved_vs_petrol_p=saved_p,
                 comparison_basis=basis,
                 breakeven_p_per_kwh=breakeven,
+                efficiency_mi_per_kwh=eff_mpk,
+                efficiency_basis=eff_basis,
             )
         )
 
@@ -500,6 +512,8 @@ async def get_session(
     payload.saved_vs_petrol_p = metrics.savings_vs_petrol_p
     payload.comparison_basis = getattr(metrics, "comparison_basis", None)
     payload.breakeven_p_per_kwh = breakeven
+    payload.efficiency_mi_per_kwh = getattr(metrics, "efficiency_mi_per_kwh", None)
+    payload.efficiency_basis = getattr(metrics, "efficiency_basis", None)
     return payload
 
 

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import type { ChargingSessionPayload } from '@/api/client'
 import { Card } from '@/components/ui/Card'
+import { EfficiencyValue } from '@/components/EfficiencyValue'
 import { GradientNumber } from '@/components/ui/GradientNumber'
 import { Pill, type PillTone } from '@/components/ui/Pill'
 import { cn } from '@/lib/cn'
@@ -179,6 +180,11 @@ function SessionRow({ session, highlighted, currency, breakeven }: SessionRowPro
           {session.start_soc}→{session.end_soc}%
         </Link>
       </td>
+      <td className="hidden px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 md:table-cell" data-testid="session-efficiency">
+        <Link to={`/sessions/${session.id}`} className="block">
+          <EfficiencyValue miPerKwh={session.efficiency_mi_per_kwh} primaryOnly />
+        </Link>
+      </td>
       <td className={cn('hidden px-3 py-2.5 text-sm tabular-nums md:table-cell', rateCls)}>
         <Link to={`/sessions/${session.id}`} className="block">
           {tariffText ?? ''}
@@ -243,6 +249,9 @@ export function SessionsTable({
             {sortable('Saved', 'saved')}
             <th scope="col" className={cn(PLAIN_TH, 'hidden md:table-cell')}>
               SoC
+            </th>
+            <th scope="col" className={cn(PLAIN_TH, 'hidden md:table-cell')}>
+              Efficiency
             </th>
             <th scope="col" className={cn(PLAIN_TH, 'hidden md:table-cell')}>
               <span>Rate</span>

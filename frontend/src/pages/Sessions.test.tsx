@@ -46,6 +46,8 @@ function makeSession(
     saved_vs_petrol_p: null,
     comparison_basis: null,
     breakeven_p_per_kwh: null,
+    efficiency_mi_per_kwh: null,
+    efficiency_basis: null,
     ...over,
   }
 }
@@ -376,10 +378,11 @@ describe('Sessions page', () => {
         expect(screen.getByTestId('session-row')).toBeInTheDocument()
       })
 
-      // Rate column is the 7th cell (index 6).
+      // Cells: date, location, kWh, cost, saved, SoC, efficiency, rate, type.
+      // Rate column is the 8th cell (index 7).
       const row = screen.getByTestId('session-row')
       const cells = row.querySelectorAll('td')
-      const rateCell = cells[6]!
+      const rateCell = cells[7]!
       expect(rateCell.className).toMatch(/emerald/)
     })
 
@@ -404,7 +407,7 @@ describe('Sessions page', () => {
 
       const row = screen.getByTestId('session-row')
       const cells = row.querySelectorAll('td')
-      const rateCell = cells[6]!
+      const rateCell = cells[7]!
       expect(rateCell.className).toMatch(/rose/)
     })
 
@@ -429,7 +432,7 @@ describe('Sessions page', () => {
 
       const row = screen.getByTestId('session-row')
       const cells = row.querySelectorAll('td')
-      const rateCell = cells[6]!
+      const rateCell = cells[7]!
       expect(rateCell.className).not.toMatch(/emerald/)
       expect(rateCell.className).not.toMatch(/rose/)
     })

@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import type { ChargingSessionPayload } from '@/api/client'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { SessionsTable } from './SessionsTable'
 
 function makeSession(over: Partial<ChargingSessionPayload> = {}): ChargingSessionPayload {
@@ -17,12 +18,17 @@ function makeSession(over: Partial<ChargingSessionPayload> = {}): ChargingSessio
     location_lat: null, location_lng: null, user_label: null, charge_network: null,
     notes: null, source: 'manual', telematics_session_id: null,
     saved_vs_petrol_p: 120, comparison_basis: 'measured', breakeven_p_per_kwh: 30,
+    efficiency_mi_per_kwh: 3.6, efficiency_basis: 'measured',
     power_curve: null, metrics: null,
     ...over,
   }
 }
 
 describe('SessionsTable', () => {
+  beforeEach(() => {
+    useSettingsStore.setState({ settings: {}, loaded: true })
+  })
+
   it('renders a row per session with cost', () => {
     render(
       <MemoryRouter>
@@ -31,6 +37,15 @@ describe('SessionsTable', () => {
     )
     expect(screen.getAllByTestId('session-row')).toHaveLength(1)
     expect(screen.getByText('Home')).toBeInTheDocument()
+  })
+
+  it('shows an efficiency column with the primary figure', () => {
+    render(
+      <MemoryRouter>
+        <SessionsTable sessions={[makeSession({ efficiency_mi_per_kwh: 3.6 })]} currency="GBP" />
+      </MemoryRouter>,
+    )
+    expect(screen.getByTestId('session-efficiency')).toHaveTextContent('3.60 mi/kWh')
   })
 
   it('renders sortable headers and fires onSort when controls provided', () => {
