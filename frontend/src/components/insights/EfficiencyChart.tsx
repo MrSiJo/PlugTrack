@@ -8,6 +8,7 @@ import {
   YAxis,
 } from 'recharts'
 import type { InsightsEfficiencyPoint } from '@/api/client'
+import { EfficiencyValue } from '@/components/EfficiencyValue'
 
 export interface EfficiencyChartProps {
   data: InsightsEfficiencyPoint[]
@@ -26,8 +27,8 @@ function EffTooltip({ active, payload }: TooltipProps) {
   return (
     <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900">
       <p className="font-medium text-slate-900 dark:text-slate-100">{p.period}</p>
-      <p className="tabular-nums text-emerald-600 dark:text-emerald-300">
-        {p.observed_mi_per_kwh == null ? '—' : `${p.observed_mi_per_kwh.toFixed(2)} mi/kWh`}
+      <p className="text-emerald-600 dark:text-emerald-300">
+        <EfficiencyValue miPerKwh={p.observed_mi_per_kwh} />
       </p>
       <p className="tabular-nums text-amber-600 dark:text-amber-300">
         {p.cost_per_mile_p == null ? '—' : `${p.cost_per_mile_p.toFixed(1)} p/mile`}

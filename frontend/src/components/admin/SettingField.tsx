@@ -32,6 +32,10 @@ export const ENUM_OPTIONS: Record<string, { value: string; label: string }[]> = 
     { value: 'mi', label: 'Miles' },
     { value: 'km', label: 'Kilometres' },
   ],
+  efficiency_priority: [
+    { value: 'distance_per_energy', label: 'mi/kWh (Wh/mi secondary)' },
+    { value: 'energy_per_distance', label: 'Wh/mi (mi/kWh secondary)' },
+  ],
   geocoding_provider: [
     { value: 'nominatim', label: 'Nominatim (free)' },
     { value: 'mapbox', label: 'Mapbox' },

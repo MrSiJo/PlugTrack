@@ -27,10 +27,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
 from ...models import Car
-from ...services.charge_planner import build_scenario_table, resolve_plan_inputs
+from ...services.charge_planner import (
+    build_blended_plan,
+    build_scenario_table,
+    resolve_plan_inputs,
+)
 
 
 router = APIRouter(prefix="/api/charge-plan", tags=["charge-plan"])
+
+# Fallback rapid-DC rate (p/kWh) when the caller supplies none. The user
+# overrides this on the planner form; it is only a sensible public default.
+_DEFAULT_PUBLIC_DC_RATE_P = 45.0
 
 
 class ScenarioRowPayload(BaseModel):
@@ -52,6 +60,35 @@ class ScenarioPlanResponse(BaseModel):
     home_rate_p_per_kwh: float
     is_free: bool
     rows: list[ScenarioRowPayload]
+
+
+class BlendedPhasePayload(BaseModel):
+    kwh: float
+    minutes: int
+    cost_pence: int
+
+
+class BlendedTotalPayload(BaseModel):
+    kwh: float
+    minutes: int
+    cost_pence: int
+    cost_per_mile_p: Optional[float] = None
+    mi_per_kwh: Optional[float] = None
+
+
+class BlendedPlanResponse(BaseModel):
+    car_id: int
+    start_soc: int
+    dc_stop_soc: int
+    target_soc: int
+    battery_kwh: float
+    loss_factor: float
+    dc_rate_p: float
+    home_rate_p_per_kwh: float
+    is_free: bool
+    dc_phase: BlendedPhasePayload
+    home_phase: BlendedPhasePayload
+    total: BlendedTotalPayload
 
 
 def _user_id(request: Request) -> int:
@@ -142,4 +179,111 @@ async def get_charge_plan(
             )
             for row in rows
         ],
+    )
+
+
+@router.get("/blended", response_model=BlendedPlanResponse)
+async def get_blended_charge_plan(
+    request: Request,
+    car_id: int = Query(...),
+    start_soc: int = Query(..., ge=0, le=100),
+    dc_stop_soc: int = Query(..., ge=0, le=100),
+    home_target_soc: int = Query(..., ge=0, le=100),
+    dc_rate_p: Optional[float] = Query(default=None, ge=0),
+    dc_charger_cap_kw: Optional[float] = Query(default=None, gt=0),
+    session: AsyncSession = Depends(get_db),
+) -> BlendedPlanResponse:
+    """Two-phase blended plan: rapid DC to ``dc_stop_soc`` then home AC to ``home_target_soc``."""
+    user_id = _user_id(request)
+
+    # SoC ordering: start <= dc_stop <= target, and at least some charging.
+    if not (start_soc <= dc_stop_soc <= home_target_soc):
+        raise HTTPException(
+            status_code=400,
+            detail="require start_soc <= dc_stop_soc <= home_target_soc",
+        )
+    if home_target_soc <= start_soc:
+        raise HTTPException(
+            status_code=400,
+            detail="home_target_soc must be greater than start_soc",
+        )
+
+    # Fetch car — must exist and belong to the authenticated user.
+    result = await session.execute(
+        select(Car).where(Car.id == car_id, Car.user_id == user_id)
+    )
+    car = result.scalar_one_or_none()
+    if car is None:
+        raise HTTPException(status_code=404, detail="car not found")
+
+    if car.battery_kwh is None or car.battery_kwh <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="car battery_kwh is missing or not positive",
+        )
+
+    try:
+        inputs = await resolve_plan_inputs(session, car, user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Resolve DC rate + charger cap. The cap can never exceed the car's DC ceiling.
+    rate = dc_rate_p if dc_rate_p is not None else _DEFAULT_PUBLIC_DC_RATE_P
+    if dc_charger_cap_kw is not None:
+        effective_cap = min(dc_charger_cap_kw, inputs.dc_ceiling)
+    else:
+        effective_cap = inputs.dc_ceiling
+
+    mi_per_kwh = (
+        float(car.nominal_efficiency_mi_per_kwh)
+        if car.nominal_efficiency_mi_per_kwh
+        else None
+    )
+
+    plan = build_blended_plan(
+        start_soc=start_soc,
+        dc_stop_soc=dc_stop_soc,
+        target_soc=home_target_soc,
+        battery_kwh=inputs.battery_kwh,
+        dc_capability=inputs.dc_capability,
+        dc_rate_p=rate,
+        dc_charger_cap_kw=effective_cap,
+        home_power_kw=inputs.power_kw,
+        home_window={
+            "window_minutes": inputs.window_minutes,
+            "window_start_str": inputs.window_start_str,
+        },
+        home_rate_p=inputs.home_rate_p_per_kwh,
+        is_free=inputs.is_free,
+        loss_factor=inputs.loss_factor,
+        mi_per_kwh=mi_per_kwh,
+    )
+
+    return BlendedPlanResponse(
+        car_id=car_id,
+        start_soc=start_soc,
+        dc_stop_soc=dc_stop_soc,
+        target_soc=home_target_soc,
+        battery_kwh=inputs.battery_kwh,
+        loss_factor=inputs.loss_factor,
+        dc_rate_p=rate,
+        home_rate_p_per_kwh=inputs.home_rate_p_per_kwh,
+        is_free=inputs.is_free,
+        dc_phase=BlendedPhasePayload(
+            kwh=plan.dc_phase.kwh,
+            minutes=plan.dc_phase.minutes,
+            cost_pence=plan.dc_phase.cost_pence,
+        ),
+        home_phase=BlendedPhasePayload(
+            kwh=plan.home_phase.kwh,
+            minutes=plan.home_phase.minutes,
+            cost_pence=plan.home_phase.cost_pence,
+        ),
+        total=BlendedTotalPayload(
+            kwh=plan.total.kwh,
+            minutes=plan.total.minutes,
+            cost_pence=plan.total.cost_pence,
+            cost_per_mile_p=plan.total.cost_per_mile_p,
+            mi_per_kwh=plan.total.mi_per_kwh,
+        ),
     )

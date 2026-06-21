@@ -27,6 +27,7 @@ const PREFERENCE_GROUPS: { label: string; keys: string[] }[] = [
       'theme',
       'currency',
       'distance_unit',
+      'efficiency_priority',
       'public_base_url',
     ],
   },

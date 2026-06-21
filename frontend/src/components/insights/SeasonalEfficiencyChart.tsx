@@ -9,6 +9,7 @@ import {
 } from 'recharts'
 import type { SeasonalEfficiencyPoint } from '@/api/client'
 import { formatDistance } from '@/stores/settingsStore'
+import { EfficiencyValue } from '@/components/EfficiencyValue'
 
 export interface SeasonalEfficiencyChartProps {
   data: SeasonalEfficiencyPoint[]
@@ -34,8 +35,8 @@ export function ChartTooltip({ active, payload }: TooltipProps) {
           </span>
         )}
       </p>
-      <p className="tabular-nums text-emerald-600 dark:text-emerald-300">
-        {point.mi_per_kwh == null ? '—' : `${point.mi_per_kwh.toFixed(2)} mi/kWh`}
+      <p className="text-emerald-600 dark:text-emerald-300">
+        <EfficiencyValue miPerKwh={point.mi_per_kwh} />
       </p>
       <p className="tabular-nums text-sky-600 dark:text-sky-300">
         Range: {point.derived_range_km != null
