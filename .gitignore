@@ -35,10 +35,13 @@ junit.xml
 # ========================================
 instance/
 *.db
+*.db.backup*
 *.sqlite3
 *.sqlite
 app.db
 plugtrack.db
+# App data exports (DB dumps, CSV backups) — may contain user data / hashes.
+exports/
 
 # ========================================
 # Logs

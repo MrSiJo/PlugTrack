@@ -35,7 +35,12 @@ services:
       DATA_DIR: /app/data
       PYCUPRA_IMAGE_DIR: /app/www/pycupra
     ports:
-      - "9278:9278"
+      # Bind the API to loopback only. The UI container reaches it over the
+      # docker bridge as `plugtrack-api:9278` (see frontend/nginx.conf), so the
+      # published port is purely for local debugging — it must NOT be exposed on
+      # all interfaces, or it bypasses nginx's CSP/security headers. Front it
+      # with a reverse proxy (or publish only the UI's 9279) for remote access.
+      - "127.0.0.1:9278:9278"
     volumes:
       - plugtrack-data:/app/data
       - plugtrack-logs:/app/logs

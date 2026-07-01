@@ -2,7 +2,14 @@
 
 `fernet_from_secret` derives a 32-byte Fernet key by SHA-256-hashing the
 APP_SECRET_KEY and base64-url-encoding the digest. Operators only need to
-set APP_SECRET_KEY; rotating it requires re-encrypting stored secrets.
+set APP_SECRET_KEY.
+
+⚠ Rotation is destructive and irreversible without care: APP_SECRET_KEY is
+also the session-cookie signer, and there is no key versioning. Changing it
+orphans every value encrypted under the old key (stored settings secrets +
+car VINs will fail to decrypt) and invalidates all sessions. Decrypt/clear
+those values under the old key before rotating, then re-enter them. See the
+rotation note in `.env.example`.
 """
 from __future__ import annotations
 

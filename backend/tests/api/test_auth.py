@@ -4,8 +4,17 @@ from __future__ import annotations
 import pytest
 
 from plugtrack.api.auth_middleware import SESSION_COOKIE_NAME
+from plugtrack.api.login_throttle import login_throttle
 from plugtrack.services.auth_service import bootstrap_user
 from tests.api.conftest import csrf_headers
+
+
+@pytest.fixture(autouse=True)
+def _reset_login_throttle():
+    """The throttle is a process-local singleton — isolate it per test."""
+    login_throttle.clear()
+    yield
+    login_throttle.clear()
 
 
 async def _prime_csrf(client):
@@ -61,6 +70,42 @@ async def test_login_without_csrf_is_403(seeded_client):
         json={"username": "admin", "password": "very-strong-pass"},
     )
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_login_sets_samesite_strict_cookie(seeded_client, test_sessionmaker):
+    async with test_sessionmaker() as session:
+        await bootstrap_user(session, "admin", "very-strong-pass")
+
+    await _prime_csrf(seeded_client)
+    r = await seeded_client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "very-strong-pass"},
+        headers=csrf_headers(seeded_client),
+    )
+    assert r.status_code == 200, r.text
+    set_cookie = r.headers.get("set-cookie", "")
+    assert "samesite=strict" in set_cookie.lower()
+
+
+@pytest.mark.asyncio
+async def test_locked_username_returns_429_with_retry_after(seeded_client, test_sessionmaker):
+    async with test_sessionmaker() as session:
+        await bootstrap_user(session, "admin", "very-strong-pass")
+
+    # Drive the throttle straight into a locked state, then confirm the route
+    # refuses even a correct password with 429 + Retry-After.
+    for _ in range(login_throttle.max_failures):
+        login_throttle.record_failure("admin")
+
+    await _prime_csrf(seeded_client)
+    r = await seeded_client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "very-strong-pass"},
+        headers=csrf_headers(seeded_client),
+    )
+    assert r.status_code == 429, r.text
+    assert "retry-after" in {k.lower() for k in r.headers.keys()}
 
 
 @pytest.mark.asyncio
