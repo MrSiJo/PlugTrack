@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.9.0](https://github.com/MrSiJo/PlugTrack/compare/v3.8.1...v3.9.0) (2026-07-01)
+
+
+### Features
+
+* surface battery State-of-Health estimate on Insights ([8707e01](https://github.com/MrSiJo/PlugTrack/commit/8707e01de1dc3b6688f2ef46d7ebb5f2238d5a97))
+
 ## [3.8.1](https://github.com/MrSiJo/PlugTrack/compare/v3.8.0...v3.8.1) (2026-07-01)
 
 
