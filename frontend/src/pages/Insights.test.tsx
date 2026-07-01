@@ -30,6 +30,7 @@ const EMPTY_OVERVIEW = {
   efficiency: [],
   seasonal_efficiency: [],
   capacity_trend: [],
+  battery_health: null,
 }
 
 const DISABLED_MILEAGE = {
@@ -126,6 +127,7 @@ describe('Insights page', () => {
       },
       by_network: [{ network: 'Tesla', spend_pence: 200, kwh: 10, sessions: 1, avg_p_per_kwh: 20 }],
       efficiency: [{ period: '2026-06-01', observed_mi_per_kwh: null, rolling_mi_per_kwh: null, cost_per_mile_p: null }],
+      battery_health: null,
     })
     vi.spyOn(api, 'getCars').mockResolvedValue([
       { id: 1, make: 'Cupra', model: 'Born', name: null, display_name: 'Cupra Born', vin: null, battery_kwh: 58,
@@ -160,6 +162,7 @@ describe('Insights page', () => {
         { period: '2026-06', mi_per_kwh: 4.1, derived_range_km: 215, low_confidence: false },
       ],
       capacity_trend: [],
+      battery_health: null,
     })
     vi.spyOn(api, 'getCars').mockResolvedValue([])
     vi.spyOn(api, 'getInsightsMileage').mockResolvedValue(DISABLED_MILEAGE)
@@ -189,6 +192,14 @@ describe('Insights page', () => {
         { date: '2026-01-10', usable_kwh: 56.2, charging_type: 'ac', low_confidence: false },
         { date: '2026-03-15', usable_kwh: 55.8, charging_type: 'dc', low_confidence: false },
       ],
+      battery_health: {
+        estimated_usable_kwh: 61.49,
+        nominal_kwh: 59.0,
+        soh_pct: 100,
+        soh_pct_raw: 104,
+        qualifying_count: 2,
+        low_confidence: true,
+      },
     })
     vi.spyOn(api, 'getCars').mockResolvedValue([])
     vi.spyOn(api, 'getInsightsMileage').mockResolvedValue(DISABLED_MILEAGE)
@@ -218,6 +229,7 @@ describe('Insights page', () => {
         { period: '2026-06', mi_per_kwh: 4.1, derived_range_km: 215, low_confidence: false },
       ],
       capacity_trend: [],
+      battery_health: null,
       seasonal_delta: {
         best: { period: '2026-06', mi_per_kwh: 4.1, derived_range_km: 215, low_confidence: false },
         worst: { period: '2026-01', mi_per_kwh: 3.2, derived_range_km: 168, low_confidence: false },
@@ -254,6 +266,7 @@ describe('Insights page', () => {
         { period: '2026-01', mi_per_kwh: 3.2, derived_range_km: 168, low_confidence: false },
       ],
       capacity_trend: [],
+      battery_health: null,
       seasonal_delta: null,
     })
     vi.spyOn(api, 'getCars').mockResolvedValue([])

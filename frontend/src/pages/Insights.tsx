@@ -34,6 +34,7 @@ import { NetworkBreakdown } from '@/components/insights/NetworkBreakdown'
 import { EfficiencyChart } from '@/components/insights/EfficiencyChart'
 import { SeasonalEfficiencyChart } from '@/components/insights/SeasonalEfficiencyChart'
 import { CapacityTrendChart } from '@/components/insights/CapacityTrendChart'
+import { BatteryHealthCard } from '@/components/insights/BatteryHealthCard'
 import { MileageAllowance } from '@/components/insights/MileageAllowance'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -462,6 +463,7 @@ export default function Insights() {
           {overview.capacity_trend && overview.capacity_trend.length > 0 && (
             <Card className="mb-6">
               <h2 className={MODULE_EYEBROW}>Estimated battery health</h2>
+              <BatteryHealthCard data={overview.battery_health} className="mb-4" />
               <CapacityTrendChart data={overview.capacity_trend} />
             </Card>
           )}

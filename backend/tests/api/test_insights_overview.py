@@ -42,6 +42,8 @@ async def test_overview_shape(authed_client, test_sessionmaker):
     assert data["split"]["public"]["spend_pence"] == 1500
     assert data["by_network"][0]["network"] == "Tesla"
     assert "efficiency" in data
+    # battery_health is always present (None when no qualifying charges / no car).
+    assert "battery_health" in data
 
 
 @pytest.mark.asyncio

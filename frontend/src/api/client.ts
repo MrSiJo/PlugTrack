@@ -522,6 +522,18 @@ export interface CapacityTrendPoint {
   low_confidence: boolean
 }
 
+export interface BatteryHealth {
+  estimated_usable_kwh: number
+  nominal_kwh: number
+  /** DISPLAY value, already capped at 100 by backend */
+  soh_pct: number
+  /** uncapped, e.g. 104 */
+  soh_pct_raw: number
+  qualifying_count: number
+  /** true when qualifying_count < 3 */
+  low_confidence: boolean
+}
+
 export interface SeasonalDelta {
   best: SeasonalEfficiencyPoint
   worst: SeasonalEfficiencyPoint
@@ -537,6 +549,7 @@ export interface InsightsOverviewResponse {
   efficiency: InsightsEfficiencyPoint[]
   seasonal_efficiency?: SeasonalEfficiencyPoint[]
   capacity_trend?: CapacityTrendPoint[]
+  battery_health: BatteryHealth | null
   seasonal_delta?: SeasonalDelta | null
 }
 

@@ -575,6 +575,149 @@ async def test_current_estimated_capacity_rolling_median(test_sessionmaker, seed
 
 
 # ---------------------------------------------------------------------------
+# battery_health_summary
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_battery_health_none_when_no_battery_kwh(test_sessionmaker, seeded_user_car):
+    """battery_kwh of 0 or None → None (no nominal to compare against)."""
+    uid, car = seeded_user_car
+
+    # A qualifying charge exists, but battery_kwh is invalid.
+    await _mk(
+        test_sessionmaker, user_id=uid, car_id=car,
+        when=dt.date(2026, 5, 1), kwh=29.0, ctype="dc",
+        start_soc=10, end_soc=60,
+    )
+
+    from plugtrack.services.ownership_trends import battery_health_summary
+
+    async with test_sessionmaker() as s:
+        assert await battery_health_summary(s, user_id=uid, car_id=car, battery_kwh=0) is None
+        assert await battery_health_summary(s, user_id=uid, car_id=car, battery_kwh=None) is None
+
+
+@pytest.mark.asyncio
+async def test_battery_health_none_when_no_qualifying(test_sessionmaker, seeded_user_car):
+    """No qualifying charges → None (estimator returns None)."""
+    uid, car = seeded_user_car
+
+    # Non-qualifying charge (30% delta only).
+    await _mk(
+        test_sessionmaker, user_id=uid, car_id=car,
+        when=dt.date(2026, 5, 1), kwh=17.4, ctype="dc",
+        start_soc=50, end_soc=80,
+    )
+
+    from plugtrack.services.ownership_trends import battery_health_summary
+
+    async with test_sessionmaker() as s:
+        result = await battery_health_summary(s, user_id=uid, car_id=car, battery_kwh=58.0)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_battery_health_happy_path(test_sessionmaker, seeded_user_car):
+    """3 DC qualifying charges, usable=57 each, nominal=60 → soh 95%."""
+    uid, car = seeded_user_car
+    battery_kwh = 60.0
+
+    # 3 DC charges: 28.5 kWh over 50% delta → usable_kwh = 57.0 each.
+    for i in range(3):
+        await _mk(
+            test_sessionmaker, user_id=uid, car_id=car,
+            when=dt.date(2026, 6, i + 1), kwh=28.5, ctype="dc",
+            start_soc=10, end_soc=60,
+        )
+
+    from plugtrack.services.ownership_trends import battery_health_summary
+
+    async with test_sessionmaker() as s:
+        result = await battery_health_summary(s, user_id=uid, car_id=car, battery_kwh=battery_kwh)
+
+    assert result is not None
+    assert result["estimated_usable_kwh"] == pytest.approx(57.0, abs=0.01)
+    assert result["nominal_kwh"] == 60.0
+    assert result["soh_pct"] == 95
+    assert result["soh_pct_raw"] == 95
+    assert result["qualifying_count"] == 3
+    assert result["low_confidence"] is False
+
+
+@pytest.mark.asyncio
+async def test_battery_health_caps_soh_at_100(test_sessionmaker, seeded_user_car):
+    """Implied usable capacity above nominal → soh_pct capped at 100, raw > 100."""
+    uid, car = seeded_user_car
+    battery_kwh = 50.0
+
+    # 3 DC charges: 29 kWh over 50% delta → usable_kwh = 58.0 each (> 50 nominal).
+    for i in range(3):
+        await _mk(
+            test_sessionmaker, user_id=uid, car_id=car,
+            when=dt.date(2026, 6, i + 1), kwh=29.0, ctype="dc",
+            start_soc=10, end_soc=60,
+        )
+
+    from plugtrack.services.ownership_trends import battery_health_summary
+
+    async with test_sessionmaker() as s:
+        result = await battery_health_summary(s, user_id=uid, car_id=car, battery_kwh=battery_kwh)
+
+    assert result is not None
+    # raw = 58 / 50 * 100 = 116
+    assert result["soh_pct"] == 100
+    assert result["soh_pct_raw"] == 116
+    assert result["soh_pct_raw"] > 100
+
+
+@pytest.mark.asyncio
+async def test_battery_health_low_confidence_below_threshold(test_sessionmaker, seeded_user_car):
+    """Fewer than 3 qualifying charges → low_confidence=True."""
+    uid, car = seeded_user_car
+
+    # Only 2 qualifying charges.
+    for i in range(2):
+        await _mk(
+            test_sessionmaker, user_id=uid, car_id=car,
+            when=dt.date(2026, 6, i + 1), kwh=29.0, ctype="dc",
+            start_soc=10, end_soc=60,
+        )
+
+    from plugtrack.services.ownership_trends import battery_health_summary
+
+    async with test_sessionmaker() as s:
+        result = await battery_health_summary(s, user_id=uid, car_id=car, battery_kwh=58.0)
+
+    assert result is not None
+    assert result["qualifying_count"] == 2
+    assert result["low_confidence"] is True
+
+
+@pytest.mark.asyncio
+async def test_battery_health_low_confidence_false_at_threshold(test_sessionmaker, seeded_user_car):
+    """3 or more qualifying charges → low_confidence=False."""
+    uid, car = seeded_user_car
+
+    for i in range(3):
+        await _mk(
+            test_sessionmaker, user_id=uid, car_id=car,
+            when=dt.date(2026, 6, i + 1), kwh=29.0, ctype="dc",
+            start_soc=10, end_soc=60,
+        )
+
+    from plugtrack.services.ownership_trends import battery_health_summary
+
+    async with test_sessionmaker() as s:
+        result = await battery_health_summary(s, user_id=uid, car_id=car, battery_kwh=58.0)
+
+    assert result is not None
+    assert result["qualifying_count"] == 3
+    assert result["low_confidence"] is False
+
+
+# ---------------------------------------------------------------------------
 # seasonal_range_span
 # ---------------------------------------------------------------------------
 

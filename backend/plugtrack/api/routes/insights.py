@@ -27,6 +27,7 @@ from ...services.insights_stats import (
     window_totals,
 )
 from ...services.ownership_trends import (
+    battery_health_summary,
     capacity_trend as _capacity_trend,
     efficiency_by_month,
     seasonal_delta,
@@ -156,9 +157,16 @@ async def get_overview(
             car_id=trend_car.id,
             battery_kwh=trend_car.battery_kwh,
         )
+        battery_health = await battery_health_summary(
+            session,
+            user_id=user_id,
+            car_id=trend_car.id,
+            battery_kwh=trend_car.battery_kwh,
+        )
     else:
         seasonal_efficiency = []
         capacity_trend_data = []
+        battery_health = None
 
     return JSONResponse(content={
         "granularity": granularity,
@@ -169,6 +177,7 @@ async def get_overview(
         "seasonal_efficiency": seasonal_efficiency,
         "capacity_trend": capacity_trend_data,
         "seasonal_delta": seasonal_delta(seasonal_efficiency),
+        "battery_health": battery_health,
     })
 
 

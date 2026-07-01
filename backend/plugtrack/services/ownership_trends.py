@@ -350,6 +350,36 @@ async def current_estimated_capacity(
     return statistics.median(values)
 
 
+async def battery_health_summary(
+    session: AsyncSession, *, user_id: int, car_id: int, battery_kwh: float,
+) -> Optional[dict]:
+    """Headline State-of-Health summary derived from the existing capacity
+    estimator. Returns None when no battery_kwh or no qualifying charges.
+
+    soh_pct is DISPLAY-capped at 100 (the estimator applies no loss factor, so
+    metered kWh can imply usable capacity above nominal); soh_pct_raw is the
+    uncapped value for transparency. low_confidence mirrors _MIN_QUALIFYING.
+    """
+    if not battery_kwh or battery_kwh <= 0:
+        return None
+    est = await current_estimated_capacity(
+        session, user_id=user_id, car_id=car_id, battery_kwh=battery_kwh
+    )
+    if est is None:
+        return None
+    qualifying = await _qualifying_charges(session, user_id=user_id, car_id=car_id)
+    count = len(qualifying)
+    raw = est / battery_kwh * 100.0
+    return {
+        "estimated_usable_kwh": round(est, 2),
+        "nominal_kwh": round(float(battery_kwh), 1),
+        "soh_pct": min(100, round(raw)),
+        "soh_pct_raw": round(raw),
+        "qualifying_count": count,
+        "low_confidence": count < _MIN_QUALIFYING,
+    }
+
+
 async def seasonal_range_span(
     session: AsyncSession,
     *,
