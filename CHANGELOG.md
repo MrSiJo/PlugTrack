@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.8.1](https://github.com/MrSiJo/PlugTrack/compare/v3.8.0...v3.8.1) (2026-07-01)
+
+
+### Bug Fixes
+
+* **security:** bind API to loopback in compose-dev.yaml too ([6f4c0a0](https://github.com/MrSiJo/PlugTrack/commit/6f4c0a0c9d29984af062a3aa534f0b3892e2d45d))
+* **security:** harden cookies, add login lockout, restrict API port ([cc79568](https://github.com/MrSiJo/PlugTrack/commit/cc79568ec6244215b3320a6dc17b0d8e4944c209))
+
 ## [3.8.0](https://github.com/MrSiJo/PlugTrack/compare/v3.7.0...v3.8.0) (2026-06-21)
 
 
