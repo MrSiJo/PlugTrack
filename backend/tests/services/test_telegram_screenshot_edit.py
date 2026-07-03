@@ -774,3 +774,53 @@ async def test_pending_edit_target_survives_extraction_failure(
         )
     ]
     assert proposal_msgs, "Expected a proposal card after good extraction"
+
+
+# ---------------------------------------------------------------------------
+# FIX — an inline "update session N, <soc>" edit command must route to the
+# agentic loop (which can propose the edit), NOT the charge-note extractor
+# (which would mis-read the embedded SoC as a brand-new undated reading).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_inline_update_command_routes_to_agent_not_extractor(test_sessionmaker, seeded_user_car):
+    user_id, car_id = seeded_user_car
+    session_id = await _seed_session(test_sessionmaker, user_id, car_id)
+    tg = FakeTg()
+
+    calls: list[str] = []
+
+    async def extractor_text(text: str):
+        # Would greedily parse "74% to 81%" as a new reading — must NOT be called.
+        calls.append("extractor_text")
+        return ExtractionResult(
+            extraction=_make_extraction(
+                soc_start=74, soc_end=81, energy_kwh=None,
+                cost_total_pence=None, cost_per_kwh_pence=None,
+                start_at=None, end_at=None, location_name=None,
+                location_address=None, network=None,
+            ),
+            usage=Usage(10, 10, 0),
+        )
+
+    async def agent_runner(*, session, user_id, text, history, api_key, model, **_kw):
+        calls.append(f"agent:{text}")
+        return {"reply_text": "Proposed edit", "proposal": {"change_token": "tok", "summary": "end SoC → 81%"}}
+
+    ctx = IngestContext(
+        telegram=tg,
+        sessionmaker=test_sessionmaker,
+        extractor=lambda b: None,
+        resolve_target=lambda: (user_id, car_id),
+        allowed_user_ids={111},
+        extractor_text=extractor_text,
+        agent_runner=agent_runner,
+        ai_enabled=True,
+        openai_key="sk-test",
+    )
+
+    await handle_text(ctx, from_id=111, chat_id=9, text=f"update session {session_id}, 74% to 81%")
+
+    assert "extractor_text" not in calls, "edit command was mis-routed to the charge-note extractor"
+    assert any(c.startswith("agent:") for c in calls), "edit command did not reach the agentic loop"

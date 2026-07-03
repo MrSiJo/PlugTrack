@@ -1021,10 +1021,18 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
                 text=f"OK — send the screenshot to update session {target_id}.",
             )
         return
+    # An explicit "update/edit session N ..." is an edit command, not a new
+    # charge note. When the agentic loop is available, don't let the charge-note
+    # extractor swallow it — it would mis-read an embedded SoC/energy figure
+    # (e.g. "74% to 81%") as a brand-new undated reading. Fall through to the
+    # agent, which can propose the edit via propose_edit_charge.
+    agent_available = bool(ctx.agent_runner is not None and ctx.ai_enabled and ctx.openai_key)
+    is_edit_command = agent_available and _parse_update_target(text) is not None
+
     # Try to parse a free-text charge note. A failure here (e.g. an OpenAI
     # error) must NOT black-hole the message — log and fall through to the
     # usage Q&A / help line so the user always gets a reply.
-    if ctx.extractor_text is not None and text and text.strip():
+    if ctx.extractor_text is not None and text and text.strip() and not is_edit_command:
         try:
             result = await ctx.extractor_text(text)
         except Exception:  # noqa: BLE001
