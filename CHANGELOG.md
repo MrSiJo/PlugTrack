@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.11.0](https://github.com/MrSiJo/PlugTrack/compare/v3.10.1...v3.11.0) (2026-07-03)
+
+
+### Features
+
+* broaden edit-command detection for the Telegram bot ([eef1645](https://github.com/MrSiJo/PlugTrack/commit/eef16453b4168c838869cb6e3668810e0d6f777c))
+
 ## [3.10.1](https://github.com/MrSiJo/PlugTrack/compare/v3.10.0...v3.10.1) (2026-07-03)
 
 
