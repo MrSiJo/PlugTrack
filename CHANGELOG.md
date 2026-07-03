@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.12.0](https://github.com/MrSiJo/PlugTrack/compare/v3.11.0...v3.12.0) (2026-07-03)
+
+
+### Features
+
+* attach a location to a charge from a shared Telegram pin ([5ba5c8f](https://github.com/MrSiJo/PlugTrack/commit/5ba5c8ff5b68373eae9558bad23933fde915a5a8))
+
 ## [3.11.0](https://github.com/MrSiJo/PlugTrack/compare/v3.10.1...v3.11.0) (2026-07-03)
 
 
