@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.10.1](https://github.com/MrSiJo/PlugTrack/compare/v3.10.0...v3.10.1) (2026-07-03)
+
+
+### Bug Fixes
+
+* route inline "update session N" text to the agent, not the extractor ([55c4212](https://github.com/MrSiJo/PlugTrack/commit/55c4212a5e0ec0015fbe92840c2febc545f1e77f))
+
 ## [3.10.0](https://github.com/MrSiJo/PlugTrack/compare/v3.9.0...v3.10.0) (2026-07-03)
 
 
