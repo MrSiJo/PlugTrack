@@ -167,6 +167,11 @@ async def _build_session(
     # Match a named location (e.g. caption "home") for rate-based costing.
     cs.location_id = await match_location_by_name(session, user_id=user_id, name=merged.location_name)
 
+    # Snapshot the location's default network onto the session when the
+    # screenshot carried none (e.g. a home charge -> the user's energy supplier).
+    from .ingest_location import snapshot_location_network
+    await snapshot_location_network(session, cs)
+
     # Banked energy from SoC (kwh_calculated). For home/metered-less charges,
     # promote it to kwh_added so cost (delivered-based) and totals work.
     await _derive_kwh_calculated(session, cs)
@@ -210,6 +215,8 @@ async def commit_merged_session(
                 address=merged.location_address, network=merged.network)
             if loc_id is not None:
                 cs.location_id = loc_id
+                from .ingest_location import snapshot_location_network
+                await snapshot_location_network(session, cs)
         except Exception:  # noqa: BLE001 — never abort a Save over geocoding
             logger.exception("ingest location resolution failed; leaving text-only")
     session.add(cs)

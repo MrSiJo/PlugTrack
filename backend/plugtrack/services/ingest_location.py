@@ -71,6 +71,32 @@ def compose_location_name(network: Optional[str], label: Optional[str]) -> Optio
     return " ".join(parts) or None
 
 
+# Location default_charge_network values that carry no real network — never
+# snapshotted onto a session (they'd just show as a bogus network row). Kept in
+# sync with the "Unknown" bucket in services/insights_stats.network_breakdown.
+_PLACEHOLDER_NETWORKS = {"", "unknown", "none", "n/a", "unknown network"}
+
+
+async def snapshot_location_network(session: AsyncSession, cs) -> None:
+    """Point-in-time snapshot: if a session has no charge_network but its linked
+    location has a meaningful default, copy it onto the session. Idempotent and
+    a no-op when the session already carries a network (screenshot value or a
+    user override is sacred) or the location default is a placeholder."""
+    from ..models import Location
+
+    if (cs.charge_network or "").strip():
+        return
+    if cs.location_id is None:
+        return
+    net = (
+        await session.execute(
+            select(Location.default_charge_network).where(Location.id == cs.location_id)
+        )
+    ).scalar_one_or_none()
+    if net and net.strip().lower() not in _PLACEHOLDER_NETWORKS:
+        cs.charge_network = net.strip()
+
+
 async def _geocoding_settings(session: AsyncSession) -> dict:
     keys = ["geocoding_enabled", "geocoding_provider", "geocoding_api_key"]
     rows = (await session.execute(select(Setting).where(Setting.key.in_(keys)))).scalars().all()
