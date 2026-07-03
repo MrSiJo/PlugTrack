@@ -146,6 +146,35 @@ _UPDATE_VERB_RE = re.compile(
 # Bare hash form: caption is EXACTLY "#42" (whole-caption match only, not substring)
 _UPDATE_HASH_WHOLE_RE = re.compile(r"^#\s?(\d+)$", re.IGNORECASE)
 
+# Edit-command routing (handle_text): a broader intent detector than
+# _parse_update_target. An edit command needs BOTH an edit verb AND an explicit
+# existing-session reference, so a bare charge note ("Home 9.3kwh 11200mi")
+# never matches. The session reference may appear anywhere, so inverted phrasings
+# ("change the end soc to 81 on session 34") are caught.
+_EDIT_VERB_RE = re.compile(
+    r"\b(?:update|edit|correct|change|amend|fix|adjust|set)\b", re.IGNORECASE
+)
+# Explicit session reference: "session 34", "charge 3", or a word-bounded "#42".
+_SESSION_REF_RE = re.compile(
+    r"\b(?:session|charge)\s+#?(\d+)\b|(?<![\w.])#(\d+)\b", re.IGNORECASE
+)
+
+
+def _looks_like_edit_command(text: Optional[str]) -> bool:
+    """True when text is an explicit edit command for an existing session.
+
+    Requires an edit verb AND a session reference. Used by handle_text to route
+    such messages to the agentic loop (which owns propose_edit_charge) instead of
+    the free-text charge-note extractor, which would mis-read embedded SoC/energy
+    figures as a brand-new reading.
+    """
+    t = (text or "").strip()
+    if not t or not _EDIT_VERB_RE.search(t):
+        return False
+    # Explicit "session/charge N" or "#N" reference, or the verb-adjacent
+    # "update 34" / "edit 34" form handled by _parse_update_target.
+    return bool(_SESSION_REF_RE.search(t)) or _parse_update_target(t) is not None
+
 
 def _parse_update_target(caption: Optional[str]) -> Optional[int]:
     """Return session id if the caption expresses an update intent, else None.
@@ -1027,7 +1056,7 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
     # (e.g. "74% to 81%") as a brand-new undated reading. Fall through to the
     # agent, which can propose the edit via propose_edit_charge.
     agent_available = bool(ctx.agent_runner is not None and ctx.ai_enabled and ctx.openai_key)
-    is_edit_command = agent_available and _parse_update_target(text) is not None
+    is_edit_command = agent_available and _looks_like_edit_command(text)
 
     # Try to parse a free-text charge note. A failure here (e.g. an OpenAI
     # error) must NOT black-hole the message — log and fall through to the

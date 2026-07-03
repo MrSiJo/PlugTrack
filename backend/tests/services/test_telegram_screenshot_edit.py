@@ -17,6 +17,7 @@ from plugtrack.services.screenshot_extraction import (
 )
 from plugtrack.services.telegram_ingest import (
     IngestContext,
+    _looks_like_edit_command,
     _parse_pending_screenshot_edit,
     _parse_update_target,
     handle_photo,
@@ -774,6 +775,43 @@ async def test_pending_edit_target_survives_extraction_failure(
         )
     ]
     assert proposal_msgs, "Expected a proposal card after good extraction"
+
+
+# ---------------------------------------------------------------------------
+# F1 — _looks_like_edit_command: broadened edit-intent detection
+# ---------------------------------------------------------------------------
+
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("text", [
+    "update session 34, 74% to 81%",
+    "update 34, soc 74 to 81",
+    "edit session 7 end soc 80",
+    "correct session 34 ending soc to 81",
+    "change the end soc to 81 on session 34",      # inverted word order
+    "fix session 12 mileage to 11200",
+    "adjust session 5 network to Osprey",
+    "update #42 notes",
+    "set session 9 start soc to 20",
+    "amend charge 3 cost to 8.50",
+])
+def test_looks_like_edit_command_true(text):
+    assert _looks_like_edit_command(text) is True
+
+
+@_pytest.mark.parametrize("text", [
+    "Home 9.3kwh 11200mi",          # home charge note — no session ref
+    "9.3kwh home",
+    "what did I spend last week",   # question
+    "home",
+    "update the home rate to 8p",   # edit verb but no session reference
+    "",
+    "how much did session cost overall",  # 'session' but no id / edit verb
+])
+def test_looks_like_edit_command_false(text):
+    assert _looks_like_edit_command(text) is False
 
 
 # ---------------------------------------------------------------------------
