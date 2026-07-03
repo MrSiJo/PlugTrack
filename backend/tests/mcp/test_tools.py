@@ -659,6 +659,73 @@ async def test_propose_set_location_other_users_location_is_error(test_sessionma
 
 
 # ---------------------------------------------------------------------------
+# propose_attach_location (coords -> create/match location -> set on charge) + commit
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_propose_attach_location_writes_nothing(test_sessionmaker):
+    from plugtrack.mcp.tools import propose_attach_location
+    from sqlalchemy import func, select as sa_select
+
+    await _seed_home_rate(test_sessionmaker, 7.5)
+    user_id = await _seed_user(test_sessionmaker, "rhea")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(test_sessionmaker, user_id, car_id)
+
+    async with test_sessionmaker() as session:
+        result = await propose_attach_location(
+            session, user_id, charge_id=cs_id, lat=50.148, lng=-5.665
+        )
+        assert "error" not in result
+        assert "change_token" in result
+        # nothing written yet
+        assert (await session.execute(sa_select(func.count(Location.id)))).scalar_one() == 0
+
+
+@pytest.mark.asyncio
+async def test_commit_attach_location_creates_and_sets(test_sessionmaker):
+    from plugtrack.mcp.tools import propose_attach_location, commit_change
+    from sqlalchemy import func, select as sa_select
+
+    await _seed_home_rate(test_sessionmaker, 7.5)
+    user_id = await _seed_user(test_sessionmaker, "silas")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(test_sessionmaker, user_id, car_id)
+
+    async with test_sessionmaker() as session:
+        proposal = await propose_attach_location(
+            session, user_id, charge_id=cs_id, lat=50.148, lng=-5.665
+        )
+    async with test_sessionmaker() as session:
+        result = await commit_change(session, user_id, proposal["change_token"])
+    assert "error" not in result
+
+    async with test_sessionmaker() as session:
+        row = await session.get(ChargingSession, cs_id)
+        assert row.location_id is not None, "charge should be linked to the new location"
+        loc = await session.get(Location, row.location_id)
+        assert abs(loc.centroid_lat - 50.148) < 0.01 and abs(loc.centroid_lng - -5.665) < 0.01
+        assert (await session.execute(sa_select(func.count(Location.id)))).scalar_one() == 1
+
+
+@pytest.mark.asyncio
+async def test_propose_attach_location_other_users_charge_is_error(test_sessionmaker):
+    from plugtrack.mcp.tools import propose_attach_location
+
+    user_a = await _seed_user(test_sessionmaker, "tara")
+    user_b = await _seed_user(test_sessionmaker, "ulric")
+    car_b = await _seed_car(test_sessionmaker, user_b)
+    cs_b = await _seed_session(test_sessionmaker, user_b, car_b)
+
+    async with test_sessionmaker() as session:
+        result = await propose_attach_location(
+            session, user_a, charge_id=cs_b, lat=50.1, lng=-5.6
+        )
+    assert "error" in result
+
+
+# ---------------------------------------------------------------------------
 # propose_create_location + commit
 # ---------------------------------------------------------------------------
 

@@ -20,6 +20,9 @@ from plugtrack.services.telegram_ingest import (
     _looks_like_edit_command,
     _parse_pending_screenshot_edit,
     _parse_update_target,
+    dispatch_update,
+    handle_callback,
+    handle_location,
     handle_photo,
     handle_text,
 )
@@ -862,3 +865,128 @@ async def test_inline_update_command_routes_to_agent_not_extractor(test_sessionm
 
     assert "extractor_text" not in calls, "edit command was mis-routed to the charge-note extractor"
     assert any(c.startswith("agent:") for c in calls), "edit command did not reach the agentic loop"
+
+
+# ---------------------------------------------------------------------------
+# F2 — location-pin sharing
+# ---------------------------------------------------------------------------
+
+
+def _has_mcpcommit_card(sent):
+    return [
+        m for m in sent if m.get("reply_markup") is not None
+        and any(
+            b["callback_data"].startswith("mcpcommit:")
+            for row in m["reply_markup"]["inline_keyboard"]
+            for b in row
+        )
+    ]
+
+
+async def _stage_public_charge(ctx, chat_id, energy=9.3):
+    """Stage a public charge (no location) via the text charge-note path."""
+    await handle_text(ctx, from_id=111, chat_id=chat_id, text=f"{energy}kwh 8h31m")
+
+
+def _loc_ctx(tg, test_sessionmaker, user_id, car_id):
+    async def extractor_text(text: str):
+        # A placeable public charge (has a clock time) with no location.
+        return ExtractionResult(
+            extraction=_make_extraction(
+                energy_kwh=9.3, cost_total_pence=None, cost_per_kwh_pence=None,
+                start_at="2026-06-12T14:25:00", end_at="2026-06-12T15:10:00",
+                soc_start=None, soc_end=None,
+                location_name=None, location_address=None, network=None,
+            ),
+            usage=Usage(10, 10, 0),
+        )
+
+    return IngestContext(
+        telegram=tg,
+        sessionmaker=test_sessionmaker,
+        extractor=lambda b: None,
+        resolve_target=lambda: (user_id, car_id),
+        allowed_user_ids={111},
+        extractor_text=extractor_text,
+    )
+
+
+@pytest.mark.asyncio
+async def test_location_while_staged_is_held_not_attached(test_sessionmaker, seeded_user_car):
+    user_id, car_id = seeded_user_car
+    tg = FakeTg()
+    ctx = _loc_ctx(tg, test_sessionmaker, user_id, car_id)
+
+    await _stage_public_charge(ctx, chat_id=9)          # open batch card
+    await handle_location(ctx, from_id=111, chat_id=9, latitude=50.148, longitude=-5.665)
+
+    assert 9 in ctx.pending_location, "pin should be held while a charge is staged"
+    assert not _has_mcpcommit_card(tg.sent), "no attach card should fire while staged"
+
+
+@pytest.mark.asyncio
+async def test_save_auto_attaches_held_pin(test_sessionmaker, seeded_user_car):
+    from sqlalchemy import select
+    from plugtrack.models import ChargingSession, Location
+
+    user_id, car_id = seeded_user_car
+    tg = FakeTg()
+    ctx = _loc_ctx(tg, test_sessionmaker, user_id, car_id)
+
+    await _stage_public_charge(ctx, chat_id=9)
+    await handle_location(ctx, from_id=111, chat_id=9, latitude=50.148, longitude=-5.665)
+    await handle_callback(ctx, from_id=111, callback_id="cb", data="save", chat_id=9)
+
+    async with test_sessionmaker() as s:
+        cs = (await s.execute(select(ChargingSession).where(
+            ChargingSession.user_id == user_id))).scalars().one()
+        assert cs.location_id is not None, "held pin should be attached on Save"
+        loc = await s.get(Location, cs.location_id)
+        assert abs(loc.centroid_lat - 50.148) < 0.01
+    assert 9 not in ctx.pending_location, "held pin should be cleared after Save"
+
+
+@pytest.mark.asyncio
+async def test_location_with_recent_committed_sends_attach_card(test_sessionmaker, seeded_user_car):
+    import time as _time
+
+    user_id, car_id = seeded_user_car
+    session_id = await _seed_session(test_sessionmaker, user_id, car_id)
+    tg = FakeTg()
+    ctx = _loc_ctx(tg, test_sessionmaker, user_id, car_id)
+    ctx.last_committed[9] = (session_id, _time.time())
+
+    await handle_location(ctx, from_id=111, chat_id=9, latitude=50.148, longitude=-5.665)
+
+    assert _has_mcpcommit_card(tg.sent), "recent committed charge should get an attach card"
+
+
+@pytest.mark.asyncio
+async def test_locattach_callback_sends_attach_card(test_sessionmaker, seeded_user_car):
+    user_id, car_id = seeded_user_car
+    session_id = await _seed_session(test_sessionmaker, user_id, car_id)
+    tg = FakeTg()
+    ctx = _loc_ctx(tg, test_sessionmaker, user_id, car_id)
+
+    await handle_callback(
+        ctx, from_id=111, callback_id="cb",
+        data=f"locattach:{session_id}:50.148:-5.665", chat_id=9,
+    )
+    assert _has_mcpcommit_card(tg.sent), "locattach callback should produce an attach card"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_routes_location_message(test_sessionmaker, seeded_user_car):
+    user_id, car_id = seeded_user_car
+    session_id = await _seed_session(test_sessionmaker, user_id, car_id)
+    import time as _time
+    tg = FakeTg()
+    ctx = _loc_ctx(tg, test_sessionmaker, user_id, car_id)
+    ctx.last_committed[9] = (session_id, _time.time())
+
+    update = {"message": {
+        "from": {"id": 111}, "chat": {"id": 9}, "message_id": 5,
+        "location": {"latitude": 50.148, "longitude": -5.665},
+    }}
+    await dispatch_update(ctx=ctx, update=update)
+    assert _has_mcpcommit_card(tg.sent), "message.location should route to handle_location"

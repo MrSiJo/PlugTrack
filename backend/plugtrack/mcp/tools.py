@@ -486,6 +486,50 @@ async def propose_set_location(
         return {"error": str(exc)}
 
 
+async def propose_attach_location(
+    session: AsyncSession,
+    user_id: int,
+    *,
+    charge_id: int,
+    lat: float,
+    lng: float,
+) -> dict:
+    """Propose attaching a location (from a shared map pin) to a charge.
+
+    Reverse-geocodes the coords at propose time (best-effort) so the summary
+    shows the resolved place. On commit, clusters the coords into an existing
+    nearby Location or creates a new one, then sets it on the charge. Writes
+    nothing here. Returns {summary, change_token}.
+    """
+    try:
+        cs = await _get_owned_session(session, charge_id, user_id)
+        if cs is None:
+            return {"error": f"charge {charge_id} not found or not owned by this user"}
+
+        place: Optional[str] = None
+        try:
+            provider = get_provider(await _geocoding_settings(session))
+            result = await provider.reverse(lat, lng)
+            if result is not None:
+                place = result.address
+        except Exception:  # noqa: BLE001 — geocoding is best-effort for the label
+            place = None
+
+        data: dict = {"charge_id": charge_id, "lat": lat, "lng": lng}
+        if place:
+            data["name"] = place
+
+        where = place or f"({lat:.4f}, {lng:.4f})"
+        summary = (
+            f"Attach location {where} to charge #{charge_id} "
+            f"(date={cs.date}, {cs.kwh_added}kWh)"
+        )
+        token = _mint_token(user_id, "attach_location", data)
+        return {"summary": summary, "change_token": token}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 async def propose_edit_charge(
     session: AsyncSession,
     user_id: int,
@@ -618,10 +662,46 @@ async def _apply_change(
         return await _apply_create_location(session, user_id, data)
     elif kind == "set_location":
         return await _apply_set_location(session, user_id, data)
+    elif kind == "attach_location":
+        return await _apply_attach_location(session, user_id, data)
     elif kind == "edit_charge":
         return await _apply_edit_charge(session, user_id, data)
     else:
         return {"error": f"unknown change kind: {kind}"}
+
+
+async def attach_coords_to_charge(
+    session: AsyncSession, user_id: int, *, charge_id: int,
+    lat: float, lng: float, name: Optional[str] = None,
+) -> Optional[Location]:
+    """Cluster coords into an existing nearby Location (or create one) and set
+    it on the charge, re-deriving cost under the freeze invariant. Flushes but
+    does NOT commit — the caller owns the transaction. Returns the Location, or
+    None if the charge is not owned. Shared by the attach_location change and
+    the Telegram Save-time auto-attach of a held pin."""
+    cs = await _get_owned_session(session, charge_id, user_id)
+    if cs is None:
+        return None
+    loc, created = await find_or_create_location(session, user_id, lat, lng)
+    if created and name and not loc.name:
+        loc.name = name
+    cs.location_id = loc.id
+    await apply_cost(session, cs, first_compute=False, override_changed=False)
+    await session.flush()
+    return loc
+
+
+async def _apply_attach_location(
+    session: AsyncSession, user_id: int, data: dict
+) -> dict:
+    loc = await attach_coords_to_charge(
+        session, user_id, charge_id=data["charge_id"],
+        lat=data["lat"], lng=data["lng"], name=data.get("name"),
+    )
+    if loc is None:
+        return {"error": f"charge {data['charge_id']} not found or not owned by this user"}
+    await session.commit()
+    return {"ok": True, "charge_id": data["charge_id"], "location_id": loc.id, "name": loc.name}
 
 
 async def _apply_create_location(

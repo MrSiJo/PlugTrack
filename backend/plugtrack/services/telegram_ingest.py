@@ -65,6 +65,12 @@ class IngestContext:
     # Written by handle_callback when the user taps a "choose car" button;
     # consumed (single-use) by the next handle_photo for that chat.
     pending_car_choice: dict[int, int] = field(default_factory=dict)
+    # chat_id -> (session_id, set_at_epoch) — the last session committed via this
+    # chat's Save. A shared location pin arriving soon after attaches to it.
+    last_committed: dict[int, tuple[int, float]] = field(default_factory=dict)
+    # chat_id -> (lat, lng, set_at_epoch) — a location pin shared while a charge
+    # is still staged; auto-attached to the created session on the next Save.
+    pending_location: dict[int, tuple[float, float, float]] = field(default_factory=dict)
 
 
 @dataclass
@@ -862,6 +868,22 @@ async def handle_callback(
         return
 
     # -----------------------------------------------------------------------
+    # Location-pick callback: user tapped a charge to attach a shared pin to.
+    # data = "locattach:<charge_id>:<lat>:<lng>"
+    # -----------------------------------------------------------------------
+    if data.startswith("locattach:"):
+        try:
+            _, cid, lat_s, lng_s = data.split(":", 3)
+            charge_id, lat, lng = int(cid), float(lat_s), float(lng_s)
+        except (ValueError, IndexError):
+            await ctx.telegram.answer_callback(callback_id, "Bad location data")
+            return
+        await ctx.telegram.answer_callback(callback_id, "Locating…")
+        await _propose_attach_location_card(
+            ctx, user_id=user_id, chat_id=chat_id, charge_id=charge_id, lat=lat, lng=lng)
+        return
+
+    # -----------------------------------------------------------------------
     # Car-pick callback: user tapped a car button to resolve a multi-car prompt.
     # -----------------------------------------------------------------------
     if data.startswith("carpick:"):
@@ -975,6 +997,31 @@ async def handle_callback(
         # Reset rolling history on a new charge save (fresh conversation context)
         ctx.rolling_context.pop(chat_id, None)
 
+        # Remember the last committed session so a shortly-following location pin
+        # attaches to it; and if a pin was shared while this charge was staged,
+        # attach it now to the (single) created session.
+        attached_place: Optional[str] = None
+        if created:
+            ctx.last_committed[chat_id] = (created[-1][0], time.time())
+            held = ctx.pending_location.pop(chat_id, None)
+            if held is not None and len(created) == 1:
+                lat, lng, _ts = held
+                place: Optional[str] = None
+                try:
+                    from .geocoding import get_provider
+                    from .ingest_location import _geocoding_settings
+                    provider = get_provider(await _geocoding_settings(s))
+                    r = await provider.reverse(lat, lng)
+                    place = r.address if r is not None else None
+                except Exception:  # noqa: BLE001 — reverse-geocode is best-effort
+                    place = None
+                from ..mcp.tools import attach_coords_to_charge
+                loc = await attach_coords_to_charge(
+                    s, user_id, charge_id=created[0][0], lat=lat, lng=lng, name=place)
+                if loc is not None:
+                    await s.commit()
+                    attached_place = loc.name or place or f"({lat:.4f}, {lng:.4f})"
+
     await ctx.telegram.answer_callback(callback_id, "Saved")
     lines = [f"Saved {len(created)} session(s)."]
     base = ctx.public_base_url.rstrip("/") if ctx.public_base_url else None
@@ -984,6 +1031,8 @@ async def handle_callback(
         if base:
             line += f" — {base}/sessions/{sid}"
         lines.append(line)
+    if attached_place:
+        lines.append(f"📍 Location attached: {attached_place}")
     if kept:
         lines.append(
             f"⚠️ Kept {kept} undated reading(s) staged — send the app screenshot "
@@ -1145,6 +1194,91 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
         chat_id=chat_id, text="Send me a charge screenshot, or /test to check status.")
 
 
+# A shared pin attaches to a charge committed via this chat within this window.
+_LOCATION_TTL = 1800  # 30 minutes
+
+
+async def _propose_attach_location_card(
+    ctx: IngestContext, *, user_id: int, chat_id: int, charge_id: int,
+    lat: float, lng: float,
+) -> bool:
+    """Build and send an attach-location proposal card. Returns True on success."""
+    from ..mcp.tools import propose_attach_location
+    async with ctx.sessionmaker() as s:
+        result = await propose_attach_location(
+            s, user_id, charge_id=charge_id, lat=lat, lng=lng)
+    if result.get("error"):
+        await ctx.telegram.send_message(chat_id=chat_id, text=result["error"])
+        return False
+    ctx.pending_tokens[chat_id] = result["change_token"]
+    await ctx.telegram.send_message(
+        chat_id=chat_id, text=result["summary"], reply_markup=_proposal_kb(result["change_token"]))
+    return True
+
+
+async def handle_location(
+    ctx: IngestContext, *, from_id: int, chat_id: int, latitude: float, longitude: float
+) -> None:
+    """A shared Telegram location pin — attach it to the relevant charge.
+
+    Precedence (see spec 2026-07-03):
+    1. A charge is still staged in this chat → HOLD the pin; the next Save
+       auto-attaches it (pin captured at the site, one Save).
+    2. A charge was committed via this chat within _LOCATION_TTL → propose
+       attaching the pin to it (Save/Discard card showing the resolved place).
+    3. Otherwise → offer recent charges as buttons to pick a target.
+    """
+    if from_id not in ctx.allowed_user_ids:
+        return
+    user_id, _ = ctx.resolve_target()
+
+    # 1) Staged batch open → hold for Save.
+    async with ctx.sessionmaker() as s:
+        staged = (await s.execute(select(ScreenshotImport).where(
+            ScreenshotImport.user_id == user_id,
+            ScreenshotImport.status == "staged"))).scalars().first()
+    if staged is not None:
+        ctx.pending_location[chat_id] = (latitude, longitude, time.time())
+        await ctx.telegram.send_message(
+            chat_id=chat_id,
+            text="Got it — I'll attach this location to the charge when you Save.")
+        return
+
+    # 2) Recently committed via this chat → propose attach.
+    recent = ctx.last_committed.get(chat_id)
+    if recent is not None:
+        sid, set_at = recent
+        if time.time() - set_at <= _LOCATION_TTL:
+            await _propose_attach_location_card(
+                ctx, user_id=user_id, chat_id=chat_id, charge_id=sid,
+                lat=latitude, lng=longitude)
+            return
+        ctx.last_committed.pop(chat_id, None)
+
+    # 3) Fallback: let the user pick a recent charge for the pin.
+    from ..mcp.tools import find_charges
+    async with ctx.sessionmaker() as s:
+        charges = await find_charges(s, user_id, limit=5)
+    picks = [c for c in charges if isinstance(c, dict) and c.get("id") is not None]
+    if not picks:
+        await ctx.telegram.send_message(
+            chat_id=chat_id,
+            text="No recent charge to attach this location to — send the charge first.")
+        return
+    buttons = []
+    for c in picks:
+        who = c.get("network") or c.get("location_name") or "charge"
+        label = f"#{c['id']} {who} ({c.get('date')})"
+        buttons.append([{
+            "text": label,
+            "callback_data": f"locattach:{c['id']}:{latitude}:{longitude}",
+        }])
+    await ctx.telegram.send_message(
+        chat_id=chat_id,
+        text="Which charge is this location for?",
+        reply_markup={"inline_keyboard": buttons})
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -1164,6 +1298,13 @@ async def dispatch_update(*, ctx: Optional[IngestContext], update: dict[str, Any
     if msg and msg.get("text"):
         await handle_text(
             ctx, from_id=msg["from"]["id"], chat_id=msg["chat"]["id"], text=msg["text"]
+        )
+        return
+    if msg and msg.get("location"):
+        loc = msg["location"]
+        await handle_location(
+            ctx, from_id=msg["from"]["id"], chat_id=msg["chat"]["id"],
+            latitude=loc["latitude"], longitude=loc["longitude"],
         )
         return
     cb = update.get("callback_query")
