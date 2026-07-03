@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.10.0](https://github.com/MrSiJo/PlugTrack/compare/v3.9.0...v3.10.0) (2026-07-03)
+
+
+### Features
+
+* snapshot location default network onto ingested sessions ([aa6a023](https://github.com/MrSiJo/PlugTrack/commit/aa6a02399c4a0b1cd528f79ba8a691f25f73d6b9))
+
 ## [3.9.0](https://github.com/MrSiJo/PlugTrack/compare/v3.8.1...v3.9.0) (2026-07-01)
 
 
