@@ -525,6 +525,20 @@ async def _lifespan(app: FastAPI):
             misfire_grace_time=300,
         )
 
+        # ── Home Assistant MQTT publish (always registered; the tick itself
+        #    gates on the mqtt_enabled setting) ─────────────────────────────
+        async def _ha_publish_job() -> None:
+            from .services.ha_publisher import run_ha_publish_tick
+            await run_ha_publish_tick(db_module.SessionLocal)
+
+        _scheduler.add_job(
+            _ha_publish_job,
+            trigger=_IntervalTrigger(hours=1),
+            id="ha-publish",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
+
         # ── Backup job (conditional) ─────────────────────────────────────────
         if backup_enabled:
             _bk_retention_default = _bk_retention  # capture for closure fallback
