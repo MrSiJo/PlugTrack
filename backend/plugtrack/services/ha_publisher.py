@@ -7,15 +7,24 @@ user-facing units (pence -> GBP, km -> miles) at the source, so the HA
 from __future__ import annotations
 
 import datetime as dt
+import json
+import logging
 from typing import Optional
 
+import aiomqtt
 from sqlalchemy import select
 
+from plugtrack.bootstrap import get_settings
 from plugtrack.models.charging_session import ChargingSession
 from plugtrack.models.location import Location
+from plugtrack.models.setting import Setting
+from plugtrack.models.user import User
+from plugtrack.security.crypto import decrypt_secret
 from plugtrack.services.dashboard_service import dashboard_summary
 from plugtrack.services.formatting import km_to_mi
 from plugtrack.services import insights_stats
+
+log = logging.getLogger(__name__)
 
 
 def _gbp(pence: Optional[int]) -> Optional[float]:
@@ -127,3 +136,74 @@ async def build_ha_payload(session, *, user_id: int, today: Optional[dt.date] = 
             "cost_gbp": _gbp(summary.lifetime_totals.cost_pence),
         },
     }
+
+
+async def publish_summary(
+    payload: dict,
+    *,
+    host: str,
+    port: int = 1883,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    base_topic: str = "plugtrack",
+) -> None:
+    async with aiomqtt.Client(
+        hostname=host,
+        port=port,
+        username=username or None,
+        password=password or None,
+    ) as client:
+        await client.publish(
+            f"{base_topic}/summary",
+            payload=json.dumps(payload),
+            qos=0,
+            retain=True,
+        )
+
+
+def _decrypt_or_plain(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    try:
+        return decrypt_secret(value, get_settings().app_secret_key)
+    except Exception:  # noqa: BLE001 — plaintext fallback (mirrors main.py digest tick)
+        return value
+
+
+async def _read_mqtt_settings(session) -> dict:
+    keys = {
+        "mqtt_enabled", "mqtt_host", "mqtt_port",
+        "mqtt_username", "mqtt_password", "mqtt_base_topic",
+    }
+    rows = (
+        await session.execute(select(Setting).where(Setting.key.in_(keys)))
+    ).scalars().all()
+    return {r.key: r.value for r in rows}
+
+
+async def run_ha_publish_tick(sessionmaker, *, publisher=publish_summary, today=None) -> None:
+    """Best-effort: build + publish the summary. Never raises."""
+    try:
+        async with sessionmaker() as session:
+            cfg = await _read_mqtt_settings(session)
+            if (cfg.get("mqtt_enabled") or "").lower() != "true":
+                return
+            host = cfg.get("mqtt_host")
+            if not host:
+                return
+            user = (await session.execute(select(User))).scalars().first()
+            if user is None:
+                return
+            payload = await build_ha_payload(session, user_id=user.id, today=today)
+            if payload is None:
+                return
+        await publisher(
+            payload,
+            host=host,
+            port=int(cfg.get("mqtt_port") or 1883),
+            username=cfg.get("mqtt_username"),
+            password=_decrypt_or_plain(cfg.get("mqtt_password")),
+            base_topic=cfg.get("mqtt_base_topic") or "plugtrack",
+        )
+    except Exception:  # noqa: BLE001 — a publish failure must never crash the caller
+        log.exception("ha_publisher: publish tick failed")

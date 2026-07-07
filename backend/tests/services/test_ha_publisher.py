@@ -72,3 +72,75 @@ async def test_build_payload_none_when_no_cars(test_sessionmaker):
     async with test_sessionmaker() as s:
         payload = await build_ha_payload(s, user_id=uid, today=dt.date(2026, 7, 15))
     assert payload is None
+
+
+from plugtrack.models.setting import Setting
+from plugtrack.services import ha_publisher
+
+
+async def _set(sm, **kv):
+    from sqlalchemy import select
+    async with sm() as s:
+        for k, v in kv.items():
+            row = (await s.execute(select(Setting).where(Setting.key == k))).scalar_one_or_none()
+            if row is None:
+                s.add(Setting(key=k, value=v, value_type="string", group_name="mqtt", label=k))
+            else:
+                row.value = v
+        await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_tick_noop_when_disabled(test_sessionmaker, seeded_user_car):
+    await _set(test_sessionmaker, mqtt_enabled="false", mqtt_host="h", mqtt_base_topic="plugtrack")
+    calls = []
+
+    async def fake_pub(payload, **kw):
+        calls.append((payload, kw))
+
+    await ha_publisher.run_ha_publish_tick(
+        test_sessionmaker, publisher=fake_pub, today=dt.date(2026, 7, 15)
+    )
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_tick_publishes_when_enabled(test_sessionmaker, seeded_user_car):
+    user_id, car_id = seeded_user_car
+    async with test_sessionmaker() as s:
+        s.add(ChargingSession(
+            user_id=user_id, car_id=car_id, date=dt.date(2026, 7, 6),
+            start_soc=50, end_soc=80, kwh_added=10.0, cost_pence=200,
+            cost_basis="location_rate", source="manual",
+        ))
+        await s.commit()
+    await _set(
+        test_sessionmaker,
+        mqtt_enabled="true", mqtt_host="broker", mqtt_port="1883",
+        mqtt_username="oil", mqtt_password="oil", mqtt_base_topic="plugtrack",
+    )
+    captured = {}
+
+    async def fake_pub(payload, **kw):
+        captured["payload"] = payload
+        captured["kw"] = kw
+
+    await ha_publisher.run_ha_publish_tick(
+        test_sessionmaker, publisher=fake_pub, today=dt.date(2026, 7, 15)
+    )
+    assert captured["kw"]["host"] == "broker"
+    assert captured["kw"]["base_topic"] == "plugtrack"
+    assert captured["payload"]["last_charge"]["kwh"] == pytest.approx(10.0)
+
+
+@pytest.mark.asyncio
+async def test_tick_swallows_publisher_errors(test_sessionmaker, seeded_user_car):
+    await _set(test_sessionmaker, mqtt_enabled="true", mqtt_host="broker", mqtt_base_topic="plugtrack")
+
+    async def boom(payload, **kw):
+        raise RuntimeError("broker down")
+
+    # must not raise
+    await ha_publisher.run_ha_publish_tick(
+        test_sessionmaker, publisher=boom, today=dt.date(2026, 7, 15)
+    )
