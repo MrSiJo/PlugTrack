@@ -61,4 +61,17 @@ export const INTEGRATIONS: IntegrationDef[] = [
       'location_cluster_radius_m',
     ],
   },
+  {
+    key: 'mqtt',
+    label: 'MQTT / Home Assistant',
+    masterKey: 'mqtt_enabled',
+    settingKeys: [
+      'mqtt_host',
+      'mqtt_port',
+      'mqtt_username',
+      'mqtt_password',
+      'mqtt_base_topic',
+    ],
+    hint: 'Publishes a retained charging summary to <base topic>/summary hourly and after every charge save.',
+  },
 ]
