@@ -1040,6 +1040,16 @@ async def handle_callback(
         )
     await ctx.telegram.send_message(chat_id=chat_id, text="\n".join(lines))
 
+    # Best-effort: refresh the Home Assistant MQTT summary now the batch is
+    # durably committed. Never let a broker problem break the save flow.
+    try:
+        from .ha_publisher import run_ha_publish_tick
+        await run_ha_publish_tick(ctx.sessionmaker)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception(
+            "ha_publisher: post-commit publish failed"
+        )
+
 
 # Rolling history cap: keep the last N user+assistant turn pairs (2 items each).
 _HISTORY_TURN_CAP = 10  # keeps last 10 pairs = 20 items
