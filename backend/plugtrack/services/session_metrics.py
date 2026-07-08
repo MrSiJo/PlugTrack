@@ -35,10 +35,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Car, ChargingSession, Setting
+from .formatting import KM_PER_MILE
 
 
 _LITRES_PER_UK_GALLON = 4.54609
-_KM_PER_MILE = 1.609344
 
 
 @dataclass
@@ -194,7 +194,7 @@ def _per_session_cycle(
         span_km = float(cs.odometer_at_session_km) - float(prev.odometer_at_session_km)
         soc_used = float(prev.end_soc) - float(cs.start_soc)
         if span_km > 0 and soc_used > 0:
-            miles = span_km / _KM_PER_MILE
+            miles = span_km / KM_PER_MILE
             energy_kwh = soc_used / 100.0 * float(battery_kwh)
             if energy_kwh > 0 and 0 < miles / energy_kwh <= _MAX_PLAUSIBLE_MI_PER_KWH:
                 return miles, energy_kwh
@@ -294,7 +294,7 @@ async def _observed_mi_per_kwh(
             continue
         leg_miles = (
             float(b.odometer_at_session_km) - float(a.odometer_at_session_km)
-        ) / _KM_PER_MILE
+        ) / KM_PER_MILE
         # Chronological span of sessions from A..B inclusive.
         start = sessions.index(a)
         end = sessions.index(b)
@@ -448,7 +448,7 @@ async def compute_session_metrics(
         if prev_with_odo is not None:
             span_km = float(cs.odometer_at_session_km) - float(prev_with_odo.odometer_at_session_km)
             if span_km > 0:
-                base.measured_miles_since_previous = round(span_km / _KM_PER_MILE, 2)
+                base.measured_miles_since_previous = round(span_km / KM_PER_MILE, 2)
 
     # Per-session real-world efficiency for the detail page — miles driven on
     # this drive cycle ÷ battery energy consumed (see _per_session_efficiency).

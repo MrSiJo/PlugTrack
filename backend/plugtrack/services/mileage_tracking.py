@@ -26,7 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import CarMileageYear, ChargingSession
 
 
-KM_PER_MILE = 1.609344
+# Re-exported for existing importers; defined once in formatting (PLUG-L4).
+from .formatting import KM_PER_MILE  # noqa: E402
 
 
 def miles_to_km(miles: float) -> float:

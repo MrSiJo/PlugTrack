@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import ChargingSession, Location, Setting
 from ..services import insights_stats
 from ..services.cost_apply import apply_cost
+from ..services.formatting import KM_PER_MILE
 from ..services.geocoding import get_provider
 from ..services.location_clustering import find_or_create_location
 
@@ -54,7 +55,6 @@ from ..services.location_clustering import find_or_create_location
 # (grounding discipline) instead of converting pence itself.
 # ---------------------------------------------------------------------------
 
-_KM_PER_MI = 1.609344
 
 
 def _format_gbp(pence) -> Optional[str]:
@@ -179,7 +179,7 @@ def _format_odometer(km: Optional[float], unit: str) -> Optional[str]:
         return None
     if unit == "km":
         return f"{round(km):,} km"
-    return f"{round(km / _KM_PER_MI):,} mi"
+    return f"{round(km / KM_PER_MILE):,} mi"
 
 
 def _session_to_dict(cs: ChargingSession, *, location_name: Optional[str] = None, distance_unit: str = "mi") -> dict:
@@ -594,7 +594,7 @@ async def propose_edit_charge(
                 )
                 setting_row = result.scalar_one_or_none()
                 unit = (setting_row.value if setting_row else None) or "mi"
-            odometer_km = odometer if unit == "km" else odometer * _KM_PER_MI
+            odometer_km = odometer if unit == "km" else odometer * KM_PER_MILE
             data["odometer_km"] = odometer_km
             changes.append(f"odometer → {odometer} {unit}")
 

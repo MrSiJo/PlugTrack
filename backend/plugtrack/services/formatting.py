@@ -6,7 +6,8 @@ debug dumps, CLI exports) — those go through these helpers.
 """
 from __future__ import annotations
 
-_KM_PER_MILE = 1.609344
+# Single source of truth for the km<->mi factor (PLUG-L4).
+KM_PER_MILE = 1.609344
 
 _CURRENCY_SYMBOLS: dict[str, str] = {
     "GBP": "£",
@@ -17,12 +18,12 @@ _CURRENCY_SYMBOLS: dict[str, str] = {
 
 def km_to_mi(km: float) -> float:
     """Convert kilometres to miles."""
-    return km / _KM_PER_MILE
+    return km / KM_PER_MILE
 
 
 def mi_to_km(mi: float) -> float:
     """Convert miles to kilometres."""
-    return mi * _KM_PER_MILE
+    return mi * KM_PER_MILE
 
 
 def format_distance(km: float, unit: str) -> str:
