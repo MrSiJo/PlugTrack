@@ -226,15 +226,19 @@ def parse_usage(body: dict[str, Any]) -> Usage:
     )
 
 
-async def call_openai(
-    image_bytes: bytes, *, api_key: str, model: str,
-    client: Optional[httpx.AsyncClient] = None,
+async def _post_responses(
+    payload: dict[str, Any], *, api_key: str,
+    client: httpx.AsyncClient | None = None, timeout: float = 90,
 ) -> ExtractionResult:
-    payload = build_request_payload(image_bytes, model=model)
-    # Some models reject effort "none"; retry once at "low".
+    """POST a Responses-API payload and parse it into an ExtractionResult.
+
+    Shared by `call_openai` (image) and `extract_from_text` (text) — PLUG-M6.
+    Retries once with a short backoff on 429/5xx, and once at reasoning
+    effort "low" when the model rejects effort "none" with a 400.
+    """
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     owns = client is None
-    client = client or httpx.AsyncClient(timeout=90)
+    client = client or httpx.AsyncClient(timeout=timeout)
     try:
         resp = await client.post(RESPONSES_URL, json=payload, headers=headers)
         if resp.status_code in _RETRYABLE_STATUSES:
@@ -261,6 +265,14 @@ async def call_openai(
             await client.aclose()
 
 
+async def call_openai(
+    image_bytes: bytes, *, api_key: str, model: str,
+    client: Optional[httpx.AsyncClient] = None,
+) -> ExtractionResult:
+    payload = build_request_payload(image_bytes, model=model)
+    return await _post_responses(payload, api_key=api_key, client=client, timeout=90)
+
+
 def build_text_request_payload(text: str, *, model: str) -> dict[str, Any]:
     fmt = {
         "type": "json_schema",
@@ -283,23 +295,4 @@ async def extract_from_text(
     client: Optional[httpx.AsyncClient] = None,
 ) -> ExtractionResult:
     payload = build_text_request_payload(text, model=model)
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    owns = client is None
-    client = client or httpx.AsyncClient(timeout=60)
-    try:
-        resp = await client.post(RESPONSES_URL, json=payload, headers=headers)
-        if resp.status_code == 400 and "effort" in resp.text.lower():
-            payload["reasoning"]["effort"] = "low"
-            resp = await client.post(RESPONSES_URL, json=payload, headers=headers)
-        resp.raise_for_status()
-        body = resp.json()
-        if body.get("status") == "incomplete":
-            reason = (body.get("incomplete_details") or {}).get("reason", "unknown")
-            raise RuntimeError(f"OpenAI response incomplete: {reason}")
-        out = extract_output_text(body)
-        if not out:
-            raise RuntimeError("OpenAI response had no output text")
-        return ExtractionResult(extraction=parse_extraction(json.loads(out)), usage=parse_usage(body))
-    finally:
-        if owns:
-            await client.aclose()
+    return await _post_responses(payload, api_key=api_key, client=client, timeout=60)

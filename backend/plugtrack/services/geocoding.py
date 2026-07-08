@@ -133,6 +133,34 @@ class _RateLimiter:
             self._last_at = self._clock()
 
 
+async def _get_response(
+    url: str,
+    *,
+    params: dict,
+    headers: dict | None = None,
+    client: httpx.AsyncClient | None = None,
+    log_label: str,
+) -> httpx.Response | None:
+    """GET with borrow-or-own client semantics; None on network error.
+
+    Shared by all providers (PLUG-M6): borrows the injected client when
+    present (tests), otherwise owns a short-lived one and closes it.
+    Network/transport failures are logged and collapse to None — callers
+    treat None exactly like a failed lookup.
+    """
+    try:
+        owns_client = client is None
+        client = client or httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS)
+        try:
+            return await client.get(url, params=params, headers=headers)
+        finally:
+            if owns_client:
+                await client.aclose()
+    except Exception:
+        logger.exception("%s request failed", log_label)
+        return None
+
+
 # One limiter for the whole process: `get_provider` constructs a fresh
 # NominatimProvider at several call sites, and per-instance limiters would
 # let concurrent geocodes exceed Nominatim's 1 req/s ToS (PLUG-H3).
@@ -173,20 +201,11 @@ class NominatimProvider:
         await self._rate_limiter.acquire()
         params = {"format": "json", "lat": str(lat), "lon": str(lng)}
         headers = {"User-Agent": _USER_AGENT}
-        try:
-            client = self._client or httpx.AsyncClient(
-                timeout=_REQUEST_TIMEOUT_SECONDS
-            )
-            owns_client = self._client is None
-            try:
-                response = await client.get(
-                    self.BASE_URL, params=params, headers=headers
-                )
-            finally:
-                if owns_client:
-                    await client.aclose()
-        except Exception:
-            logger.exception("nominatim request failed")
+        response = await _get_response(
+            self.BASE_URL, params=params, headers=headers,
+            client=self._client, log_label="nominatim",
+        )
+        if response is None:
             return None
 
         if response.status_code != 200:
@@ -215,16 +234,11 @@ class NominatimProvider:
         await self._rate_limiter.acquire()
         params = {"format": "json", "q": query, "limit": "1"}
         headers = {"User-Agent": _USER_AGENT}
-        try:
-            client = self._client or httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS)
-            owns_client = self._client is None
-            try:
-                response = await client.get(self.SEARCH_URL, params=params, headers=headers)
-            finally:
-                if owns_client:
-                    await client.aclose()
-        except Exception:
-            logger.exception("nominatim search failed")
+        response = await _get_response(
+            self.SEARCH_URL, params=params, headers=headers,
+            client=self._client, log_label="nominatim search",
+        )
+        if response is None:
             return None
         if response.status_code != 200:
             logger.warning("nominatim search returned status %s for %r", response.status_code, query)
@@ -268,18 +282,10 @@ class MapboxProvider:
     ) -> Optional[GeocodeResult]:
         url = f"{self.BASE_URL}/{lng},{lat}.json"
         params = {"access_token": self._api_key}
-        try:
-            client = self._client or httpx.AsyncClient(
-                timeout=_REQUEST_TIMEOUT_SECONDS
-            )
-            owns_client = self._client is None
-            try:
-                response = await client.get(url, params=params)
-            finally:
-                if owns_client:
-                    await client.aclose()
-        except Exception:
-            logger.exception("mapbox request failed")
+        response = await _get_response(
+            url, params=params, client=self._client, log_label="mapbox",
+        )
+        if response is None:
             return None
 
         if response.status_code != 200:
@@ -315,16 +321,10 @@ class MapboxProvider:
             return None
         url = f"{self.BASE_URL}/{quote(query)}.json"
         params = {"access_token": self._api_key, "limit": "1"}
-        try:
-            client = self._client or httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS)
-            owns_client = self._client is None
-            try:
-                response = await client.get(url, params=params)
-            finally:
-                if owns_client:
-                    await client.aclose()
-        except Exception:
-            logger.exception("mapbox search failed")
+        response = await _get_response(
+            url, params=params, client=self._client, log_label="mapbox search",
+        )
+        if response is None:
             return None
         if response.status_code != 200:
             return None
@@ -360,18 +360,10 @@ class OpenCageProvider:
         self, lat: float, lng: float
     ) -> Optional[GeocodeResult]:
         params = {"q": f"{lat},{lng}", "key": self._api_key}
-        try:
-            client = self._client or httpx.AsyncClient(
-                timeout=_REQUEST_TIMEOUT_SECONDS
-            )
-            owns_client = self._client is None
-            try:
-                response = await client.get(self.BASE_URL, params=params)
-            finally:
-                if owns_client:
-                    await client.aclose()
-        except Exception:
-            logger.exception("opencage request failed")
+        response = await _get_response(
+            self.BASE_URL, params=params, client=self._client, log_label="opencage",
+        )
+        if response is None:
             return None
 
         if response.status_code != 200:
@@ -406,16 +398,10 @@ class OpenCageProvider:
         if not query or not query.strip():
             return None
         params = {"q": query, "key": self._api_key, "limit": "1"}
-        try:
-            client = self._client or httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS)
-            owns_client = self._client is None
-            try:
-                response = await client.get(self.BASE_URL, params=params)
-            finally:
-                if owns_client:
-                    await client.aclose()
-        except Exception:
-            logger.exception("opencage search failed")
+        response = await _get_response(
+            self.BASE_URL, params=params, client=self._client, log_label="opencage search",
+        )
+        if response is None:
             return None
         if response.status_code != 200:
             return None
