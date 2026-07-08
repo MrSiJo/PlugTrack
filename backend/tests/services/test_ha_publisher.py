@@ -117,7 +117,7 @@ async def test_tick_publishes_when_enabled(test_sessionmaker, seeded_user_car):
     await _set(
         test_sessionmaker,
         mqtt_enabled="true", mqtt_host="broker", mqtt_port="1883",
-        mqtt_username="oil", mqtt_password="oil", mqtt_base_topic="plugtrack",
+        mqtt_username="mqttuser", mqtt_password="mqttpass", mqtt_base_topic="plugtrack",
     )
     captured = {}
 

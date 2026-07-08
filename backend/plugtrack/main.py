@@ -408,28 +408,6 @@ async def reconcile_ai_enabled(session) -> None:
         await session.commit()
 
 
-async def seed_mqtt_password(session) -> None:
-    """One-time fill of the MQTT password with an encrypted default.
-
-    Only writes when the row exists and is unset, so a user's later
-    password is never overwritten. Stored ciphertext matches the rest of
-    the secret settings (Fernet via security/crypto).
-    """
-    from sqlalchemy import select
-    from plugtrack.models.setting import Setting
-    from plugtrack.security.crypto import encrypt_secret
-
-    row = (
-        await session.execute(
-            select(Setting).where(Setting.key == "mqtt_password")
-        )
-    ).scalar_one_or_none()
-    if row is None or row.value is not None:
-        return
-    row.value = encrypt_secret("oil", get_settings().app_secret_key)
-    await session.commit()
-
-
 async def _read_bool_setting(session, key: str, default: bool) -> bool:
     """Read a bool setting value from the DB; fall back to `default`."""
     from sqlalchemy import select as _select
@@ -453,7 +431,6 @@ async def _lifespan(app: FastAPI):
         await seed_defaults(session)
         await session.commit()
         await reconcile_ai_enabled(session)
-        await seed_mqtt_password(session)
 
     # Telegram screenshot-ingestion bot. The manager
     # owns the long-poll task and reconciles it against DB settings; it stays

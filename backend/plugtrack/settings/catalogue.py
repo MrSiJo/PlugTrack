@@ -337,7 +337,7 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         group_name="mqtt",
         label="Broker host",
         description="MQTT broker hostname or IP.",
-        default_value="172.16.0.32",
+        default_value=None,
     ),
     CatalogueEntry(
         key="mqtt_port",
@@ -353,7 +353,7 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         group_name="mqtt",
         label="Broker username",
         description="MQTT username (blank for anonymous).",
-        default_value="oil",
+        default_value=None,
     ),
     CatalogueEntry(
         key="mqtt_password",
