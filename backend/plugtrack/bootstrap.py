@@ -57,7 +57,9 @@ class Settings(BaseSettings):
             if fragment in lowered:
                 raise ValueError(
                     f"APP_SECRET_KEY appears to be a placeholder ('{fragment}'); "
-                    "generate a real value via scripts/bootstrap.{sh,ps1}"
+                    "generate a real value, e.g. "
+                    "python -c \"import secrets; print(secrets.token_urlsafe(48))\" "
+                    "(see the compose.yaml header)"
                 )
         return v
 
