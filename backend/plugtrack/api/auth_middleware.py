@@ -1,10 +1,14 @@
 """Session-cookie auth middleware.
 
 Reads the `plugtrack_session` cookie, deserialises it via
-`itsdangerous.URLSafeSerializer(APP_SECRET_KEY, salt="session")`. The
-cookie payload is `{"user_id": <int>}`. On non-exempt paths a missing
-or tampered cookie returns 401. On success the user_id is stored in
-`request.state.user_id` for downstream routes.
+`itsdangerous.URLSafeTimedSerializer(APP_SECRET_KEY, salt="session")`.
+The cookie payload is `{"user_id": <int>}`. On non-exempt paths a
+missing, tampered, or expired cookie returns 401. On success the
+user_id is stored in `request.state.user_id` for downstream routes.
+
+PLUG-L2: the timed serializer + `max_age=` in `loads` gives sessions a
+server-side expiry — previously only the browser-side cookie max-age
+applied, so a captured cookie stayed valid until the secret rotated.
 
 Adding a path here weakens auth — requires explicit user sign-off.
 """
@@ -12,7 +16,7 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
-from itsdangerous import BadSignature, URLSafeSerializer
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -34,8 +38,8 @@ EXEMPT_PATHS: frozenset[str] = frozenset(
 _EXEMPT_PREFIXES: tuple[str, ...] = ("/mcp",)
 
 
-def make_serializer(secret_key: str) -> URLSafeSerializer:
-    return URLSafeSerializer(secret_key, salt=SESSION_SALT)
+def make_serializer(secret_key: str) -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(secret_key, salt=SESSION_SALT)
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -47,18 +51,26 @@ class AuthMiddleware(BaseHTTPMiddleware):
         secret_key: str,
         cookie_name: str = SESSION_COOKIE_NAME,
         exempt_paths: Iterable[str] = EXEMPT_PATHS,
+        max_age_seconds: int | None = None,
     ) -> None:
         super().__init__(app)
         self.cookie_name = cookie_name
         self.exempt_paths = frozenset(exempt_paths)
         self._serializer = make_serializer(secret_key)
+        if max_age_seconds is None:
+            from ..bootstrap import get_settings
+
+            max_age_seconds = get_settings().session_max_age_seconds
+        self._max_age_seconds = max_age_seconds
 
     def _read_user_id(self, request: Request) -> Optional[int]:
         raw = request.cookies.get(self.cookie_name)
         if not raw:
             return None
         try:
-            payload = self._serializer.loads(raw)
+            # BadTimeSignature (expired/tampered timestamp) subclasses
+            # BadSignature, so one except covers both.
+            payload = self._serializer.loads(raw, max_age=self._max_age_seconds)
         except BadSignature:
             return None
         if not isinstance(payload, dict):
