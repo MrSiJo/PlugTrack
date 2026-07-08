@@ -17,9 +17,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
-from ..models import Car, ChargingSession
+from ..models import Car, ChargingSession, ScreenshotImport
 from ..services.mycupra_import import (
     format_report,
     load_csv,
@@ -69,6 +69,17 @@ async def _run(args: argparse.Namespace) -> int:
                 f"{cs.kwh_added}kWh {cs.source}"
             )
             if args.apply:
+                # SET NULL semantics: keep the screenshot-import history row
+                # but detach it so no dangling created_session_id survives
+                # (hard failure under PRAGMA foreign_keys=ON).
+                await session.execute(
+                    update(ScreenshotImport)
+                    .where(
+                        ScreenshotImport.created_session_id == sid,
+                        ScreenshotImport.user_id == user_id,
+                    )
+                    .values(created_session_id=None)
+                )
                 await session.delete(cs)
         if args.apply and delete_ids:
             await session.flush()

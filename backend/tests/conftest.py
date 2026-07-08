@@ -34,8 +34,9 @@ async def test_engine(tmp_path):
     db_file = tmp_path / "test.db"
     url = f"sqlite+aiosqlite:///{db_file.as_posix()}"
     engine = create_async_engine(url, future=True)
-    # Same per-connection PRAGMAs production applies (PLUG-L1), so tests
-    # run with foreign_keys enforcement too.
+    # Same per-connection PRAGMAs production applies (PLUG-L1). Note:
+    # foreign_keys enforcement is NOT among them — see the comment in
+    # plugtrack/db.py:set_sqlite_pragmas for why it is held back.
     set_sqlite_pragmas(engine.sync_engine)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -78,7 +79,8 @@ async def app(test_engine, test_sessionmaker, monkeypatch):
 @pytest_asyncio.fixture
 async def client(app):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+    # nosec B113 — in-process ASGI transport, no network I/O to time out.
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:  # nosec B113
         yield c
 
 

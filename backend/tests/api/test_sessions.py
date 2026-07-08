@@ -284,6 +284,53 @@ async def test_delete_session(authed_client):
     assert r.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_delete_session_detaches_screenshot_import(authed_client, test_sessionmaker):
+    """Regression (PLUG-L1 follow-up): deleting a screenshot-created session
+    must SET NULL the linked `screenshot_import.created_session_id` rather
+    than leaving a dangling reference (a hard failure once SQLite enforces
+    foreign keys). The import row itself is ingest history and must survive.
+    """
+    from plugtrack.models import ScreenshotImport, User
+    from sqlalchemy import select
+
+    car_id = await _create_car(authed_client)
+    create = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    sid = create.json()["id"]
+
+    # Link a committed screenshot-import row to the session, mirroring what
+    # the Telegram ingest commit path does.
+    async with test_sessionmaker() as s:
+        user_id = (await s.execute(select(User.id).where(User.username == "admin"))).scalar_one()
+        imp = ScreenshotImport(
+            user_id=user_id,
+            image_sha256="a" * 64,
+            status="committed",
+            created_session_id=sid,
+        )
+        s.add(imp)
+        await s.commit()
+        imp_id = imp.id
+
+    r = await authed_client.delete(f"/api/sessions/{sid}", headers=csrf_headers(authed_client))
+    assert r.status_code == 204
+
+    async with test_sessionmaker() as s:
+        row = await s.get(ScreenshotImport, imp_id)
+        assert row is not None, "import history row must survive session deletion"
+        assert row.created_session_id is None
+
+
 # ---------------------------------------------------------------------------
 # Location label endpoint
 # ---------------------------------------------------------------------------

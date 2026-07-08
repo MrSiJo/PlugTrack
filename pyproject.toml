@@ -4,7 +4,12 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "S", "UP"]
-ignore = ["S101"]  # asserts in tests
+ignore = [
+    "S101",  # asserts in tests
+    "B008",  # FastAPI DI idiom: Depends()/Query() calls in argument defaults
+]
 
 [tool.ruff.lint.per-file-ignores]
 "backend/tests/**" = ["S"]
+# sys.path bootstrap must run before plugtrack imports.
+"backend/tests/conftest.py" = ["E402"]

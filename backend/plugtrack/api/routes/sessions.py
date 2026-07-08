@@ -16,11 +16,11 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
-from ...models import Car, ChargingSession, Location
+from ...models import Car, ChargingSession, Location, ScreenshotImport
 from ...services.cost_apply import apply_cost
 from ...services.session_metrics import (
     compute_efficiency_for_sessions,
@@ -562,6 +562,19 @@ async def delete_session(
 ) -> Response:
     user_id = _user_id(request)
     cs = await _get_owned(session, session_id, user_id)
+    # Detach any screenshot-import rows pointing at this session (SET NULL
+    # semantics — the import row itself is ingest history worth keeping).
+    # Without this, deleting a screenshot-created session leaves a dangling
+    # `created_session_id`, which is a hard FK failure once SQLite
+    # `PRAGMA foreign_keys=ON` is enforced.
+    await session.execute(
+        update(ScreenshotImport)
+        .where(
+            ScreenshotImport.created_session_id == session_id,
+            ScreenshotImport.user_id == user_id,
+        )
+        .values(created_session_id=None)
+    )
     await session.delete(cs)
     await session.commit()
     return Response(status_code=204)
