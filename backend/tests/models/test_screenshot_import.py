@@ -5,11 +5,16 @@ from sqlalchemy import select
 
 @pytest.mark.asyncio
 async def test_screenshot_import_roundtrip(test_sessionmaker):
-    from plugtrack.models import ScreenshotImport
+    from plugtrack.models import ScreenshotImport, User
 
     async with test_sessionmaker() as s:
+        user = User(username="alice", password_hash="x")
+        s.add(user)
+        await s.commit()
+        await s.refresh(user)
+
         row = ScreenshotImport(
-            user_id=1,
+            user_id=user.id,
             telegram_file_id="abc",
             image_sha256="deadbeef",
             source="osprey",

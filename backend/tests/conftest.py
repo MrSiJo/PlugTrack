@@ -27,11 +27,15 @@ from sqlalchemy.ext.asyncio import (
 
 @pytest_asyncio.fixture
 async def test_engine(tmp_path):
+    from plugtrack.db import set_sqlite_pragmas
     from plugtrack.models import Base
 
     db_file = tmp_path / "test.db"
     url = f"sqlite+aiosqlite:///{db_file.as_posix()}"
     engine = create_async_engine(url, future=True)
+    # Same per-connection PRAGMAs production applies (PLUG-L1), so tests
+    # run with foreign_keys enforcement too.
+    set_sqlite_pragmas(engine.sync_engine)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
