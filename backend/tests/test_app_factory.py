@@ -48,9 +48,27 @@ def test_single_worker_allowed(monkeypatch):
     _assert_single_worker()  # no raise
 
 
+def _route_paths(routes):
+    """Yield route paths, descending into lazily-included routers.
+
+    FastAPI 0.129+ appends a `_IncludedRouter` wrapper to `app.routes`
+    instead of flattening `include_router` results, so a plain scan no
+    longer sees the API routes. Recurse through the wrapper's
+    `original_router` when present (older FastAPI has no wrapper, so this
+    degrades to the flat scan).
+    """
+    for r in routes:
+        path = getattr(r, "path", None)
+        if path is not None:
+            yield path
+        original = getattr(r, "original_router", None)
+        if original is not None:
+            yield from _route_paths(original.routes)
+
+
 @pytest.mark.asyncio
 async def test_app_includes_health_route(app):
-    paths = {getattr(r, "path", None) for r in app.routes}
+    paths = set(_route_paths(app.routes))
     assert "/api/health" in paths
     # Sanity: WEB_CONCURRENCY is not poisoned by another test.
     assert os.getenv("WEB_CONCURRENCY") in (None, "1")

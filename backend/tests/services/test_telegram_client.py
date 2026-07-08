@@ -1,4 +1,6 @@
 # backend/tests/services/test_telegram_client.py
+import json
+
 import httpx
 import pytest
 
@@ -38,5 +40,10 @@ async def test_send_message_posts_chat_and_text():
         tc = TelegramClient(token="T", http=http)
         await tc.send_message(chat_id=7, text="hi", reply_markup={"x": 1})
     assert "/botT/sendMessage" in captured["url"]
-    assert '"chat_id": 7' in captured["json"]
-    assert '"hi"' in captured["json"]
+    # Parse rather than substring-match: httpx changed its JSON separator
+    # style in 0.28 (compact, no space after ':'), and the wire format is
+    # not what this test is about.
+    body = json.loads(captured["json"])
+    assert body["chat_id"] == 7
+    assert body["text"] == "hi"
+    assert body["reply_markup"] == {"x": 1}
