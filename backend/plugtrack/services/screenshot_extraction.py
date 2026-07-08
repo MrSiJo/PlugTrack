@@ -9,6 +9,7 @@ to EXTRACTION_SCHEMA via `text.format` json_schema. Network I/O is isolated in
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from dataclasses import dataclass
@@ -17,6 +18,10 @@ from typing import Any, Optional
 import httpx
 
 RESPONSES_URL = "https://api.openai.com/v1/responses"
+
+# Transient statuses worth one retry (rate-limit / upstream blips).
+_RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
+_RETRY_BACKOFF_SECONDS = 2.0
 
 EXTRACTION_SCHEMA: dict[str, Any] = {
     "name": "charge_session_extraction",
@@ -232,6 +237,10 @@ async def call_openai(
     client = client or httpx.AsyncClient(timeout=90)
     try:
         resp = await client.post(RESPONSES_URL, json=payload, headers=headers)
+        if resp.status_code in _RETRYABLE_STATUSES:
+            # One retry with a short backoff on rate-limit / upstream blips.
+            await asyncio.sleep(_RETRY_BACKOFF_SECONDS)
+            resp = await client.post(RESPONSES_URL, json=payload, headers=headers)
         if resp.status_code == 400 and "effort" in resp.text.lower():
             payload["reasoning"]["effort"] = "low"
             resp = await client.post(RESPONSES_URL, json=payload, headers=headers)

@@ -96,6 +96,42 @@ async def test_call_openai_raises_on_incomplete():
             await call_openai(b"img", api_key="sk-x", model="gpt-5-mini", client=c)
 
 
+@pytest.mark.asyncio
+async def test_call_openai_retries_once_on_429(monkeypatch):
+    """PLUG-H1: a transient 429/5xx gets one retry with backoff."""
+    import plugtrack.services.screenshot_extraction as mod
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(mod.asyncio, "sleep", no_sleep)
+
+    calls = {"n": 0}
+    payload = (
+        '{"source":"osprey","has_cost":true,"energy_kwh":9.78,'
+        '"cost_total_pence":851,"cost_per_kwh_pence":87,'
+        '"start_at":null,"end_at":null,"soc_start":null,"soc_end":null,'
+        '"location_name":null,"location_address":null,"network":null,'
+        '"peak_kw":null,"confidence":0.9}'
+    )
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, json={"error": "rate limited"})
+        return httpx.Response(200, json={
+            "status": "completed",
+            "output": [{"type": "message",
+                        "content": [{"type": "output_text", "text": payload}]}],
+            "usage": {"input_tokens": 10, "output_tokens": 20},
+        })
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        result = await call_openai(b"img", api_key="sk-x", model="gpt-5-mini", client=c)
+    assert calls["n"] == 2
+    assert result.extraction.cost_total_pence == 851
+
+
 def test_schema_required_covers_all_properties():
     """Strict json_schema demands every property also appear in `required`;
     OpenAI 400s otherwise. Tests mock the API, so this guards the invariant

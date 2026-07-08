@@ -713,7 +713,18 @@ async def _handle_photo_update_target(
                 ctx.pending_edit_target[chat_id] = (target, time.time())
             return
 
-    result_obj = await ctx.extractor(image)
+    try:
+        result_obj = await ctx.extractor(image)
+    except Exception:
+        logger.exception("screenshot extraction failed (update session %s)", target)
+        await ctx.telegram.send_message(
+            chat_id=chat_id,
+            text="Couldn't read that screenshot — please resend it.",
+        )
+        # Extraction failure — restore pending so the user can resend.
+        if consumed_pending:
+            ctx.pending_edit_target[chat_id] = (target, time.time())
+        return
     extraction = result_obj.extraction
     kwargs = _extraction_to_edit_kwargs(extraction)
 
@@ -758,8 +769,16 @@ async def handle_photo(
     if from_id not in ctx.allowed_user_ids:
         return
     user_id, _car_id = ctx.resolve_target()
-    path = await ctx.telegram.get_file_path(file_id)
-    image = await ctx.telegram.download_file(path)
+    try:
+        path = await ctx.telegram.get_file_path(file_id)
+        image = await ctx.telegram.download_file(path)
+    except Exception:
+        logger.exception("telegram photo download failed")
+        await ctx.telegram.send_message(
+            chat_id=chat_id,
+            text="Couldn't download that photo from Telegram — please resend it.",
+        )
+        return
 
     # -------------------------------------------------------------------
     # Update-from-screenshot routing: resolve a target session id, if any.
@@ -797,7 +816,15 @@ async def handle_photo(
 
     # Dedupe is resolved in _stage_and_card (committed -> warn, staged -> re-show,
     # discarded -> re-stage, new -> insert), so it's the single source of truth.
-    result = await ctx.extractor(image)
+    try:
+        result = await ctx.extractor(image)
+    except Exception:
+        logger.exception("screenshot extraction failed")
+        await ctx.telegram.send_message(
+            chat_id=chat_id,
+            text="Couldn't read that screenshot — please resend it.",
+        )
+        return
     extraction = result.extraction
     # Fold the caption into the extraction, filling only what the image lacks:
     # the location word (so a found public location isn't clobbered) and the

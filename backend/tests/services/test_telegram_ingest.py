@@ -89,6 +89,48 @@ async def test_two_photos_one_session_staged_and_committed(test_sessionmaker, se
     assert rows[0].start_soc == 56
 
 
+@pytest.mark.asyncio
+async def test_photo_extraction_failure_replies_to_user(test_sessionmaker, seeded_user_car):
+    """PLUG-H1: an OpenAI/extractor error must not silently swallow the photo."""
+    user_id, car_id = seeded_user_car
+    tg = FakeTelegram({"x": b"x"})
+
+    async def boom(image_bytes: bytes):
+        raise RuntimeError("openai down")
+
+    ctx = IngestContext(
+        telegram=tg,
+        sessionmaker=test_sessionmaker,
+        extractor=boom,
+        resolve_target=lambda: (user_id, car_id),
+        allowed_user_ids={111},
+    )
+    await handle_photo(ctx, from_id=111, chat_id=9, message_id=1, file_id="x")
+    assert tg.sent, "user must get a failure reply"
+    assert "resend" in tg.sent[-1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_photo_download_failure_replies_to_user(test_sessionmaker, seeded_user_car):
+    """PLUG-H1: a Telegram file-download error must reply, not vanish."""
+    user_id, car_id = seeded_user_car
+    tg = FakeTelegram({})  # file_id missing -> download_file raises KeyError
+
+    async def extractor(image_bytes: bytes):  # pragma: no cover - never reached
+        raise AssertionError("should not be called")
+
+    ctx = IngestContext(
+        telegram=tg,
+        sessionmaker=test_sessionmaker,
+        extractor=extractor,
+        resolve_target=lambda: (user_id, car_id),
+        allowed_user_ids={111},
+    )
+    await handle_photo(ctx, from_id=111, chat_id=9, message_id=1, file_id="missing")
+    assert tg.sent, "user must get a failure reply"
+    assert "resend" in tg.sent[-1]["text"].lower()
+
+
 # ---- caption parsing (photo path) -------------------------------------------
 
 def test_parse_caption_home_and_mileage():
