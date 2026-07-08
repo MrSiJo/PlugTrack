@@ -12,7 +12,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends tini git \
+    && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system app && useradd --system --gid app --home-dir /app --shell /usr/sbin/nologin app
