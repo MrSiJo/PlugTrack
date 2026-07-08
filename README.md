@@ -60,6 +60,8 @@ You don't need to think about it day-to-day — it fits the habit you already ha
 
 **MCP server** — a FastMCP streamable-HTTP server at `/mcp/` exposes the same tool core (find/read charges, insights, and two-phase mutations) to any MCP client over bearer-token auth with read / readwrite scopes. Mint and revoke tokens from the Admin page.
 
+**Home Assistant (MQTT)** — publish a retained charging summary to an MQTT broker (hourly and after every charge save) and surface it in Home Assistant as native sensors: last charge, battery SoC, month-to-date spend/energy/miles, home-vs-public split, and lifetime totals that slot into HA's Energy dashboard. Configured from the Admin page; see [HOME_ASSISTANT.md](HOME_ASSISTANT.md).
+
 **Bot health** — `/test` returns a health report (token + key validity, config completeness) straight to the chat.
 
 ## Screenshots
@@ -89,6 +91,7 @@ You don't need to think about it day-to-day — it fits the habit you already ha
 ## Documentation
 
 - **[INSTALL.md](INSTALL.md)** — install & run (GHCR images, local dev, self-hosting from source) and configuration.
+- **[HOME_ASSISTANT.md](HOME_ASSISTANT.md)** — the MQTT → Home Assistant bridge: what's published, sensor YAML, dashboard cards, Energy dashboard and automations.
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — how it's built: services, backend/frontend, storage and project layout.
 - **[RELEASING.md](RELEASING.md)** — container images, CI, and the automated release flow.
 - **[CLAUDE.md](CLAUDE.md)** — conventions for working in this repo.
