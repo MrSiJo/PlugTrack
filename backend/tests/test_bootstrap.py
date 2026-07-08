@@ -5,12 +5,17 @@ import pytest
 
 
 def test_settings_requires_app_secret_key(monkeypatch):
-    """Settings must refuse to instantiate without APP_SECRET_KEY."""
+    """Settings must refuse to instantiate without APP_SECRET_KEY.
+
+    `_env_file=None` disables the `.env` loader so the test passes even on a
+    checkout with a populated root `.env` (PLUG-H2 — the suite must not be
+    environment-dependent).
+    """
     monkeypatch.delenv("APP_SECRET_KEY", raising=False)
     from plugtrack.bootstrap import Settings
 
     with pytest.raises(Exception):
-        Settings()
+        Settings(_env_file=None)
 
 
 def test_settings_rejects_short_app_secret_key(monkeypatch):
@@ -19,7 +24,7 @@ def test_settings_rejects_short_app_secret_key(monkeypatch):
     from plugtrack.bootstrap import Settings
 
     with pytest.raises(ValueError, match="APP_SECRET_KEY"):
-        Settings()
+        Settings(_env_file=None)
 
 
 def test_settings_rejects_placeholder_app_secret_key(monkeypatch):
@@ -28,14 +33,14 @@ def test_settings_rejects_placeholder_app_secret_key(monkeypatch):
     from plugtrack.bootstrap import Settings
 
     with pytest.raises(ValueError, match="placeholder"):
-        Settings()
+        Settings(_env_file=None)
 
 
 def test_settings_accepts_real_app_secret_key(monkeypatch):
     monkeypatch.setenv("APP_SECRET_KEY", "x" * 48)
     from plugtrack.bootstrap import Settings
 
-    settings = Settings()
+    settings = Settings(_env_file=None)
     assert settings.app_secret_key == "x" * 48
     assert settings.database_url.startswith("sqlite+aiosqlite:")
     assert settings.session_cookie_name == "plugtrack_session"
