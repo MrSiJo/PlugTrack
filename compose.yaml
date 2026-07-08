@@ -19,10 +19,10 @@
 #   3. docker compose pull
 #      docker compose up -d
 #
-# Data lives in the Docker-managed named volumes `plugtrack-data`,
-# `plugtrack-logs`, and `plugtrack-www` (run `docker volume ls` to find
-# them on the host). Replace each `volumes:` entry with bind mounts if
-# you want direct host access.
+# Data lives in the Docker-managed named volumes `plugtrack-data` and
+# `plugtrack-logs` (run `docker volume ls` to find them on the host).
+# Replace each `volumes:` entry with bind mounts if you want direct
+# host access.
 
 services:
   plugtrack-api:
@@ -33,7 +33,6 @@ services:
       - .env
     environment:
       DATA_DIR: /app/data
-      PYCUPRA_IMAGE_DIR: /app/www/pycupra
     ports:
       # Bind the API to loopback only. The UI container reaches it over the
       # docker bridge as `plugtrack-api:9278` (see frontend/nginx.conf), so the
@@ -44,7 +43,6 @@ services:
     volumes:
       - plugtrack-data:/app/data
       - plugtrack-logs:/app/logs
-      - plugtrack-www:/app/www
     restart: unless-stopped
     healthcheck:
       test:
@@ -83,7 +81,6 @@ services:
 volumes:
   plugtrack-data:
   plugtrack-logs:
-  plugtrack-www:
 
 networks:
   default:

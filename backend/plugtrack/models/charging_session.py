@@ -50,9 +50,6 @@ class ChargingSession(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False)
     car_id: Mapped[int] = mapped_column(ForeignKey("car.id"), nullable=False)
-    plug_in_record_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("plug_in_record.id"), nullable=True
-    )
 
     # Denormalised so list queries are fast.
     date: Mapped[date] = mapped_column(Date, nullable=False)

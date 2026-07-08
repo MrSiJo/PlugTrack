@@ -8,14 +8,11 @@ single-user app shape better than soft-deleting.
 """
 from __future__ import annotations
 
-import os
 import re
 from datetime import date as date_cls
-from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,30 +23,11 @@ from ...services import mileage_tracking
 from ...services.car_lifetime import compute_car_lifetime
 
 
-# pycupra hard-codes images at `<base>/pycupra/image_<vin>_<view>.png`
-# where `<base>` is `./www` relative to the worker's CWD when not running
-# inside Home Assistant. We resolve the same directory here. Override
-# with `PYCUPRA_IMAGE_DIR` for non-default deployments (e.g. compose
-# mounts /app/www to a host volume).
-_VALID_VIEWS = frozenset(
-    {"front", "front_cropped", "rear", "side", "top", "rbcCable", "rbcFront"}
-)
-
-
-def _image_dir() -> Path:
-    override = os.environ.get("PYCUPRA_IMAGE_DIR")
-    if override:
-        return Path(override)
-    return Path("www") / "pycupra"
-
-
 router = APIRouter(prefix="/api/cars", tags=["cars"])
 
-# VINs are alphanumeric. The decrypted VIN is interpolated into an on-disk
-# image path (`image_<vin>_<view>.png`), so reject anything that could carry
-# a path-traversal sequence before it is ever stored. The mask character
-# (U+00B7) is permitted here so the friendlier "reveal the full VIN" 400 in
-# update_car still handles a re-submitted masked VIN; it is path-safe.
+# VINs are alphanumeric — reject anything else before it is ever stored.
+# The mask character (U+00B7) is permitted here so the friendlier "reveal
+# the full VIN" 400 in update_car still handles a re-submitted masked VIN.
 _VIN_RE = re.compile("^[A-Za-z0-9·]+$")
 
 
@@ -213,47 +191,6 @@ async def reveal_vin(
     user_id = _user_id(request)
     car = await _get_owned(session, car_id, user_id)
     return {"vin": car.vin}
-
-
-@router.get("/{car_id}/image")
-async def get_car_image(
-    car_id: int,
-    request: Request,
-    view: str = Query(default="front_cropped"),
-    session: AsyncSession = Depends(get_db),
-) -> FileResponse:
-    """Stream the locally-cached pycupra image for this car.
-
-    pycupra writes images on every model-image refresh to
-    `./www/pycupra/image_<VIN>_<view>.png` relative to the worker's CWD
-    (overridable via `PYCUPRA_IMAGE_DIR`). 404 when the file isn't on
-    disk yet — the frontend falls back to a placeholder.
-    """
-    user_id = _user_id(request)
-    if view not in _VALID_VIEWS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"view must be one of {sorted(_VALID_VIEWS)}",
-        )
-    car = await _get_owned(session, car_id, user_id)
-    vin = car.vin  # decrypts on the fly
-    if not vin:
-        raise HTTPException(status_code=404, detail="car has no VIN")
-    base = _image_dir().resolve()
-    file_path = base / f"image_{vin}_{view}.png"
-    # Defence-in-depth: stored VINs are validated alphanumeric on write, but
-    # never let a path escape the image directory regardless of the VIN value.
-    if not file_path.resolve().is_relative_to(base):
-        raise HTTPException(status_code=404, detail="image not cached yet")
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="image not cached yet")
-    return FileResponse(
-        path=file_path,
-        media_type="image/png",
-        # Browsers cache aggressively across a deploy if VIN+view is the
-        # only key, so add a weak validator from mtime.
-        headers={"Cache-Control": "private, max-age=300"},
-    )
 
 
 @router.get("/{car_id}/lifetime")

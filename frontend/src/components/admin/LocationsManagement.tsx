@@ -173,7 +173,7 @@ function LocationManagementRow({
       const result = await api.mergeLocations(loc.id, targetId)
       onToast({
         kind: 'success',
-        message: `Merged: ${result.sessions_redirected} session(s) and ${result.plug_ins_redirected} plug-in(s) moved.`,
+        message: `Merged: ${result.sessions_redirected} session(s) moved.`,
       })
       await onChanged()
     } catch (err) {

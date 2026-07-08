@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY plugtrack ./plugtrack
 
-RUN mkdir -p /app/data /app/logs /app/data/pycupra \
+RUN mkdir -p /app/data /app/logs \
     && chown -R app:app /app
 
 USER app

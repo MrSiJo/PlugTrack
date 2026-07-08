@@ -1,4 +1,4 @@
-"""Schema-level tests for ChargingSession + PlugInRecord.
+"""Schema-level tests for ChargingSession.
 
 Exercises:
 - FK enforcement
@@ -156,45 +156,3 @@ async def test_distance_columns_have_km_suffix(test_engine):
                             f"must end in '_km' (got {name!r})"
                         )
         await conn.run_sync(_check)
-
-
-@pytest.mark.asyncio
-async def test_charging_session_fk_to_plug_in_record(test_sessionmaker):
-    from plugtrack.models import Car, ChargingSession, PlugInRecord, User
-
-    async with test_sessionmaker() as session:
-        user = User(username="alice", password_hash="x")
-        session.add(user)
-        await session.commit()
-        await session.refresh(user)
-
-        car = Car(
-            user_id=user.id,
-            make="Cupra",
-            model="Born",
-            battery_kwh=77.0,
-            nominal_efficiency_mi_per_kwh=3.6,
-        )
-        session.add(car)
-        await session.commit()
-        await session.refresh(car)
-
-        plug_in = PlugInRecord(
-            user_id=user.id,
-            car_id=car.id,
-            plug_in_at=_tomorrow_utc(),
-            plug_in_soc=18,
-        )
-        session.add(plug_in)
-        await session.commit()
-        await session.refresh(plug_in)
-
-        cs = ChargingSession(
-            user_id=user.id, car_id=car.id, date=date.today(),
-            source="synthesis", start_soc=18, end_soc=80, kwh_added=47.7,
-            plug_in_record_id=plug_in.id,
-        )
-        session.add(cs)
-        await session.commit()
-        await session.refresh(cs)
-        assert cs.plug_in_record_id == plug_in.id

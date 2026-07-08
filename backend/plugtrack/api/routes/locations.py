@@ -16,8 +16,8 @@ Two distinct mutating verbs by design:
 Plus list / merge / delete:
 - `GET    /api/locations` — list with aggregated visit + spend stats.
 - `POST   /api/locations/{id}/merge` — atomically redirect every
-  charging_session + plug_in_record onto a target id, sum visit_count,
-  delete source. Recomputes only when target's cost config differs.
+  charging_session onto a target id, sum visit_count, delete source.
+  Recomputes only when target's cost config differs.
 - `DELETE /api/locations/{id}` — soft-detach (sessions get
   location_id=NULL), then delete. Sessions auto-fall-back to the global
   home rate via the cost-precedence rule.
@@ -35,7 +35,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
-from ...models import ChargingSession, Location, PlugInRecord, Setting
+from ...models import ChargingSession, Location, Setting
 from ...services.cost import compute_session_cost
 
 
@@ -136,7 +136,6 @@ class RecalculateResponse(BaseModel):
 
 class MergeResponse(BaseModel):
     sessions_redirected: int
-    plug_ins_redirected: int
     sessions_recomputed_count: int
 
 
@@ -436,7 +435,7 @@ async def merge_locations(
     body: LocationMergeRequest,
     session: AsyncSession = Depends(get_db),
 ) -> MergeResponse:
-    """Atomically redirect every session + plug-in from `location_id`
+    """Atomically redirect every session from `location_id`
     onto `body.target_id`, sum visit_count, delete the source row.
 
     Recomputes only when the target's cost config differs from the
@@ -480,17 +479,6 @@ async def merge_locations(
     for cs in sessions:
         cs.location_id = target.id
 
-    plug_ins = (
-        await session.execute(
-            select(PlugInRecord).where(
-                PlugInRecord.location_id == source.id,
-                PlugInRecord.user_id == user_id,
-            )
-        )
-    ).scalars().all()
-    for pir in plug_ins:
-        pir.location_id = target.id
-
     target.visit_count = int(target.visit_count or 0) + int(source.visit_count or 0)
 
     recomputed = 0
@@ -504,7 +492,6 @@ async def merge_locations(
 
     return MergeResponse(
         sessions_redirected=len(sessions),
-        plug_ins_redirected=len(plug_ins),
         sessions_recomputed_count=recomputed,
     )
 
@@ -515,7 +502,7 @@ async def delete_location(
     request: Request,
     session: AsyncSession = Depends(get_db),
 ):
-    """Detach all linked sessions + plug-ins (set `location_id=NULL`),
+    """Detach all linked sessions (set `location_id=NULL`),
     then delete the location row.
 
     Cost-freezing (spec 01): before detaching, `location_rate` /
@@ -553,17 +540,6 @@ async def delete_location(
             cs.cost_basis = "override_per_kwh"
             # cost_pence is intentionally left unchanged.
         cs.location_id = None
-
-    plug_ins = (
-        await session.execute(
-            select(PlugInRecord).where(
-                PlugInRecord.location_id == loc.id,
-                PlugInRecord.user_id == user_id,
-            )
-        )
-    ).scalars().all()
-    for pir in plug_ins:
-        pir.location_id = None
 
     await session.delete(loc)
     await session.commit()

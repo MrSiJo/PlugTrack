@@ -7,7 +7,7 @@ import { SessionsTable } from './SessionsTable'
 
 function makeSession(over: Partial<ChargingSessionPayload> = {}): ChargingSessionPayload {
   return {
-    id: 1, user_id: 1, car_id: 1, plug_in_record_id: null,
+    id: 1, user_id: 1, car_id: 1,
     date: '2026-05-27', charge_start_at: null, charge_end_at: null,
     start_soc: 20, end_soc: 80, kwh_added: 10, kwh_calculated: null,
     odometer_at_session_km: null, charging_type: 'ac', charging_mode: 'unknown',

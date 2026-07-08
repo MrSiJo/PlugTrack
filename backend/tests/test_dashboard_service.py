@@ -236,8 +236,6 @@ async def test_dashboard_summary_single_car_three_sessions(test_sessionmaker):
     assert panel.id == car.id
     # No orchestrator passed → battery_level falls back to latest session's end_soc.
     assert panel.battery_level == 90
-    assert panel.last_state is None
-    assert panel.charging_cable_connected is False
     assert panel.last_connected is not None
     # Should be the latest session's charge_end_at.
     assert panel.last_connected.date() == latest.date
@@ -324,9 +322,9 @@ async def test_dashboard_summary_multi_car_top_locations(test_sessionmaker):
 
 
 @pytest.mark.asyncio
-async def test_dashboard_summary_live_fields_are_none(test_sessionmaker):
-    """With the sync subsystem removed, the formerly live-only panel fields
-    are always None and battery falls back to the latest session's end_soc."""
+async def test_dashboard_summary_battery_falls_back_to_last_session(test_sessionmaker):
+    """With the sync subsystem removed, battery falls back to the latest
+    session's end_soc (and the dead live-only fields no longer exist)."""
     user = await _make_user(test_sessionmaker)
     car = await _make_car(test_sessionmaker, user.id)
     await _make_session(
@@ -345,14 +343,14 @@ async def test_dashboard_summary_live_fields_are_none(test_sessionmaker):
     panel = summary.cars[0]
     assert panel.battery_level == 50  # from latest session end_soc
     assert panel.last_soc == 50
-    assert panel.last_state is None
-    assert panel.next_poll_at is None
-    assert panel.active_job_id is None
-    assert panel.charging_cable_connected is False
-    assert panel.charging_power_kw is None
-    assert panel.charging_estimated_end_at is None
-    assert panel.battery_care is None
-    assert panel.max_charge_current is None
+    # PLUG-M1: the dead pycupra/live-sync fields were removed outright.
+    for gone in (
+        "last_state", "next_poll_at", "active_job_id",
+        "charging_cable_connected", "charging_power_kw", "target_soc",
+        "battery_care", "max_charge_current", "charging_estimated_end_at",
+        "location_name", "location_address", "electric_range_km",
+    ):
+        assert not hasattr(panel, gone), f"CarPanel.{gone} should be gone"
 
 
 @pytest.mark.asyncio

@@ -1,10 +1,8 @@
 """VIN input validation on the car create/update request models.
 
-The decrypted VIN is interpolated into an on-disk image path
-(``image_<vin>_<view>.png``) by ``GET /api/cars/{id}/image``. Real VINs are
-alphanumeric (e.g. ``VSSZZZK19SP001843``), so the request models must reject
-any VIN containing path-traversal or other non-alphanumeric characters before
-it is ever stored.
+Real VINs are alphanumeric (e.g. ``VSSZZZK19SP001843``), so the request
+models must reject any VIN containing path-traversal or other
+non-alphanumeric characters before it is ever stored.
 """
 from __future__ import annotations
 

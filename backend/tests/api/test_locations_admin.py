@@ -17,7 +17,7 @@ from datetime import date
 import pytest
 from sqlalchemy import select
 
-from plugtrack.models import ChargingSession, Location, PlugInRecord, User
+from plugtrack.models import ChargingSession, Location, User
 from tests.api.conftest import csrf_headers
 
 
@@ -304,19 +304,6 @@ async def test_merge_redirects_sessions_and_plug_ins(
         )
         sids.append(r.json()["id"])
 
-    # One plug-in row also on source.
-    async with test_sessionmaker() as s:
-        from datetime import datetime, timezone
-        pir = PlugInRecord(
-            user_id=user_id, car_id=car_id,
-            plug_in_at=datetime.now(timezone.utc), plug_in_soc=40,
-            location_id=src_id,
-        )
-        s.add(pir)
-        await s.commit()
-        await s.refresh(pir)
-        pir_id = pir.id
-
     r = await authed_client.post(
         f"/api/locations/{src_id}/merge",
         json={"target_id": tgt_id},
@@ -325,7 +312,6 @@ async def test_merge_redirects_sessions_and_plug_ins(
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["sessions_redirected"] == 2
-    assert body["plug_ins_redirected"] == 1
 
     # Source row deleted.
     async with test_sessionmaker() as s:
@@ -334,9 +320,6 @@ async def test_merge_redirects_sessions_and_plug_ins(
         for sid in sids:
             cs = await s.get(ChargingSession, sid)
             assert cs.location_id == tgt_id
-        # Plug-in points at target.
-        pir = await s.get(PlugInRecord, pir_id)
-        assert pir.location_id == tgt_id
         # Visits summed.
         tgt = await s.get(Location, tgt_id)
         assert tgt.visit_count == 5  # 3 + 2

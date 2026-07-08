@@ -22,7 +22,6 @@ function makeSession(
     id: 1,
     user_id: 1,
     car_id: 1,
-    plug_in_record_id: null,
     date: '2026-04-12',
     charge_start_at: null,
     charge_end_at: null,

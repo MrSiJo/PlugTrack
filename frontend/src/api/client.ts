@@ -296,7 +296,6 @@ export interface ChargingSessionPayload {
   id: number
   user_id: number
   car_id: number
-  plug_in_record_id: number | null
   date: string
   charge_start_at: string | null
   charge_end_at: string | null
@@ -454,7 +453,6 @@ export interface GeocodeResult {
 
 export interface MergeLocationResponse {
   sessions_redirected: number
-  plug_ins_redirected: number
   sessions_recomputed_count: number
 }
 
@@ -717,12 +715,6 @@ export const api = {
   revealCarVin: (id: number): Promise<{ vin: string | null }> =>
     fetchJSON<{ vin: string | null }>(`/api/cars/${id}/vin`),
 
-  /** URL of the cached pycupra image for this car. Returns 404 when the
-   *  image isn't on disk yet (frontend renders a placeholder).
-   *  Not a fetch — this URL is fed straight to <img src="…">. */
-  carImageUrl: (id: number, view = 'front_cropped'): string =>
-    `/api/cars/${id}/image?view=${view}`,
-
   getCarMileage: (carId: number): Promise<MileageStatusPayload> =>
     fetchJSON<MileageStatusPayload>(`/api/cars/${carId}/mileage`),
 
@@ -958,21 +950,10 @@ export interface DashboardCarPanel {
   id: number
   make: string
   model: string
+  /** Snapshot from the most recent session's end_soc ("after last charge"). */
   battery_level: number | null
-  charging_cable_connected: boolean
   last_connected: string | null
-  next_poll_at: string | null
-  last_state: string | null
   last_soc: number | null
-  active_job_id: string | null
-  location_name: string | null
-  location_address: string | null
-  electric_range_km: number | null
-  charging_power_kw: number | null
-  target_soc: number | null
-  battery_care: boolean | null
-  max_charge_current: string | null
-  charging_estimated_end_at: string | null
   nominal_efficiency_mi_per_kwh: number | null
   mileage_year: DashboardMileageYear | null
 }

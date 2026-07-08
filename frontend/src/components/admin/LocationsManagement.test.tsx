@@ -106,7 +106,6 @@ describe('LocationsManagement', () => {
     ])
     const mergeSpy = vi.spyOn(api, 'mergeLocations').mockResolvedValue({
       sessions_redirected: 3,
-      plug_ins_redirected: 1,
       sessions_recomputed_count: 3,
     })
     vi.stubGlobal('confirm', vi.fn(() => true))

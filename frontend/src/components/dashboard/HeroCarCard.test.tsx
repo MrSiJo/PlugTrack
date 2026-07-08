@@ -15,23 +15,11 @@ const baseCar: DashboardCarPanel = {
   id: 1,
   make: 'Cupra',
   model: 'Born',
-  // Snapshot battery — the backend now sources this from the latest
-  // session's end_soc; the live-sync fields below are always null.
+  // Snapshot battery — the backend sources this from the latest
+  // session's end_soc.
   battery_level: 62,
-  charging_cable_connected: false,
   last_connected: null,
-  next_poll_at: null,
-  last_state: null,
   last_soc: 62,
-  active_job_id: null,
-  location_name: null,
-  location_address: null,
-  electric_range_km: null,
-  charging_power_kw: null,
-  target_soc: null,
-  battery_care: null,
-  max_charge_current: null,
-  charging_estimated_end_at: null,
   nominal_efficiency_mi_per_kwh: 4.2,
   mileage_year: null,
 }

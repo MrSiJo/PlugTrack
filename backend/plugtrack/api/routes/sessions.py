@@ -110,7 +110,6 @@ class SessionPayload(BaseModel):
     id: int
     user_id: int
     car_id: int
-    plug_in_record_id: Optional[int]
     date: date_cls
     charge_start_at: Optional[datetime]
     charge_end_at: Optional[datetime]
@@ -226,7 +225,6 @@ def _to_payload(
         id=cs.id,
         user_id=cs.user_id,
         car_id=cs.car_id,
-        plug_in_record_id=cs.plug_in_record_id,
         date=cs.date,
         charge_start_at=cs.charge_start_at,
         charge_end_at=cs.charge_end_at,

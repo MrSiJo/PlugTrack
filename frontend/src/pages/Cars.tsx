@@ -1,13 +1,13 @@
 /**
  * Cars browse page (B6 stripped).
  *
- * Shows the car cards (image, specs, mileage display). Car add/edit/delete
+ * Shows the car cards (specs, mileage display). Car add/edit/delete
  * and mileage-setup live in Admin → CarsManagement.
  */
 import { useEffect, useState } from 'react'
+import { Car as CarIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ApiError, api, type CarPayload } from '@/api/client'
-import { CarImage } from '@/components/cars/CarImage'
 import { CarMileageSection } from '@/components/cars/CarMileageSection'
 import { EfficiencyValue } from '@/components/EfficiencyValue'
 import { Card } from '@/components/ui/Card'
@@ -73,11 +73,12 @@ function CarCard({ car }: { car: CarPayload }) {
   return (
     <Card variant="hero" className="p-4">
       <div className="flex gap-4">
-        <CarImage
-          carId={car.id}
-          className="aspect-[4/3] h-28 w-44 flex-shrink-0"
-          alt={`${car.make} ${car.model}`}
-        />
+        <div className="flex aspect-[4/3] h-28 w-44 flex-shrink-0 items-center justify-center overflow-hidden rounded-md bg-slate-100 dark:bg-slate-800">
+          <CarIcon
+            className="h-12 w-12 text-slate-400 dark:text-slate-500"
+            aria-hidden
+          />
+        </div>
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-start justify-between gap-2">
             <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">

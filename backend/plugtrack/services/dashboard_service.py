@@ -46,25 +46,11 @@ class CarPanel:
     id: int
     make: str
     model: str
+    # Snapshot from the most recent session's `end_soc` — there is no live
+    # sync subsystem any more (v3.0 pivot), so this is "after last charge".
     battery_level: Optional[int]
-    charging_cable_connected: bool
     last_connected: Optional[datetime]
-    next_poll_at: Optional[datetime]
-    last_state: Optional[str]
     last_soc: Optional[int]
-    active_job_id: Optional[str]
-    location_name: Optional[str] = None
-    location_address: Optional[str] = None
-    # Live telemetry — only meaningful while CHARGING (power/rate) or any
-    # state where the car has reported range. Frontend hides nulls.
-    electric_range_km: Optional[int] = None
-    charging_power_kw: Optional[float] = None
-    target_soc: Optional[int] = None
-    # Live charge-context (pycupra) — surfaced while charging. Null when the
-    # provider does not report them or no orchestrator state is present.
-    battery_care: Optional[bool] = None
-    max_charge_current: Optional[str] = None
-    charging_estimated_end_at: Optional[datetime] = None
     nominal_efficiency_mi_per_kwh: Optional[float] = None
     # Active annual mileage tracking period — null when the user hasn't
     # enabled tracking on this car. See `services/mileage_tracking.py`.
@@ -138,9 +124,7 @@ async def dashboard_summary(
     """Build a DashboardSummary for the given user.
 
     The live sync subsystem has been removed, so the per-car panel's
-    battery readout falls back to the most-recent session's `end_soc`;
-    the formerly live-only fields (`last_state`, `next_poll_at`,
-    `active_job_id`, charging power/estimates, etc.) are always None.
+    battery readout falls back to the most-recent session's `end_soc`.
 
     `today` anchors the rolling 30-day cost-per-mile window; it defaults to
     the current UTC date and is injectable for deterministic tests.
@@ -186,30 +170,11 @@ async def dashboard_summary(
     for car in cars:
         last_cs = last_session_by_car.get(car.id)
         # The live sync subsystem is gone — battery falls back to the most
-        # recent session's `end_soc`; the formerly live-only fields stay None.
+        # recent session's `end_soc`.
         battery_level: Optional[int] = last_cs.end_soc if last_cs else None
         last_connected: Optional[datetime] = (
             last_cs.charge_end_at or last_cs.charge_start_at if last_cs else None
         )
-        last_state: Optional[str] = None
-        last_soc: Optional[int] = battery_level
-        next_poll_at: Optional[datetime] = None
-        active_job_id: Optional[str] = None
-        electric_range_km: Optional[int] = None
-        charging_power_kw: Optional[float] = None
-        target_soc: Optional[int] = None
-        battery_care: Optional[bool] = None
-        max_charge_current: Optional[str] = None
-        charging_estimated_end_at: Optional[datetime] = None
-
-        # Without live state there is no current cluster to resolve; these
-        # stay None (the response keys are preserved for the frontend).
-        location_name: Optional[str] = None
-        location_address: Optional[str] = None
-
-        # `charging_cable_connected` was derived from the live state machine,
-        # which no longer exists — always False now.
-        cable_connected = False
 
         # Mileage tracking — active period only. `get_status` materialises
         # any anniversaries that have rolled over since the last visit;
@@ -234,20 +199,8 @@ async def dashboard_summary(
                 make=car.make,
                 model=car.model,
                 battery_level=battery_level,
-                charging_cable_connected=cable_connected,
                 last_connected=last_connected,
-                next_poll_at=next_poll_at,
-                last_state=last_state,
-                last_soc=last_soc,
-                active_job_id=active_job_id,
-                location_name=location_name,
-                location_address=location_address,
-                electric_range_km=electric_range_km,
-                charging_power_kw=charging_power_kw,
-                target_soc=target_soc,
-                battery_care=battery_care,
-                max_charge_current=max_charge_current,
-                charging_estimated_end_at=charging_estimated_end_at,
+                last_soc=battery_level,
                 nominal_efficiency_mi_per_kwh=car.nominal_efficiency_mi_per_kwh,
                 mileage_year=mileage_year,
             )
