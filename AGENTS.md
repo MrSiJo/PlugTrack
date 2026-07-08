@@ -160,3 +160,17 @@ The default `pytest backend/tests` run skips this directory.
 - `.env.example` — required environment variables (`APP_SECRET_KEY`, optional `DATABASE_URL`, `COOKIE_SECURE`).
 - `compose.yaml` — production two-service compose stack pulling from GHCR.
 - `compose-dev.yaml` — source-build compose stack used by the deploy scripts.
+
+## Development ritual (fleet standard — all *Track apps)
+
+Every non-trivial change follows the same ritual. Do not skip steps because a change "seems small" — the ritual is what keeps the fleet consistent.
+
+1. **Spec first.** Write or agree a short spec (what's changing, why, and what's out of scope) before touching code. If requirements are ambiguous, ask before building.
+2. **Plan.** Break the spec into an implementation plan. Use TDD — failing test, then implementation, then green. Where work items are independent, fan out **parallel waves of sub-agents** rather than working serially; keep one commit per logical change.
+3. **Build.** Implement with the full backend and frontend test suites green before every commit. Pre-commit hooks (gitleaks / bandit / ruff) must pass.
+4. **Verify in the browser.** For anything UI-visible, drive the app with Chrome browser automation against a **local instance seeded with synthetic data** — never against prod data. Screenshot the affected flows; check the console for errors.
+5. **Back up before schema/data changes.** If the deploy includes a schema or data migration, back up the database on the docker host FIRST, with the API container stopped so the copy is consistent:
+   `docker stop <api-container> && cp -a /dockerdata/<app>/data /dockerdata/backups/<app>-$(date +%Y%m%d-%H%M%S)`
+   Rollback = restore the copy + start the previous image.
+6. **Deploy** to the `docker-host` context on the LAN (never the `default` context) using this repo's documented deploy method, then verify: containers healthy, endpoint smoke checks pass, logs clean.
+7. **Ship it properly.** Conventional commit messages, push to `origin/main`, and where the repo has GitHub Actions (public images / release-please), confirm the runs go green.
