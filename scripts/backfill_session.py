@@ -1,9 +1,7 @@
 """Backfill a missed ChargingSession via the service-layer code path.
 
-For when a charge happened but PlugTrack's sync never observed the
-cable-connected window (Cupra Connect didn't push fresh telemetry, the
-whole cycle fit between two idle polls, etc.) and the post-3.x phantom
-detector wasn't there or didn't trigger.
+For when a charge happened but never made it into PlugTrack — no
+screenshot was sent to the Telegram bot and it wasn't entered manually.
 
 The script uses the same `compute_session_cost` and ORM models the API
 route uses, so the resulting row is identical to one created via the
