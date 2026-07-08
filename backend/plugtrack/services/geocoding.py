@@ -102,18 +102,41 @@ class _RateLimiter:
         sleeper: Optional[callable] = None,
     ) -> None:
         self._lock = asyncio.Lock()
+        self._lock_loop: asyncio.AbstractEventLoop | None = None
         self._min_interval = min_interval
         self._last_at: float = 0.0
         self._clock = clock or time.monotonic
         self._sleeper = sleeper or asyncio.sleep
 
+    def _get_lock(self) -> asyncio.Lock:
+        """Return the lock, rebuilding it if the running loop changed.
+
+        The shared module-level limiter (PLUG-H3) outlives any single event
+        loop; an asyncio.Lock binds to the loop that first awaits it, so under
+        pytest (fresh loop per test) reusing the old lock would raise. The
+        `_last_at` timestamp is monotonic-global, so rate limiting stays
+        correct across the swap. Production has a single long-lived loop and
+        never takes this branch.
+        """
+        loop = asyncio.get_running_loop()
+        if self._lock_loop is not loop:
+            self._lock = asyncio.Lock()
+            self._lock_loop = loop
+        return self._lock
+
     async def acquire(self) -> None:
-        async with self._lock:
+        async with self._get_lock():
             now = self._clock()
             since = now - self._last_at
             if since < self._min_interval:
                 await self._sleeper(self._min_interval - since)
             self._last_at = self._clock()
+
+
+# One limiter for the whole process: `get_provider` constructs a fresh
+# NominatimProvider at several call sites, and per-instance limiters would
+# let concurrent geocodes exceed Nominatim's 1 req/s ToS (PLUG-H3).
+_SHARED_NOMINATIM_RATE_LIMITER = _RateLimiter(_NOMINATIM_RATE_LIMIT_SECONDS)
 
 
 class NominatimProvider:
@@ -139,9 +162,10 @@ class NominatimProvider:
         rate_limiter: Optional[_RateLimiter] = None,
     ) -> None:
         self._client = client
-        self._rate_limiter = rate_limiter or _RateLimiter(
-            _NOMINATIM_RATE_LIMIT_SECONDS
-        )
+        # Default to the module-level shared limiter so every call site
+        # (telegram ingest, MCP tools, geocode route, ingest_location)
+        # collectively respects Nominatim's 1 req/s ToS (PLUG-H3).
+        self._rate_limiter = rate_limiter or _SHARED_NOMINATIM_RATE_LIMITER
 
     async def reverse(
         self, lat: float, lng: float

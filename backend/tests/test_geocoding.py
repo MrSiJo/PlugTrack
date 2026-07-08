@@ -126,6 +126,14 @@ async def test_nominatim_rate_limiter_separates_calls():
     assert sleeps[0] == pytest.approx(0.8, abs=0.01)
 
 
+def test_nominatim_default_rate_limiter_is_shared_across_instances():
+    """PLUG-H3: every default-constructed provider must share ONE limiter so
+    concurrent geocodes from different call sites can't exceed 1 req/s."""
+    a = NominatimProvider()
+    b = NominatimProvider()
+    assert a._rate_limiter is b._rate_limiter
+
+
 # ---------------------------------------------------------------------------
 # Mapbox
 # ---------------------------------------------------------------------------
