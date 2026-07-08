@@ -4,12 +4,12 @@ Verifies:
 - 401 without auth.
 - 200 with the seeded user; payload shape matches DashboardSummary.
 """
+
 from __future__ import annotations
 
 from datetime import date
 
 import pytest
-
 from plugtrack.models import Car, ChargingSession
 
 

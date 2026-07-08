@@ -11,6 +11,7 @@ car VINs will fail to decrypt) and invalidates all sessions. Decrypt/clear
 those values under the old key before rotating, then re-enter them. See the
 rotation note in `.env.example`.
 """
+
 from __future__ import annotations
 
 import base64
@@ -19,7 +20,6 @@ import hashlib
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from cryptography.fernet import Fernet
-
 
 _HASHER = PasswordHasher(time_cost=2, memory_cost=64 * 1024, parallelism=2)
 

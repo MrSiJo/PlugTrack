@@ -3,20 +3,19 @@
 Uses tmp_path + monkeypatch to redirect _source_db_path() and _data_dir()
 to a temporary SQLite file so no real DB is touched.
 """
+
 from __future__ import annotations
 
 import sqlite3
 import time
 from pathlib import Path
 
-import pytest
-
 from plugtrack.services import backup as bk
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_db(p: Path) -> None:
     """Create a minimal SQLite DB at *p* with 5 rows in table t."""
@@ -30,6 +29,7 @@ def _make_db(p: Path) -> None:
 # ---------------------------------------------------------------------------
 # create_backup
 # ---------------------------------------------------------------------------
+
 
 def test_create_backup_is_valid_copy(tmp_path, monkeypatch):
     src = tmp_path / "plugtrack.db"
@@ -66,6 +66,7 @@ def test_create_backup_creates_backups_dir(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # list_backups
 # ---------------------------------------------------------------------------
+
 
 def test_list_backups_sorted_newest_first(tmp_path, monkeypatch):
     src = tmp_path / "plugtrack.db"
@@ -108,6 +109,7 @@ def test_list_backups_empty_when_no_dir(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # prune_backups
 # ---------------------------------------------------------------------------
+
 
 def test_prune_backups_keeps_newest_n(tmp_path, monkeypatch):
     src = tmp_path / "plugtrack.db"
@@ -191,6 +193,7 @@ def test_prune_backups_retention_larger_than_count(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # backups_dir
 # ---------------------------------------------------------------------------
+
 
 def test_backups_dir_is_created_on_access(tmp_path, monkeypatch):
     monkeypatch.setattr(bk, "_data_dir", lambda: tmp_path)

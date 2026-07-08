@@ -7,13 +7,13 @@ reference local network addresses.
 
 Exit 0 if clean, 1 with a list of `path:line:literal` violations.
 """
+
 from __future__ import annotations
 
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
-
 
 # RFC 1918 ranges with word-boundary anchors so we don't flag substrings
 # like `10.0.0` in semver, but we DO flag actual dotted-quads.
@@ -57,14 +57,10 @@ def main(argv: Iterable[str]) -> int:
             failures.append(f"{raw}:{lineno}: RFC 1918 IP literal {literal!r}")
 
     if failures:
-        sys.stderr.write(
-            "Forbidden private IP literals found (RFC 1918):\n"
-        )
+        sys.stderr.write("Forbidden private IP literals found (RFC 1918):\n")
         for f in failures:
             sys.stderr.write(f"  {f}\n")
-        sys.stderr.write(
-            "If this is genuinely a docs/example, move it under docs/ or legacy/.\n"
-        )
+        sys.stderr.write("If this is genuinely a docs/example, move it under docs/ or legacy/.\n")
         return 1
     return 0
 

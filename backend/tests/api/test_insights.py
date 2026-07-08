@@ -1,20 +1,25 @@
 """Tests for GET /api/insights/by-location."""
+
 from __future__ import annotations
 
 from datetime import date
 
 import pytest
+from plugtrack.models import Location, User
 from sqlalchemy import select
 
-from plugtrack.models import Location, User
 from tests.api.conftest import csrf_headers
 
 
 async def _create_car(client) -> int:
     r = await client.post(
         "/api/cars",
-        json={"make": "Cupra", "model": "Born", "battery_kwh": 77.0,
-              "nominal_efficiency_mi_per_kwh": 3.6},
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 77.0,
+            "nominal_efficiency_mi_per_kwh": 3.6,
+        },
         headers=csrf_headers(client),
     )
     assert r.status_code == 201, r.text
@@ -51,8 +56,14 @@ async def test_by_location_shape_and_totals(authed_client, test_sessionmaker):
     for kwh in (10.0, 20.0):
         r = await authed_client.post(
             "/api/sessions",
-            json={"car_id": car_id, "date": date.today().isoformat(),
-                  "start_soc": 20, "end_soc": 80, "kwh_added": kwh, "location_id": loc_id},
+            json={
+                "car_id": car_id,
+                "date": date.today().isoformat(),
+                "start_soc": 20,
+                "end_soc": 80,
+                "kwh_added": kwh,
+                "location_id": loc_id,
+            },
             headers=csrf_headers(authed_client),
         )
         assert r.status_code == 201, r.text
@@ -73,11 +84,16 @@ async def test_by_location_shape_and_totals(authed_client, test_sessionmaker):
 # Task 12: car_id filter on /overview and /by-location
 # ---------------------------------------------------------------------------
 
+
 async def _make_car(client, make="Cupra", model="Born") -> int:
     r = await client.post(
         "/api/cars",
-        json={"make": make, "model": model, "battery_kwh": 77.0,
-              "nominal_efficiency_mi_per_kwh": 3.6},
+        json={
+            "make": make,
+            "model": model,
+            "battery_kwh": 77.0,
+            "nominal_efficiency_mi_per_kwh": 3.6,
+        },
         headers=csrf_headers(client),
     )
     assert r.status_code == 201, r.text
@@ -86,6 +102,7 @@ async def _make_car(client, make="Cupra", model="Born") -> int:
 
 async def _post_session(client, *, car_id, kwh, cost_pence=None, ctype="ac", date_str=None):
     from datetime import date as date_cls
+
     date_str = date_str or date_cls.today().isoformat()
     body = {
         "car_id": car_id,
@@ -145,6 +162,7 @@ async def test_by_location_car_id_filter(authed_client, test_sessionmaker):
 # Task 2: ownership-trends keys on /overview
 # ---------------------------------------------------------------------------
 
+
 async def _post_session_full(
     client,
     *,
@@ -157,7 +175,6 @@ async def _post_session_full(
     odometer_km: float | None = None,
 ):
     """Post a charging session with SoC fields (needed for capacity_trend)."""
-    from datetime import date as date_cls
     body = {
         "car_id": car_id,
         "date": date_str,
@@ -178,8 +195,12 @@ async def test_overview_includes_seasonal_efficiency_and_capacity_trend(authed_c
     # Car with battery_kwh=58.0
     r = await authed_client.post(
         "/api/cars",
-        json={"make": "Cupra", "model": "Born", "battery_kwh": 58.0,
-              "nominal_efficiency_mi_per_kwh": 4.0},
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 4.0,
+        },
         headers=csrf_headers(authed_client),
     )
     assert r.status_code == 201, r.text
@@ -188,22 +209,34 @@ async def test_overview_includes_seasonal_efficiency_and_capacity_trend(authed_c
     # Two sessions in different months with large SoC delta (≥40pp) for capacity_trend
     # and odometer data for efficiency_by_month
     await _post_session_full(
-        authed_client, car_id=car_id, kwh=20.0,
-        start_soc=10, end_soc=80,   # 70pp delta → qualifies
-        ctype="dc", date_str="2026-01-15",
+        authed_client,
+        car_id=car_id,
+        kwh=20.0,
+        start_soc=10,
+        end_soc=80,  # 70pp delta → qualifies
+        ctype="dc",
+        date_str="2026-01-15",
         odometer_km=1000.0,
     )
     await _post_session_full(
-        authed_client, car_id=car_id, kwh=18.0,
-        start_soc=20, end_soc=90,   # 70pp delta → qualifies
-        ctype="dc", date_str="2026-03-20",
+        authed_client,
+        car_id=car_id,
+        kwh=18.0,
+        start_soc=20,
+        end_soc=90,  # 70pp delta → qualifies
+        ctype="dc",
+        date_str="2026-03-20",
         odometer_km=1200.0,
     )
     # Third session in yet another month
     await _post_session_full(
-        authed_client, car_id=car_id, kwh=15.0,
-        start_soc=30, end_soc=80,   # 50pp delta → qualifies
-        ctype="dc", date_str="2026-05-10",
+        authed_client,
+        car_id=car_id,
+        kwh=15.0,
+        start_soc=30,
+        end_soc=80,  # 50pp delta → qualifies
+        ctype="dc",
+        date_str="2026-05-10",
         odometer_km=1400.0,
     )
 
@@ -242,8 +275,12 @@ async def test_overview_no_car_id_resolves_to_first_active_car(authed_client):
     # Create two cars — first active, second also active
     r1 = await authed_client.post(
         "/api/cars",
-        json={"make": "Cupra", "model": "Born", "battery_kwh": 58.0,
-              "nominal_efficiency_mi_per_kwh": 4.0},
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 4.0,
+        },
         headers=csrf_headers(authed_client),
     )
     assert r1.status_code == 201
@@ -251,24 +288,43 @@ async def test_overview_no_car_id_resolves_to_first_active_car(authed_client):
 
     r2 = await authed_client.post(
         "/api/cars",
-        json={"make": "Cupra", "model": "Formentor", "battery_kwh": 58.0,
-              "nominal_efficiency_mi_per_kwh": 4.0},
+        json={
+            "make": "Cupra",
+            "model": "Formentor",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 4.0,
+        },
         headers=csrf_headers(authed_client),
     )
     assert r2.status_code == 201
 
     # Add qualifying sessions ONLY for the first car (multi-month)
     await _post_session_full(
-        authed_client, car_id=car_id_first, kwh=20.0,
-        start_soc=10, end_soc=80, ctype="dc", date_str="2026-01-15",
+        authed_client,
+        car_id=car_id_first,
+        kwh=20.0,
+        start_soc=10,
+        end_soc=80,
+        ctype="dc",
+        date_str="2026-01-15",
     )
     await _post_session_full(
-        authed_client, car_id=car_id_first, kwh=18.0,
-        start_soc=20, end_soc=80, ctype="dc", date_str="2026-03-20",
+        authed_client,
+        car_id=car_id_first,
+        kwh=18.0,
+        start_soc=20,
+        end_soc=80,
+        ctype="dc",
+        date_str="2026-03-20",
     )
     await _post_session_full(
-        authed_client, car_id=car_id_first, kwh=15.0,
-        start_soc=25, end_soc=80, ctype="dc", date_str="2026-05-10",
+        authed_client,
+        car_id=car_id_first,
+        kwh=15.0,
+        start_soc=25,
+        end_soc=80,
+        ctype="dc",
+        date_str="2026-05-10",
     )
 
     r = await authed_client.get("/api/insights/overview")
@@ -311,8 +367,12 @@ async def test_overview_seasonal_delta_none_with_insufficient_data(authed_client
     # Single session → single month → seasonal_delta must be None
     r = await authed_client.post(
         "/api/cars",
-        json={"make": "Cupra", "model": "Born", "battery_kwh": 58.0,
-              "nominal_efficiency_mi_per_kwh": 4.0},
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 4.0,
+        },
         headers=csrf_headers(authed_client),
     )
     assert r.status_code == 201
@@ -320,8 +380,13 @@ async def test_overview_seasonal_delta_none_with_insufficient_data(authed_client
 
     # One session — only one month of seasonal data
     await _post_session_full(
-        authed_client, car_id=car_id, kwh=20.0,
-        start_soc=10, end_soc=80, ctype="dc", date_str="2026-01-15",
+        authed_client,
+        car_id=car_id,
+        kwh=20.0,
+        start_soc=10,
+        end_soc=80,
+        ctype="dc",
+        date_str="2026-01-15",
         odometer_km=1000.0,
     )
 
@@ -337,8 +402,12 @@ async def test_overview_seasonal_delta_populated_with_two_months(authed_client):
     """seasonal_delta has best/worst/pct/abs_mi_per_kwh when ≥2 months with mi_per_kwh."""
     r = await authed_client.post(
         "/api/cars",
-        json={"make": "Cupra", "model": "Born", "battery_kwh": 58.0,
-              "nominal_efficiency_mi_per_kwh": 4.0},
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 4.0,
+        },
         headers=csrf_headers(authed_client),
     )
     assert r.status_code == 201
@@ -346,18 +415,33 @@ async def test_overview_seasonal_delta_populated_with_two_months(authed_client):
 
     # Three sessions in different months, with odometer so mi_per_kwh is computed
     await _post_session_full(
-        authed_client, car_id=car_id, kwh=20.0,
-        start_soc=10, end_soc=80, ctype="dc", date_str="2026-01-15",
+        authed_client,
+        car_id=car_id,
+        kwh=20.0,
+        start_soc=10,
+        end_soc=80,
+        ctype="dc",
+        date_str="2026-01-15",
         odometer_km=1000.0,
     )
     await _post_session_full(
-        authed_client, car_id=car_id, kwh=18.0,
-        start_soc=20, end_soc=90, ctype="dc", date_str="2026-03-20",
+        authed_client,
+        car_id=car_id,
+        kwh=18.0,
+        start_soc=20,
+        end_soc=90,
+        ctype="dc",
+        date_str="2026-03-20",
         odometer_km=1200.0,
     )
     await _post_session_full(
-        authed_client, car_id=car_id, kwh=15.0,
-        start_soc=30, end_soc=80, ctype="dc", date_str="2026-05-10",
+        authed_client,
+        car_id=car_id,
+        kwh=15.0,
+        start_soc=30,
+        end_soc=80,
+        ctype="dc",
+        date_str="2026-05-10",
         odometer_km=1400.0,
     )
 

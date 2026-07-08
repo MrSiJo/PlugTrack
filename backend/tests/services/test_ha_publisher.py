@@ -1,8 +1,8 @@
 """Payload builder + publish tick for the Home Assistant MQTT bridge."""
+
 import datetime as dt
 
 import pytest
-
 from plugtrack.models.charging_session import ChargingSession
 from plugtrack.services.ha_publisher import build_ha_payload
 
@@ -13,6 +13,7 @@ async def test_build_payload_shape_and_unit_conversion(test_sessionmaker, seeded
     today = dt.date(2026, 7, 15)
     async with test_sessionmaker() as s:
         from plugtrack.models.location import Location
+
         loc = Location(
             user_id=user_id,
             name="Osprey (Land's End)",
@@ -26,10 +27,10 @@ async def test_build_payload_shape_and_unit_conversion(test_sessionmaker, seeded
                 user_id=user_id,
                 car_id=car_id,
                 date=dt.date(2026, 7, 6),
-                charge_end_at=dt.datetime(2026, 7, 6, 21, 14, tzinfo=dt.timezone.utc),
+                charge_end_at=dt.datetime(2026, 7, 6, 21, 14, tzinfo=dt.UTC),
                 start_soc=40,
                 kwh_added=41.2,
-                cost_pence=824,          # £8.24
+                cost_pence=824,  # £8.24
                 cost_basis="location_rate",
                 end_soc=82,
                 charge_network="Osprey",
@@ -64,6 +65,7 @@ async def test_build_payload_shape_and_unit_conversion(test_sessionmaker, seeded
 async def test_build_payload_none_when_no_cars(test_sessionmaker):
     # a user with no active car -> nothing to publish
     from plugtrack.models.user import User
+
     async with test_sessionmaker() as s:
         u = User(username="carless", password_hash="x")
         s.add(u)
@@ -80,6 +82,7 @@ from plugtrack.services import ha_publisher
 
 async def _set(sm, **kv):
     from sqlalchemy import select
+
     async with sm() as s:
         for k, v in kv.items():
             row = (await s.execute(select(Setting).where(Setting.key == k))).scalar_one_or_none()
@@ -108,16 +111,28 @@ async def test_tick_noop_when_disabled(test_sessionmaker, seeded_user_car):
 async def test_tick_publishes_when_enabled(test_sessionmaker, seeded_user_car):
     user_id, car_id = seeded_user_car
     async with test_sessionmaker() as s:
-        s.add(ChargingSession(
-            user_id=user_id, car_id=car_id, date=dt.date(2026, 7, 6),
-            start_soc=50, end_soc=80, kwh_added=10.0, cost_pence=200,
-            cost_basis="location_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                user_id=user_id,
+                car_id=car_id,
+                date=dt.date(2026, 7, 6),
+                start_soc=50,
+                end_soc=80,
+                kwh_added=10.0,
+                cost_pence=200,
+                cost_basis="location_rate",
+                source="manual",
+            )
+        )
         await s.commit()
     await _set(
         test_sessionmaker,
-        mqtt_enabled="true", mqtt_host="broker", mqtt_port="1883",
-        mqtt_username="mqttuser", mqtt_password="mqttpass", mqtt_base_topic="plugtrack",
+        mqtt_enabled="true",
+        mqtt_host="broker",
+        mqtt_port="1883",
+        mqtt_username="mqttuser",
+        mqtt_password="mqttpass",
+        mqtt_base_topic="plugtrack",
     )
     captured = {}
 
@@ -135,7 +150,9 @@ async def test_tick_publishes_when_enabled(test_sessionmaker, seeded_user_car):
 
 @pytest.mark.asyncio
 async def test_tick_swallows_publisher_errors(test_sessionmaker, seeded_user_car):
-    await _set(test_sessionmaker, mqtt_enabled="true", mqtt_host="broker", mqtt_base_topic="plugtrack")
+    await _set(
+        test_sessionmaker, mqtt_enabled="true", mqtt_host="broker", mqtt_base_topic="plugtrack"
+    )
 
     async def boom(payload, **kw):
         raise RuntimeError("broker down")

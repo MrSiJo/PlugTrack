@@ -1,10 +1,10 @@
 """GET /api/dashboard/spend-trend route tests."""
+
 from __future__ import annotations
 
 from datetime import date, timedelta
 
 import pytest
-
 from plugtrack.models import Car, ChargingSession
 
 
@@ -16,7 +16,8 @@ async def test_spend_trend_requires_auth(seeded_client):
 
 @pytest.mark.asyncio
 async def test_spend_trend_returns_window_with_zero_fill(
-    authed_client, test_sessionmaker,
+    authed_client,
+    test_sessionmaker,
 ):
     from plugtrack.models import User
     from sqlalchemy import select

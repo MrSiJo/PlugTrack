@@ -5,34 +5,44 @@ Exactly one instance lives on app.state (single-worker tripwire). reconcile()
 starts/stops/restarts the long-poll task to match current settings; health()
 produces the shared HealthReport.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from .openai_admin import validate_key
 from .telegram_health import HealthReport, build_health_report
 from .telegram_ingest import (
-    BotConfig, build_ingest_context, load_bot_config, read_raw_credentials, run_bot,
+    BotConfig,
+    build_ingest_context,
+    load_bot_config,
+    read_raw_credentials,
+    run_bot,
 )
 
 logger = logging.getLogger(__name__)
 
 
 def _fingerprint(cfg: BotConfig) -> tuple:
-    return (cfg.token, cfg.openai_key, cfg.model, cfg.user_id,
-            frozenset(cfg.allowed), cfg.ai_enabled)
+    return (
+        cfg.token,
+        cfg.openai_key,
+        cfg.model,
+        cfg.user_id,
+        frozenset(cfg.allowed),
+        cfg.ai_enabled,
+    )
 
 
 class TelegramBotManager:
     def __init__(self, sessionmaker) -> None:
         self._sessionmaker = sessionmaker
-        self._task: Optional[asyncio.Task] = None
-        self._stop: Optional[asyncio.Event] = None
+        self._task: asyncio.Task | None = None
+        self._stop: asyncio.Event | None = None
         self._ctx = None
-        self._fp: Optional[tuple] = None
+        self._fp: tuple | None = None
         self._lock = asyncio.Lock()
 
     @property
@@ -50,7 +60,8 @@ class TelegramBotManager:
                 return
             await self._stop_locked()
             self._ctx = build_ingest_context(
-                cfg, sessionmaker=self._sessionmaker,
+                cfg,
+                sessionmaker=self._sessionmaker,
                 health_check=lambda uid: self.health(requesting_user_id=uid),
                 ai_enabled=cfg.ai_enabled,
             )
@@ -77,7 +88,7 @@ class TelegramBotManager:
         async with self._lock:
             await self._stop_locked()
 
-    async def health(self, requesting_user_id: Optional[int] = None) -> HealthReport:
+    async def health(self, requesting_user_id: int | None = None) -> HealthReport:
         from .telegram_client import TelegramClient
 
         cfg = await load_bot_config(self._sessionmaker)
@@ -86,10 +97,14 @@ class TelegramBotManager:
         # or the bot isn't running (the common case during setup).
         token, openai_key, model = await read_raw_credentials(self._sessionmaker)
         return await build_health_report(
-            token=token, openai_key=openai_key, model=model,
+            token=token,
+            openai_key=openai_key,
+            model=model,
             make_telegram_client=lambda t: TelegramClient(token=t),
             openai_validate=validate_key,
-            config_or_problem=cfg, sessionmaker=self._sessionmaker,
-            is_running=self.is_running, requesting_user_id=requesting_user_id,
-            now=datetime.now(timezone.utc),
+            config_or_problem=cfg,
+            sessionmaker=self._sessionmaker,
+            is_running=self.is_running,
+            requesting_user_id=requesting_user_id,
+            now=datetime.now(UTC),
         )

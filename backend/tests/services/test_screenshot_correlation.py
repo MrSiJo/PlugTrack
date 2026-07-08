@@ -2,8 +2,8 @@
 import json
 from pathlib import Path
 
-from plugtrack.services.screenshot_extraction import parse_extraction
 from plugtrack.services.screenshot_correlation import correlate
+from plugtrack.services.screenshot_extraction import parse_extraction
 
 FX = Path(__file__).parent.parent / "fixtures" / "screenshots"
 
@@ -24,15 +24,15 @@ def test_four_screenshots_merge_into_two_sessions():
 
     by_day = {m.start_at.date().isoformat(): m for m in merged}
     a = by_day["2026-06-12"]
-    assert a.energy_kwh == 9.78               # from Osprey
-    assert a.cost_total_pence == 851          # from Osprey
-    assert a.soc_start == 56 and a.soc_end == 70   # from MyCupra
+    assert a.energy_kwh == 9.78  # from Osprey
+    assert a.cost_total_pence == 851  # from Osprey
+    assert a.soc_start == 56 and a.soc_end == 70  # from MyCupra
     assert a.network == "Osprey"
     assert "Land's End" in a.location_name
     assert {"osprey", "mycupra"} <= set(a.source_kinds)
 
     b = by_day["2026-06-13"]
-    assert b.energy_kwh == 37.9124            # from Tesla
+    assert b.energy_kwh == 37.9124  # from Tesla
     assert b.cost_total_pence == 1706
     assert b.soc_start == 38 and b.soc_end == 100  # from MyCupra
     assert b.network == "Tesla Supercharger"
@@ -47,14 +47,26 @@ def test_unrelated_singleton_not_absorbed():
 
 
 def test_merge_carries_odometer():
-    from plugtrack.services.screenshot_extraction import Extraction
     from plugtrack.services.screenshot_correlation import correlate_batch
+    from plugtrack.services.screenshot_extraction import Extraction
+
     e = Extraction(
-        source="text", has_cost=False, energy_kwh=9.3, cost_total_pence=None,
-        cost_per_kwh_pence=None, start_at="2026-06-15T19:27:00+00:00",
-        end_at="2026-06-16T06:59:00+00:00", soc_start=None, soc_end=None,
-        location_name="home", location_address=None, network=None, peak_kw=None,
-        confidence=0.9, odometer=12345, odometer_unit="mi",
+        source="text",
+        has_cost=False,
+        energy_kwh=9.3,
+        cost_total_pence=None,
+        cost_per_kwh_pence=None,
+        start_at="2026-06-15T19:27:00+00:00",
+        end_at="2026-06-16T06:59:00+00:00",
+        soc_start=None,
+        soc_end=None,
+        location_name="home",
+        location_address=None,
+        network=None,
+        peak_kw=None,
+        confidence=0.9,
+        odometer=12345,
+        odometer_unit="mi",
     )
     sessions, _ = correlate_batch([e])
     assert len(sessions) == 1
@@ -63,28 +75,49 @@ def test_merge_carries_odometer():
 
 
 def test_merge_carries_actual_charge_seconds():
-    from plugtrack.services.screenshot_extraction import Extraction
     from plugtrack.services.screenshot_correlation import correlate_batch
+    from plugtrack.services.screenshot_extraction import Extraction
+
     e = Extraction(
-        source="mycupra", has_cost=False, energy_kwh=None, cost_total_pence=None,
-        cost_per_kwh_pence=None, start_at="2026-06-15T19:27:00+00:00",
-        end_at="2026-06-16T06:59:00+00:00", soc_start=67, soc_end=80,
-        location_name=None, location_address=None, network=None, peak_kw=2.0,
-        confidence=0.9, actual_charge_seconds=13783,
+        source="mycupra",
+        has_cost=False,
+        energy_kwh=None,
+        cost_total_pence=None,
+        cost_per_kwh_pence=None,
+        start_at="2026-06-15T19:27:00+00:00",
+        end_at="2026-06-16T06:59:00+00:00",
+        soc_start=67,
+        soc_end=80,
+        location_name=None,
+        location_address=None,
+        network=None,
+        peak_kw=2.0,
+        confidence=0.9,
+        actual_charge_seconds=13783,
     )
     sessions, _ = correlate_batch([e])
     assert sessions[0].actual_charge_seconds == 13783
 
 
 def test_merge_carries_location_short_name():
-    from plugtrack.services.screenshot_extraction import Extraction
     from plugtrack.services.screenshot_correlation import correlate_batch
+    from plugtrack.services.screenshot_extraction import Extraction
+
     e = Extraction(
-        source="osprey", has_cost=True, energy_kwh=9.78, cost_total_pence=851,
-        cost_per_kwh_pence=None, start_at="2026-06-12T10:00:00+00:00",
-        end_at="2026-06-12T10:30:00+00:00", soc_start=None, soc_end=None,
-        location_name="Land's End Car Park, Penzance", location_address="Land's End, TR19 7AA",
-        network="Osprey", peak_kw=None, confidence=0.9,
+        source="osprey",
+        has_cost=True,
+        energy_kwh=9.78,
+        cost_total_pence=851,
+        cost_per_kwh_pence=None,
+        start_at="2026-06-12T10:00:00+00:00",
+        end_at="2026-06-12T10:30:00+00:00",
+        soc_start=None,
+        soc_end=None,
+        location_name="Land's End Car Park, Penzance",
+        location_address="Land's End, TR19 7AA",
+        network="Osprey",
+        peak_kw=None,
+        confidence=0.9,
         location_short_name="Osprey Land's End",
     )
     sessions, _ = correlate_batch([e])
@@ -92,14 +125,25 @@ def test_merge_carries_location_short_name():
 
 
 def test_merge_carries_power_curve():
-    from plugtrack.services.screenshot_extraction import Extraction
     from plugtrack.services.screenshot_correlation import correlate_batch
+    from plugtrack.services.screenshot_extraction import Extraction
+
     e = Extraction(
-        source="mycupra", has_cost=False, energy_kwh=None, cost_total_pence=None,
-        cost_per_kwh_pence=None, start_at="2026-06-18T11:26:00+00:00",
-        end_at="2026-06-18T11:50:00+00:00", soc_start=55, soc_end=90,
-        location_name=None, location_address=None, network=None, peak_kw=62.0,
-        confidence=0.9, power_curve=[[0.0, 0], [1.0, 48]],
+        source="mycupra",
+        has_cost=False,
+        energy_kwh=None,
+        cost_total_pence=None,
+        cost_per_kwh_pence=None,
+        start_at="2026-06-18T11:26:00+00:00",
+        end_at="2026-06-18T11:50:00+00:00",
+        soc_start=55,
+        soc_end=90,
+        location_name=None,
+        location_address=None,
+        network=None,
+        peak_kw=62.0,
+        confidence=0.9,
+        power_curve=[[0.0, 0], [1.0, 48]],
     )
     sessions, _ = correlate_batch([e])
     assert sessions[0].power_curve == [[0.0, 0], [1.0, 48]]

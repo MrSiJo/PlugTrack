@@ -6,10 +6,10 @@ Two triggers:
   2. Conversational two-step: handle_text sets pending_edit_target; the NEXT
      handle_photo (no caption) consumes it and proposes the edit.
 """
+
 import time
 
 import pytest
-
 from plugtrack.services.screenshot_extraction import (
     Extraction,
     ExtractionResult,
@@ -26,7 +26,6 @@ from plugtrack.services.telegram_ingest import (
     handle_photo,
     handle_text,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -219,9 +218,8 @@ def test_parse_pending_screenshot_edit_no_screenshot_word_returns_none():
 async def test_handle_photo_caption_update_proposes_edit(test_sessionmaker, seeded_user_car):
     """Caption 'update <id>' triggers propose_edit_charge; a mcpcommit card is sent;
     no new ScreenshotImport row is created."""
-    from sqlalchemy import select
-
     from plugtrack.models import ScreenshotImport
+    from sqlalchemy import select
 
     user_id, car_id = seeded_user_car
     session_id = await _seed_session(test_sessionmaker, user_id, car_id)
@@ -268,9 +266,8 @@ async def test_handle_photo_caption_update_proposes_edit(test_sessionmaker, seed
 async def test_two_step_sets_pending_and_photo_proposes(test_sessionmaker, seeded_user_car):
     """handle_text 'update session N from the next screenshot' → pending_edit_target set;
     subsequent handle_photo (no caption) → proposes the edit; pending_edit_target cleared."""
-    from sqlalchemy import select
-
     from plugtrack.models import ScreenshotImport
+    from sqlalchemy import select
 
     user_id, car_id = seeded_user_car
     session_id = await _seed_session(test_sessionmaker, user_id, car_id)
@@ -319,7 +316,9 @@ async def test_two_step_sets_pending_and_photo_proposes(test_sessionmaker, seede
 
     # A proposal card (mcpcommit) must have been sent
     proposal_msgs = [
-        m for m in tg.sent if m.get("reply_markup") is not None
+        m
+        for m in tg.sent
+        if m.get("reply_markup") is not None
         and any(
             b["callback_data"].startswith("mcpcommit:")
             for row in m["reply_markup"]["inline_keyboard"]
@@ -342,9 +341,8 @@ async def test_two_step_sets_pending_and_photo_proposes(test_sessionmaker, seede
 @pytest.mark.asyncio
 async def test_handle_photo_caption_update_unknown_session(test_sessionmaker, seeded_user_car):
     """Caption 'update 99999' for a non-existent session → 'not found' reply, no staging."""
-    from sqlalchemy import select
-
     from plugtrack.models import ScreenshotImport
+    from sqlalchemy import select
 
     user_id, car_id = seeded_user_car
     extraction = _make_extraction()
@@ -382,9 +380,8 @@ async def test_handle_photo_caption_update_unknown_session(test_sessionmaker, se
 @pytest.mark.asyncio
 async def test_handle_photo_no_caption_stages_new_session(test_sessionmaker, seeded_user_car):
     """A plain photo with no caption still stages a NEW session (regression guard)."""
-    from sqlalchemy import select
-
     from plugtrack.models import ScreenshotImport
+    from sqlalchemy import select
 
     user_id, car_id = seeded_user_car
     extraction = _make_extraction()
@@ -415,9 +412,8 @@ async def test_handle_photo_location_caption_stages_new_session(test_sessionmake
     """Caption 'Home' (no update verb, no #) still stages a new session.
     When the extraction has no location, the caption word fills it in.
     """
-    from sqlalchemy import select
-
     from plugtrack.models import ScreenshotImport
+    from sqlalchemy import select
 
     user_id, car_id = seeded_user_car
     # Extraction with NO location_name so the caption "Home" can fill it
@@ -484,9 +480,8 @@ async def test_two_step_unknown_session_not_stored(test_sessionmaker, seeded_use
 @pytest.mark.asyncio
 async def test_two_step_expired_pending_ignored(test_sessionmaker, seeded_user_car):
     """An expired pending_edit_target (>10min) is popped and the new-session flow runs."""
-    from sqlalchemy import select
-
     from plugtrack.models import ScreenshotImport
+    from sqlalchemy import select
 
     user_id, car_id = seeded_user_car
     session_id = await _seed_session(test_sessionmaker, user_id, car_id)
@@ -695,9 +690,7 @@ async def test_callback_commit_old_token_does_not_pop_newer_token(
 
 
 @pytest.mark.asyncio
-async def test_pending_edit_target_survives_extraction_failure(
-    test_sessionmaker, seeded_user_car
-):
+async def test_pending_edit_target_survives_extraction_failure(test_sessionmaker, seeded_user_car):
     """When the photo extraction yields no usable fields (bad/blurry photo),
     the pending_edit_target must NOT be permanently consumed so the user can
     resend a clearer screenshot."""
@@ -770,7 +763,9 @@ async def test_pending_edit_target_survives_extraction_failure(
         "pending_edit_target should be consumed by the second (good) photo"
     )
     proposal_msgs = [
-        m for m in tg.sent if m.get("reply_markup") is not None
+        m
+        for m in tg.sent
+        if m.get("reply_markup") is not None
         and any(
             b["callback_data"].startswith("mcpcommit:")
             for row in m["reply_markup"]["inline_keyboard"]
@@ -788,31 +783,37 @@ async def test_pending_edit_target_survives_extraction_failure(
 import pytest as _pytest
 
 
-@_pytest.mark.parametrize("text", [
-    "update session 34, 74% to 81%",
-    "update 34, soc 74 to 81",
-    "edit session 7 end soc 80",
-    "correct session 34 ending soc to 81",
-    "change the end soc to 81 on session 34",      # inverted word order
-    "fix session 12 mileage to 11200",
-    "adjust session 5 network to Osprey",
-    "update #42 notes",
-    "set session 9 start soc to 20",
-    "amend charge 3 cost to 8.50",
-])
+@_pytest.mark.parametrize(
+    "text",
+    [
+        "update session 34, 74% to 81%",
+        "update 34, soc 74 to 81",
+        "edit session 7 end soc 80",
+        "correct session 34 ending soc to 81",
+        "change the end soc to 81 on session 34",  # inverted word order
+        "fix session 12 mileage to 11200",
+        "adjust session 5 network to Osprey",
+        "update #42 notes",
+        "set session 9 start soc to 20",
+        "amend charge 3 cost to 8.50",
+    ],
+)
 def test_looks_like_edit_command_true(text):
     assert _looks_like_edit_command(text) is True
 
 
-@_pytest.mark.parametrize("text", [
-    "Home 9.3kwh 11200mi",          # home charge note — no session ref
-    "9.3kwh home",
-    "what did I spend last week",   # question
-    "home",
-    "update the home rate to 8p",   # edit verb but no session reference
-    "",
-    "how much did session cost overall",  # 'session' but no id / edit verb
-])
+@_pytest.mark.parametrize(
+    "text",
+    [
+        "Home 9.3kwh 11200mi",  # home charge note — no session ref
+        "9.3kwh home",
+        "what did I spend last week",  # question
+        "home",
+        "update the home rate to 8p",  # edit verb but no session reference
+        "",
+        "how much did session cost overall",  # 'session' but no id / edit verb
+    ],
+)
 def test_looks_like_edit_command_false(text):
     assert _looks_like_edit_command(text) is False
 
@@ -825,7 +826,9 @@ def test_looks_like_edit_command_false(text):
 
 
 @pytest.mark.asyncio
-async def test_inline_update_command_routes_to_agent_not_extractor(test_sessionmaker, seeded_user_car):
+async def test_inline_update_command_routes_to_agent_not_extractor(
+    test_sessionmaker, seeded_user_car
+):
     user_id, car_id = seeded_user_car
     session_id = await _seed_session(test_sessionmaker, user_id, car_id)
     tg = FakeTg()
@@ -837,17 +840,26 @@ async def test_inline_update_command_routes_to_agent_not_extractor(test_sessionm
         calls.append("extractor_text")
         return ExtractionResult(
             extraction=_make_extraction(
-                soc_start=74, soc_end=81, energy_kwh=None,
-                cost_total_pence=None, cost_per_kwh_pence=None,
-                start_at=None, end_at=None, location_name=None,
-                location_address=None, network=None,
+                soc_start=74,
+                soc_end=81,
+                energy_kwh=None,
+                cost_total_pence=None,
+                cost_per_kwh_pence=None,
+                start_at=None,
+                end_at=None,
+                location_name=None,
+                location_address=None,
+                network=None,
             ),
             usage=Usage(10, 10, 0),
         )
 
     async def agent_runner(*, session, user_id, text, history, api_key, model, **_kw):
         calls.append(f"agent:{text}")
-        return {"reply_text": "Proposed edit", "proposal": {"change_token": "tok", "summary": "end SoC → 81%"}}
+        return {
+            "reply_text": "Proposed edit",
+            "proposal": {"change_token": "tok", "summary": "end SoC → 81%"},
+        }
 
     ctx = IngestContext(
         telegram=tg,
@@ -874,7 +886,9 @@ async def test_inline_update_command_routes_to_agent_not_extractor(test_sessionm
 
 def _has_mcpcommit_card(sent):
     return [
-        m for m in sent if m.get("reply_markup") is not None
+        m
+        for m in sent
+        if m.get("reply_markup") is not None
         and any(
             b["callback_data"].startswith("mcpcommit:")
             for row in m["reply_markup"]["inline_keyboard"]
@@ -893,10 +907,16 @@ def _loc_ctx(tg, test_sessionmaker, user_id, car_id):
         # A placeable public charge (has a clock time) with no location.
         return ExtractionResult(
             extraction=_make_extraction(
-                energy_kwh=9.3, cost_total_pence=None, cost_per_kwh_pence=None,
-                start_at="2026-06-12T14:25:00", end_at="2026-06-12T15:10:00",
-                soc_start=None, soc_end=None,
-                location_name=None, location_address=None, network=None,
+                energy_kwh=9.3,
+                cost_total_pence=None,
+                cost_per_kwh_pence=None,
+                start_at="2026-06-12T14:25:00",
+                end_at="2026-06-12T15:10:00",
+                soc_start=None,
+                soc_end=None,
+                location_name=None,
+                location_address=None,
+                network=None,
             ),
             usage=Usage(10, 10, 0),
         )
@@ -917,7 +937,7 @@ async def test_location_while_staged_is_held_not_attached(test_sessionmaker, see
     tg = FakeTg()
     ctx = _loc_ctx(tg, test_sessionmaker, user_id, car_id)
 
-    await _stage_public_charge(ctx, chat_id=9)          # open batch card
+    await _stage_public_charge(ctx, chat_id=9)  # open batch card
     await handle_location(ctx, from_id=111, chat_id=9, latitude=50.148, longitude=-5.665)
 
     assert 9 in ctx.pending_location, "pin should be held while a charge is staged"
@@ -926,8 +946,8 @@ async def test_location_while_staged_is_held_not_attached(test_sessionmaker, see
 
 @pytest.mark.asyncio
 async def test_save_auto_attaches_held_pin(test_sessionmaker, seeded_user_car):
-    from sqlalchemy import select
     from plugtrack.models import ChargingSession, Location
+    from sqlalchemy import select
 
     user_id, car_id = seeded_user_car
     tg = FakeTg()
@@ -938,8 +958,11 @@ async def test_save_auto_attaches_held_pin(test_sessionmaker, seeded_user_car):
     await handle_callback(ctx, from_id=111, callback_id="cb", data="save", chat_id=9)
 
     async with test_sessionmaker() as s:
-        cs = (await s.execute(select(ChargingSession).where(
-            ChargingSession.user_id == user_id))).scalars().one()
+        cs = (
+            (await s.execute(select(ChargingSession).where(ChargingSession.user_id == user_id)))
+            .scalars()
+            .one()
+        )
         assert cs.location_id is not None, "held pin should be attached on Save"
         loc = await s.get(Location, cs.location_id)
         assert abs(loc.centroid_lat - 50.148) < 0.01
@@ -969,8 +992,11 @@ async def test_locattach_callback_sends_attach_card(test_sessionmaker, seeded_us
     ctx = _loc_ctx(tg, test_sessionmaker, user_id, car_id)
 
     await handle_callback(
-        ctx, from_id=111, callback_id="cb",
-        data=f"locattach:{session_id}:50.148:-5.665", chat_id=9,
+        ctx,
+        from_id=111,
+        callback_id="cb",
+        data=f"locattach:{session_id}:50.148:-5.665",
+        chat_id=9,
     )
     assert _has_mcpcommit_card(tg.sent), "locattach callback should produce an attach card"
 
@@ -980,13 +1006,18 @@ async def test_dispatch_routes_location_message(test_sessionmaker, seeded_user_c
     user_id, car_id = seeded_user_car
     session_id = await _seed_session(test_sessionmaker, user_id, car_id)
     import time as _time
+
     tg = FakeTg()
     ctx = _loc_ctx(tg, test_sessionmaker, user_id, car_id)
     ctx.last_committed[9] = (session_id, _time.time())
 
-    update = {"message": {
-        "from": {"id": 111}, "chat": {"id": 9}, "message_id": 5,
-        "location": {"latitude": 50.148, "longitude": -5.665},
-    }}
+    update = {
+        "message": {
+            "from": {"id": 111},
+            "chat": {"id": 9},
+            "message_id": 5,
+            "location": {"latitude": 50.148, "longitude": -5.665},
+        }
+    }
     await dispatch_update(ctx=ctx, update=update)
     assert _has_mcpcommit_card(tg.sent), "message.location should route to handle_location"

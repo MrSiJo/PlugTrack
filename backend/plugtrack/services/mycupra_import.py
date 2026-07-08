@@ -19,12 +19,14 @@ Matching policy (see spec 2026-06-17):
 CSV timestamps are UTC; the DB stores Europe/London local-naive datetimes
 (matching the screenshot-ingest convention), so we convert on the way in.
 """
+
 from __future__ import annotations
 
 import csv
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import date as date_cls, datetime, timedelta, timezone
-from typing import Iterable, Optional
+from datetime import UTC, datetime, timedelta
+from datetime import date as date_cls
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -51,26 +53,26 @@ DC_POWER_KW = 11.0
 @dataclass
 class CsvRow:
     session_id: str
-    start_local: datetime          # naive, Europe/London
-    end_local: Optional[datetime]
-    actual_s: Optional[int]
-    energy_kwh: Optional[float]
-    soc_start: Optional[int]
-    soc_end: Optional[int]
+    start_local: datetime  # naive, Europe/London
+    end_local: datetime | None
+    actual_s: int | None
+    energy_kwh: float | None
+    soc_start: int | None
+    soc_end: int | None
 
 
 @dataclass
 class RowAction:
     session_id: str
-    action: str                    # "insert" | "update" | "skip"
+    action: str  # "insert" | "update" | "skip"
     reason: str
-    start_local: Optional[datetime] = None
-    soc_start: Optional[int] = None
-    soc_end: Optional[int] = None
-    actual_s: Optional[int] = None
-    energy_kwh: Optional[float] = None
-    db_session_id: Optional[int] = None
-    charging_type: Optional[str] = None
+    start_local: datetime | None = None
+    soc_start: int | None = None
+    soc_end: int | None = None
+    actual_s: int | None = None
+    energy_kwh: float | None = None
+    db_session_id: int | None = None
+    charging_type: str | None = None
 
 
 @dataclass
@@ -90,7 +92,7 @@ class ImportReport:
         return [a for a in self.actions if a.action == "skip"]
 
 
-def _fmt_dur(seconds: Optional[int]) -> str:
+def _fmt_dur(seconds: int | None) -> str:
     if not seconds:
         return "—"
     mins = seconds // 60
@@ -115,19 +117,20 @@ def format_report(report: ImportReport) -> str:
         ctype = f" {a.charging_type}" if a.charging_type else ""
         lines.append(
             f"  {tag:6}{target:>5}  {when}  {soc:>10} {energy:>6}  actual {actual:>6}{ctype}"
-            f"   — {a.reason}")
+            f"   — {a.reason}"
+        )
     return "\n".join(lines)
 
 
 def _utc(value: str) -> datetime:
-    return datetime.strptime(value.strip(), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    return datetime.strptime(value.strip(), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
 
 
 def _to_local_naive(dt_utc: datetime) -> datetime:
     return dt_utc.astimezone(LONDON).replace(tzinfo=None)
 
 
-def _int(value: str) -> Optional[int]:
+def _int(value: str) -> int | None:
     value = (value or "").strip()
     if not value:
         return None
@@ -137,7 +140,7 @@ def _int(value: str) -> Optional[int]:
         return None
 
 
-def _float(value: str) -> Optional[float]:
+def _float(value: str) -> float | None:
     value = (value or "").strip()
     if not value:
         return None
@@ -157,15 +160,17 @@ def parse_csv_rows(dict_rows: Iterable[dict]) -> list[CsvRow]:
         start_local = _to_local_naive(_utc(started))
         ended = r.get("Session ended")
         end_local = _to_local_naive(_utc(ended)) if ended else None
-        out.append(CsvRow(
-            session_id=(r.get("Session ID") or "").strip(),
-            start_local=start_local,
-            end_local=end_local,
-            actual_s=_int(r.get("Actual charging time (s)")),
-            energy_kwh=_float(r.get("Total energy (kWh)")),
-            soc_start=_int(r.get("Initial state of charge (%)")),
-            soc_end=_int(r.get("Final state of charge (%)")),
-        ))
+        out.append(
+            CsvRow(
+                session_id=(r.get("Session ID") or "").strip(),
+                start_local=start_local,
+                end_local=end_local,
+                actual_s=_int(r.get("Actual charging time (s)")),
+                energy_kwh=_float(r.get("Total energy (kWh)")),
+                soc_start=_int(r.get("Initial state of charge (%)")),
+                soc_end=_int(r.get("Final state of charge (%)")),
+            )
+        )
     return out
 
 
@@ -174,7 +179,7 @@ def load_csv(path: str) -> list[CsvRow]:
         return parse_csv_rows(csv.DictReader(f))
 
 
-def parse_location_map(spec: Optional[str]) -> dict[date_cls, int]:
+def parse_location_map(spec: str | None) -> dict[date_cls, int]:
     """Parse a `YYYY-MM-DD=location_id,...` spec into a date->location_id map.
 
     Used to assign a location to *inserted* (missing) sessions by their local
@@ -201,13 +206,13 @@ def _classify_type(row: CsvRow) -> str:
     return "unknown"
 
 
-def _soc_distance(row: CsvRow, cs: ChargingSession) -> Optional[int]:
+def _soc_distance(row: CsvRow, cs: ChargingSession) -> int | None:
     if row.soc_start is None or row.soc_end is None:
         return None
     return abs(cs.start_soc - row.soc_start) + abs(cs.end_soc - row.soc_end)
 
 
-def _start_diff_min(row: CsvRow, cs: ChargingSession) -> Optional[float]:
+def _start_diff_min(row: CsvRow, cs: ChargingSession) -> float | None:
     if cs.charge_start_at is None:
         return None
     db_start = cs.charge_start_at.replace(tzinfo=None)
@@ -218,10 +223,12 @@ def _available(cs: ChargingSession, used: set[int]) -> bool:
     return cs.id not in used and cs.telematics_session_id is None
 
 
-def _best_match(row: CsvRow, candidates: list[ChargingSession], used: set[int]) -> Optional[ChargingSession]:
+def _best_match(
+    row: CsvRow, candidates: list[ChargingSession], used: set[int]
+) -> ChargingSession | None:
     """Tier 1: close SoC endpoints AND close start time."""
-    best: Optional[ChargingSession] = None
-    best_key: Optional[tuple[int, float]] = None
+    best: ChargingSession | None = None
+    best_key: tuple[int, float] | None = None
     for cs in candidates:
         if not _available(cs, used):
             continue
@@ -237,7 +244,9 @@ def _best_match(row: CsvRow, candidates: list[ChargingSession], used: set[int]) 
     return best
 
 
-def _fallback_match(row: CsvRow, candidates: list[ChargingSession], used: set[int]) -> Optional[ChargingSession]:
+def _fallback_match(
+    row: CsvRow, candidates: list[ChargingSession], used: set[int]
+) -> ChargingSession | None:
     """Tier 2: same local calendar day + matching end-SoC + close energy.
 
     Catches rows whose start SoC was mis-entered, or whose CSV plug-in time is
@@ -245,8 +254,8 @@ def _fallback_match(row: CsvRow, candidates: list[ChargingSession], used: set[in
     (which differ on final SoC) from cross-matching."""
     if row.soc_end is None or row.energy_kwh is None:
         return None
-    best: Optional[ChargingSession] = None
-    best_key: Optional[tuple[int, float]] = None
+    best: ChargingSession | None = None
+    best_key: tuple[int, float] | None = None
     for cs in candidates:
         if not _available(cs, used) or cs.charge_start_at is None:
             continue
@@ -263,8 +272,12 @@ def _fallback_match(row: CsvRow, candidates: list[ChargingSession], used: set[in
 
 
 async def _build_insert(
-    session: AsyncSession, *, user_id: int, car_id: int, row: CsvRow,
-    location_id: Optional[int] = None,
+    session: AsyncSession,
+    *,
+    user_id: int,
+    car_id: int,
+    row: CsvRow,
+    location_id: int | None = None,
 ) -> ChargingSession:
     from ..api.routes.sessions import _derive_kwh_calculated
     from .cost_apply import apply_cost
@@ -293,9 +306,13 @@ async def _build_insert(
 
 
 async def run_import(
-    session: AsyncSession, *, user_id: int, car_id: int,
-    rows: list[CsvRow], apply: bool,
-    location_by_date: Optional[dict[date_cls, int]] = None,
+    session: AsyncSession,
+    *,
+    user_id: int,
+    car_id: int,
+    rows: list[CsvRow],
+    apply: bool,
+    location_by_date: dict[date_cls, int] | None = None,
 ) -> ImportReport:
     """Plan (and, when `apply`, perform) the backfill. Caller commits.
 
@@ -307,22 +324,31 @@ async def run_import(
 
     lo = min(r.start_local for r in rows).date() - timedelta(days=1)
     hi = max(r.start_local for r in rows).date() + timedelta(days=1)
-    existing = list((await session.execute(
-        select(ChargingSession).where(
-            ChargingSession.user_id == user_id,
-            ChargingSession.car_id == car_id,
-            ChargingSession.date >= lo,
-            ChargingSession.date <= hi,
+    existing = list(
+        (
+            await session.execute(
+                select(ChargingSession).where(
+                    ChargingSession.user_id == user_id,
+                    ChargingSession.car_id == car_id,
+                    ChargingSession.date >= lo,
+                    ChargingSession.date <= hi,
+                )
+            )
         )
-    )).scalars().all())
+        .scalars()
+        .all()
+    )
     by_sid = {cs.telematics_session_id: cs for cs in existing if cs.telematics_session_id}
     used: set[int] = set()
 
     for row in rows:
         base = dict(
-            session_id=row.session_id, start_local=row.start_local,
-            soc_start=row.soc_start, soc_end=row.soc_end,
-            actual_s=row.actual_s, energy_kwh=row.energy_kwh,
+            session_id=row.session_id,
+            start_local=row.start_local,
+            soc_start=row.soc_start,
+            soc_end=row.soc_end,
+            actual_s=row.actual_s,
+            energy_kwh=row.energy_kwh,
         )
         linked = by_sid.get(row.session_id) if row.session_id else None
         if linked is not None:
@@ -330,12 +356,20 @@ async def run_import(
             if linked.actual_charge_seconds is None and row.actual_s is not None:
                 if apply:
                     linked.actual_charge_seconds = row.actual_s
-                report.actions.append(RowAction(
-                    action="update", reason="linked; filled actual charge time",
-                    db_session_id=linked.id, **base))
+                report.actions.append(
+                    RowAction(
+                        action="update",
+                        reason="linked; filled actual charge time",
+                        db_session_id=linked.id,
+                        **base,
+                    )
+                )
             else:
-                report.actions.append(RowAction(
-                    action="skip", reason="already imported", db_session_id=linked.id, **base))
+                report.actions.append(
+                    RowAction(
+                        action="skip", reason="already imported", db_session_id=linked.id, **base
+                    )
+                )
             continue
 
         match = _best_match(row, existing, used) or _fallback_match(row, existing, used)
@@ -345,22 +379,29 @@ async def run_import(
                 if match.actual_charge_seconds is None:
                     match.actual_charge_seconds = row.actual_s
                 match.telematics_session_id = row.session_id or None
-            report.actions.append(RowAction(
-                action="update",
-                reason=f"matched #{match.id} ({match.start_soc}->{match.end_soc}%)",
-                db_session_id=match.id, charging_type=match.charging_type, **base))
+            report.actions.append(
+                RowAction(
+                    action="update",
+                    reason=f"matched #{match.id} ({match.start_soc}->{match.end_soc}%)",
+                    db_session_id=match.id,
+                    charging_type=match.charging_type,
+                    **base,
+                )
+            )
         else:
             ctype = _classify_type(row)
             loc_id = (location_by_date or {}).get(row.start_local.date())
             if apply:
                 cs = await _build_insert(
-                    session, user_id=user_id, car_id=car_id, row=row, location_id=loc_id)
+                    session, user_id=user_id, car_id=car_id, row=row, location_id=loc_id
+                )
                 session.add(cs)
             reason = "no match — new session"
             if loc_id is not None:
                 reason += f" @ location {loc_id}"
-            report.actions.append(RowAction(
-                action="insert", reason=reason, charging_type=ctype, **base))
+            report.actions.append(
+                RowAction(action="insert", reason=reason, charging_type=ctype, **base)
+            )
 
     if apply:
         await session.flush()

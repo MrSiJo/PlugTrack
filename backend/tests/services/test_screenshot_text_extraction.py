@@ -1,9 +1,10 @@
 # backend/tests/services/test_screenshot_text_extraction.py
 import httpx
 import pytest
-
 from plugtrack.services.screenshot_extraction import (
-    ExtractionResult, build_text_request_payload, extract_from_text,
+    ExtractionResult,
+    build_text_request_payload,
+    extract_from_text,
 )
 
 
@@ -21,13 +22,21 @@ def test_text_payload_uses_input_text_and_schema():
 def _resp(content):
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.url.path == "/v1/responses"
-        return httpx.Response(200, json={
-            "status": "completed",
-            "output": [{"type": "message",
-                        "content": [{"type": "output_text", "text": content}]}],
-            "usage": {"input_tokens": 40, "output_tokens": 30,
-                      "output_tokens_details": {"reasoning_tokens": 0}},
-        })
+        return httpx.Response(
+            200,
+            json={
+                "status": "completed",
+                "output": [
+                    {"type": "message", "content": [{"type": "output_text", "text": content}]}
+                ],
+                "usage": {
+                    "input_tokens": 40,
+                    "output_tokens": 30,
+                    "output_tokens_details": {"reasoning_tokens": 0},
+                },
+            },
+        )
+
     return handler
 
 
@@ -40,7 +49,9 @@ async def test_extract_from_text_parses_home_note():
         '"network":null,"peak_kw":null,"confidence":0.9}'
     )
     async with httpx.AsyncClient(transport=httpx.MockTransport(_resp(content))) as c:
-        res = await extract_from_text("home 9.3kwh 8h31m", api_key="sk", model="gpt-5-mini", client=c)
+        res = await extract_from_text(
+            "home 9.3kwh 8h31m", api_key="sk", model="gpt-5-mini", client=c
+        )
     assert isinstance(res, ExtractionResult)
     assert res.extraction.energy_kwh == 9.3
     assert res.extraction.location_name == "home"
@@ -56,7 +67,9 @@ async def test_extract_from_text_non_charge_returns_zero_confidence():
         '"network":null,"peak_kw":null,"confidence":0.0}'
     )
     async with httpx.AsyncClient(transport=httpx.MockTransport(_resp(content))) as c:
-        res = await extract_from_text("how much did I spend?", api_key="sk", model="gpt-5-mini", client=c)
+        res = await extract_from_text(
+            "how much did I spend?", api_key="sk", model="gpt-5-mini", client=c
+        )
     assert res.extraction.confidence == 0.0
     assert res.extraction.energy_kwh is None
 
@@ -71,7 +84,9 @@ async def test_extract_from_text_parses_odometer():
         '"odometer":12345,"odometer_unit":"mi"}'
     )
     async with httpx.AsyncClient(transport=httpx.MockTransport(_resp(content))) as c:
-        res = await extract_from_text("home 12345mi 9.3kwh 8h31m", api_key="sk", model="gpt-5-mini", client=c)
+        res = await extract_from_text(
+            "home 12345mi 9.3kwh 8h31m", api_key="sk", model="gpt-5-mini", client=c
+        )
     assert res.extraction.odometer == 12345
     assert res.extraction.odometer_unit == "mi"
     assert res.extraction.energy_kwh == 9.3

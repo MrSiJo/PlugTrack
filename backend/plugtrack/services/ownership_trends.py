@@ -45,12 +45,12 @@ DC preference: when ≥3 DC qualifying charges exist, use ONLY the DC subset
 (DC is less affected by charging losses than AC). Falls back to all qualifying
 when fewer than 3 DC charges qualify.
 """
+
 from __future__ import annotations
 
 import calendar
 import datetime as dt
 import statistics
-from typing import Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,7 +84,10 @@ def _month_key(d: dt.date) -> str:
 
 
 async def _distinct_months(
-    session: AsyncSession, *, user_id: int, car_id: int,
+    session: AsyncSession,
+    *,
+    user_id: int,
+    car_id: int,
 ) -> list[tuple[int, int]]:
     """Return sorted list of (year, month) tuples with ≥1 session."""
     stmt = (
@@ -106,14 +109,11 @@ async def _distinct_months(
 async def _session_count_in_month(
     session: AsyncSession, *, user_id: int, car_id: int, lo: dt.date, hi: dt.date
 ) -> int:
-    stmt = (
-        select(func.count(ChargingSession.id))
-        .where(
-            ChargingSession.user_id == user_id,
-            ChargingSession.car_id == car_id,
-            ChargingSession.date >= lo,
-            ChargingSession.date <= hi,
-        )
+    stmt = select(func.count(ChargingSession.id)).where(
+        ChargingSession.user_id == user_id,
+        ChargingSession.car_id == car_id,
+        ChargingSession.date >= lo,
+        ChargingSession.date <= hi,
     )
     return (await session.execute(stmt)).scalar_one() or 0
 
@@ -162,8 +162,8 @@ async def efficiency_by_month(
         month_miles = sum(m for (d, m, _e) in cycles if lo <= d <= hi)
         month_energy = sum(e for (d, _m, e) in cycles if lo <= d <= hi)
 
-        mi_per_kwh: Optional[float] = None
-        derived_range_km: Optional[float] = None
+        mi_per_kwh: float | None = None
+        derived_range_km: float | None = None
 
         if month_miles > 0 and month_energy > 0:
             mi_per_kwh = month_miles / month_energy
@@ -183,7 +183,7 @@ async def efficiency_by_month(
     return out
 
 
-def seasonal_delta(points: list[dict]) -> Optional[dict]:
+def seasonal_delta(points: list[dict]) -> dict | None:
     """Best vs worst month comparison from efficiency_by_month output.
 
     Requires ≥2 data points with non-None mi_per_kwh in *different calendar
@@ -226,9 +226,7 @@ def seasonal_delta(points: list[dict]) -> Optional[dict]:
     }
 
 
-async def _qualifying_charges(
-    session: AsyncSession, *, user_id: int, car_id: int
-) -> list[dict]:
+async def _qualifying_charges(session: AsyncSession, *, user_id: int, car_id: int) -> list[dict]:
     """Fetch all qualifying charges for capacity inference, ordered by date asc.
 
     Qualifying = kwh_added > 0 AND (end_soc - start_soc) >= _MIN_SOC_DELTA.
@@ -320,7 +318,7 @@ async def current_estimated_capacity(
     user_id: int,
     car_id: int,
     battery_kwh: float,
-) -> Optional[float]:
+) -> float | None:
     """Rolling median of the most recent N=10 qualifying charges' usable_kwh.
 
     DC preference: when ≥3 DC qualifying charges exist, use ONLY the most
@@ -351,8 +349,12 @@ async def current_estimated_capacity(
 
 
 async def battery_health_summary(
-    session: AsyncSession, *, user_id: int, car_id: int, battery_kwh: float,
-) -> Optional[dict]:
+    session: AsyncSession,
+    *,
+    user_id: int,
+    car_id: int,
+    battery_kwh: float,
+) -> dict | None:
     """Headline State-of-Health summary derived from the existing capacity
     estimator. Returns None when no battery_kwh or no qualifying charges.
 
@@ -386,7 +388,7 @@ async def seasonal_range_span(
     user_id: int,
     car_id: int,
     battery_kwh: float,
-) -> Optional[dict]:
+) -> dict | None:
     """Min/max/avg derived_range_km across months with non-None range.
 
     Delegates to efficiency_by_month; aggregates the derived_range_km field.
@@ -403,11 +405,7 @@ async def seasonal_range_span(
         session, user_id=user_id, car_id=car_id, battery_kwh=battery_kwh
     )
 
-    ranges = [
-        p["derived_range_km"]
-        for p in pts
-        if p.get("derived_range_km") is not None
-    ]
+    ranges = [p["derived_range_km"] for p in pts if p.get("derived_range_km") is not None]
 
     if not ranges:
         return None

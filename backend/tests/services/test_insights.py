@@ -1,10 +1,10 @@
 """Unit tests for the by-location insights aggregation service."""
+
 from __future__ import annotations
 
 from datetime import date
 
 import pytest
-
 from plugtrack.models import Car, ChargingSession, Location, User
 from plugtrack.services.insights import aggregate_by_location
 
@@ -22,8 +22,11 @@ async def _seed_user(test_sessionmaker, username: str) -> int:
 async def _add_car(test_sessionmaker, user_id: int) -> int:
     async with test_sessionmaker() as s:
         car = Car(
-            user_id=user_id, make="Cupra", model="Born",
-            battery_kwh=77.0, nominal_efficiency_mi_per_kwh=3.6,
+            user_id=user_id,
+            make="Cupra",
+            model="Born",
+            battery_kwh=77.0,
+            nominal_efficiency_mi_per_kwh=3.6,
         )
         s.add(car)
         await s.commit()
@@ -33,7 +36,10 @@ async def _add_car(test_sessionmaker, user_id: int) -> int:
 
 async def _add_location(test_sessionmaker, user_id: int, **kw) -> int:
     defaults = dict(
-        centroid_lat=50.0, centroid_lng=0.0, radius_m=100, visit_count=0,
+        centroid_lat=50.0,
+        centroid_lng=0.0,
+        radius_m=100,
+        visit_count=0,
     )
     defaults.update(kw)
     async with test_sessionmaker() as s:
@@ -45,15 +51,25 @@ async def _add_location(test_sessionmaker, user_id: int, **kw) -> int:
 
 
 async def _add_session(
-    test_sessionmaker, user_id: int, car_id: int, *,
-    location_id: int | None, kwh: float, cost_pence: int | None,
+    test_sessionmaker,
+    user_id: int,
+    car_id: int,
+    *,
+    location_id: int | None,
+    kwh: float,
+    cost_pence: int | None,
     d: str = "2026-06-01",
 ) -> None:
     async with test_sessionmaker() as s:
         cs = ChargingSession(
-            user_id=user_id, car_id=car_id, location_id=location_id,
-            date=date.fromisoformat(d), start_soc=20, end_soc=80,
-            kwh_added=kwh, cost_pence=cost_pence,
+            user_id=user_id,
+            car_id=car_id,
+            location_id=location_id,
+            date=date.fromisoformat(d),
+            start_soc=20,
+            end_soc=80,
+            kwh_added=kwh,
+            cost_pence=cost_pence,
             cost_basis="home_rate" if cost_pence is not None else "unknown",
             source="manual",
         )
@@ -137,8 +153,12 @@ async def test_date_window_bounds_rows(test_sessionmaker):
     uid = await _seed_user(test_sessionmaker, "admin")
     car = await _add_car(test_sessionmaker, uid)
     loc = await _add_location(test_sessionmaker, uid, name="Home")
-    await _add_session(test_sessionmaker, uid, car, location_id=loc, kwh=10.0, cost_pence=100, d="2026-01-01")
-    await _add_session(test_sessionmaker, uid, car, location_id=loc, kwh=10.0, cost_pence=200, d="2026-06-01")
+    await _add_session(
+        test_sessionmaker, uid, car, location_id=loc, kwh=10.0, cost_pence=100, d="2026-01-01"
+    )
+    await _add_session(
+        test_sessionmaker, uid, car, location_id=loc, kwh=10.0, cost_pence=200, d="2026-06-01"
+    )
 
     async with test_sessionmaker() as s:
         result = await aggregate_by_location(
@@ -172,7 +192,9 @@ async def test_labelled_location_with_only_out_of_window_sessions_listed_with_ze
     uid = await _seed_user(test_sessionmaker, "admin")
     car = await _add_car(test_sessionmaker, uid)
     loc = await _add_location(test_sessionmaker, uid, name="Home")
-    await _add_session(test_sessionmaker, uid, car, location_id=loc, kwh=10.0, cost_pence=100, d="2026-01-01")
+    await _add_session(
+        test_sessionmaker, uid, car, location_id=loc, kwh=10.0, cost_pence=100, d="2026-01-01"
+    )
 
     async with test_sessionmaker() as s:
         result = await aggregate_by_location(
@@ -201,9 +223,9 @@ async def test_aggregate_by_location_car_id_filter(test_sessionmaker):
 
     async with test_sessionmaker() as s:
         car1_result = await aggregate_by_location(
-            s, user_id=uid, date_from=None, date_to=None, car_id=car1)
-        both_result = await aggregate_by_location(
-            s, user_id=uid, date_from=None, date_to=None)
+            s, user_id=uid, date_from=None, date_to=None, car_id=car1
+        )
+        both_result = await aggregate_by_location(s, user_id=uid, date_from=None, date_to=None)
 
     by_id_car1 = {r.location_id: r for r in car1_result.rows}
     assert by_id_car1[loc].sessions == 1

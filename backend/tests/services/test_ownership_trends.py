@@ -17,13 +17,13 @@ low_confidence for capacity_trend: AC charges OR total qualifying < 3.
 current_estimated_capacity: rolling median of most recent N=10 qualifying,
 preferring DC when ≥3 DC qualifying charges exist, else falls back to all qualifying.
 """
+
 from __future__ import annotations
 
 import datetime as dt
 import statistics
 
 import pytest
-
 from plugtrack.models import ChargingSession
 from plugtrack.services.mileage_tracking import KM_PER_MILE
 
@@ -57,9 +57,7 @@ async def _mk(
                 cost_basis="home_rate" if cost_pence is not None else "unknown",
                 source="manual",
                 odometer_at_session_km=odometer_km,
-                charge_end_at=dt.datetime.combine(
-                    when, dt.time(12, 0), tzinfo=dt.timezone.utc
-                ),
+                charge_end_at=dt.datetime.combine(when, dt.time(12, 0), tzinfo=dt.UTC),
             )
         )
         await s.commit()
@@ -83,27 +81,47 @@ async def test_efficiency_by_month_basic(test_sessionmaker, seeded_user_car):
 
     # December anchor (before Jan window): 1000 km
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2025, 12, 31), kwh=1.0, odometer_km=1000.0,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2025, 12, 31),
+        kwh=1.0,
+        odometer_km=1000.0,
     )
     # January sessions: two so it's not sparse; end odo = 1000 + 100 mi
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 1, 10), kwh=12.5, odometer_km=1000.0 + 50 * KM_PER_MILE,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 1, 10),
+        kwh=12.5,
+        odometer_km=1000.0 + 50 * KM_PER_MILE,
     )
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 1, 20), kwh=12.5, odometer_km=1000.0 + 100 * KM_PER_MILE,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 1, 20),
+        kwh=12.5,
+        odometer_km=1000.0 + 100 * KM_PER_MILE,
     )
 
     # February sessions: two, driven +50 mi more (anchor = Jan 20 odo)
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 2, 5), kwh=10.0, odometer_km=1000.0 + 120 * KM_PER_MILE,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 2, 5),
+        kwh=10.0,
+        odometer_km=1000.0 + 120 * KM_PER_MILE,
     )
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 2, 20), kwh=10.0, odometer_km=1000.0 + 150 * KM_PER_MILE,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 2, 20),
+        kwh=10.0,
+        odometer_km=1000.0 + 150 * KM_PER_MILE,
     )
 
     from plugtrack.services.ownership_trends import efficiency_by_month
@@ -132,13 +150,21 @@ async def test_efficiency_by_month_low_confidence_sparse(test_sessionmaker, seed
 
     # Anchor before Jan
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2025, 12, 31), kwh=1.0, odometer_km=500.0,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2025, 12, 31),
+        kwh=1.0,
+        odometer_km=500.0,
     )
     # Single session in Jan
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 1, 10), kwh=15.0, odometer_km=600.0,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 1, 10),
+        kwh=15.0,
+        odometer_km=600.0,
     )
 
     from plugtrack.services.ownership_trends import efficiency_by_month
@@ -157,12 +183,20 @@ async def test_efficiency_by_month_no_odometer_is_none(test_sessionmaker, seeded
     uid, car = seeded_user_car
 
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 3, 1), kwh=20.0, odometer_km=None,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 3, 1),
+        kwh=20.0,
+        odometer_km=None,
     )
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 3, 15), kwh=20.0, odometer_km=None,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 3, 15),
+        kwh=20.0,
+        odometer_km=None,
     )
 
     from plugtrack.services.ownership_trends import efficiency_by_month
@@ -185,8 +219,13 @@ async def test_efficiency_by_month_per_car_isolation(test_sessionmaker, seeded_u
 
     async with test_sessionmaker() as s:
         car2_obj = Car(
-            user_id=uid, make="T", model="M", battery_kwh=40.0,
-            nominal_efficiency_mi_per_kwh=3.5, provider="manual", active=True,
+            user_id=uid,
+            make="T",
+            model="M",
+            battery_kwh=40.0,
+            nominal_efficiency_mi_per_kwh=3.5,
+            provider="manual",
+            active=True,
         )
         s.add(car2_obj)
         await s.commit()
@@ -195,12 +234,20 @@ async def test_efficiency_by_month_per_car_isolation(test_sessionmaker, seeded_u
 
     # car2 only
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car2,
-        when=dt.date(2026, 4, 10), kwh=30.0, odometer_km=2000.0,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car2,
+        when=dt.date(2026, 4, 10),
+        kwh=30.0,
+        odometer_km=2000.0,
     )
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car2,
-        when=dt.date(2026, 4, 20), kwh=30.0, odometer_km=2200.0,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car2,
+        when=dt.date(2026, 4, 20),
+        kwh=30.0,
+        odometer_km=2200.0,
     )
 
     from plugtrack.services.ownership_trends import efficiency_by_month
@@ -234,7 +281,9 @@ def test_seasonal_delta_none_with_one_point():
     """Single point → None."""
     from plugtrack.services.ownership_trends import seasonal_delta
 
-    pts = [{"period": "2026-01", "mi_per_kwh": 3.5, "derived_range_km": 200.0, "low_confidence": False}]
+    pts = [
+        {"period": "2026-01", "mi_per_kwh": 3.5, "derived_range_km": 200.0, "low_confidence": False}
+    ]
     assert seasonal_delta(pts) is None
 
 
@@ -243,7 +292,12 @@ def test_seasonal_delta_none_with_one_non_none():
     from plugtrack.services.ownership_trends import seasonal_delta
 
     pts = [
-        {"period": "2026-01", "mi_per_kwh": 3.5, "derived_range_km": 200.0, "low_confidence": False},
+        {
+            "period": "2026-01",
+            "mi_per_kwh": 3.5,
+            "derived_range_km": 200.0,
+            "low_confidence": False,
+        },
         {"period": "2026-02", "mi_per_kwh": None, "derived_range_km": None, "low_confidence": True},
     ]
     assert seasonal_delta(pts) is None
@@ -254,8 +308,18 @@ def test_seasonal_delta_best_vs_worst_two_months():
     from plugtrack.services.ownership_trends import seasonal_delta
 
     pts = [
-        {"period": "2026-01", "mi_per_kwh": 3.0, "derived_range_km": 174.0, "low_confidence": False},
-        {"period": "2026-07", "mi_per_kwh": 4.5, "derived_range_km": 261.0, "low_confidence": False},
+        {
+            "period": "2026-01",
+            "mi_per_kwh": 3.0,
+            "derived_range_km": 174.0,
+            "low_confidence": False,
+        },
+        {
+            "period": "2026-07",
+            "mi_per_kwh": 4.5,
+            "derived_range_km": 261.0,
+            "low_confidence": False,
+        },
     ]
     result = seasonal_delta(pts)
     assert result is not None
@@ -272,8 +336,18 @@ def test_seasonal_delta_same_month_two_points():
     from plugtrack.services.ownership_trends import seasonal_delta
 
     pts = [
-        {"period": "2025-06", "mi_per_kwh": 4.0, "derived_range_km": 232.0, "low_confidence": False},
-        {"period": "2026-06", "mi_per_kwh": 3.8, "derived_range_km": 220.0, "low_confidence": False},
+        {
+            "period": "2025-06",
+            "mi_per_kwh": 4.0,
+            "derived_range_km": 232.0,
+            "low_confidence": False,
+        },
+        {
+            "period": "2026-06",
+            "mi_per_kwh": 3.8,
+            "derived_range_km": 220.0,
+            "low_confidence": False,
+        },
     ]
     result = seasonal_delta(pts)
     assert result is not None
@@ -286,9 +360,19 @@ def test_seasonal_delta_ignores_none_mi_per_kwh():
     from plugtrack.services.ownership_trends import seasonal_delta
 
     pts = [
-        {"period": "2026-01", "mi_per_kwh": 3.0, "derived_range_km": 174.0, "low_confidence": False},
+        {
+            "period": "2026-01",
+            "mi_per_kwh": 3.0,
+            "derived_range_km": 174.0,
+            "low_confidence": False,
+        },
         {"period": "2026-04", "mi_per_kwh": None, "derived_range_km": None, "low_confidence": True},
-        {"period": "2026-07", "mi_per_kwh": 4.5, "derived_range_km": 261.0, "low_confidence": False},
+        {
+            "period": "2026-07",
+            "mi_per_kwh": 4.5,
+            "derived_range_km": 261.0,
+            "low_confidence": False,
+        },
     ]
     result = seasonal_delta(pts)
     assert result is not None
@@ -308,16 +392,26 @@ async def test_capacity_trend_qualifying_filter(test_sessionmaker, seeded_user_c
 
     # NON-qualifying: 30% delta
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 2, 1), kwh=17.4, ctype="dc",
-        start_soc=50, end_soc=80,  # only 30% delta → excluded
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 2, 1),
+        kwh=17.4,
+        ctype="dc",
+        start_soc=50,
+        end_soc=80,  # only 30% delta → excluded
     )
 
     # QUALIFYING: 50% delta, 29 kWh → usable = 29 / 0.50 = 58.0
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 3, 1), kwh=29.0, ctype="dc",
-        start_soc=20, end_soc=70,  # 50% delta → included
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 3, 1),
+        kwh=29.0,
+        ctype="dc",
+        start_soc=20,
+        end_soc=70,  # 50% delta → included
     )
 
     from plugtrack.services.ownership_trends import capacity_trend
@@ -338,9 +432,14 @@ async def test_capacity_trend_usable_kwh_formula(test_sessionmaker, seeded_user_
 
     # 29 kWh over 50% delta → 58.0
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 5, 10), kwh=29.0, ctype="dc",
-        start_soc=10, end_soc=60,  # 50% delta
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 5, 10),
+        kwh=29.0,
+        ctype="dc",
+        start_soc=10,
+        end_soc=60,  # 50% delta
     )
 
     from plugtrack.services.ownership_trends import capacity_trend
@@ -358,9 +457,14 @@ async def test_capacity_trend_ac_is_low_confidence(test_sessionmaker, seeded_use
     uid, car = seeded_user_car
 
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 4, 5), kwh=29.0, ctype="ac",
-        start_soc=10, end_soc=60,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 4, 5),
+        kwh=29.0,
+        ctype="ac",
+        start_soc=10,
+        end_soc=60,
     )
 
     from plugtrack.services.ownership_trends import capacity_trend
@@ -380,14 +484,24 @@ async def test_capacity_trend_dc_few_is_low_confidence(test_sessionmaker, seeded
 
     # Only 2 qualifying DC charges total
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 4, 1), kwh=29.0, ctype="dc",
-        start_soc=10, end_soc=60,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 4, 1),
+        kwh=29.0,
+        ctype="dc",
+        start_soc=10,
+        end_soc=60,
     )
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 4, 2), kwh=28.0, ctype="dc",
-        start_soc=15, end_soc=65,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 4, 2),
+        kwh=28.0,
+        ctype="dc",
+        start_soc=15,
+        end_soc=65,
     )
 
     from plugtrack.services.ownership_trends import capacity_trend
@@ -407,9 +521,14 @@ async def test_capacity_trend_dc_3_or_more_not_low_confidence(test_sessionmaker,
 
     for i in range(3):
         await _mk(
-            test_sessionmaker, user_id=uid, car_id=car,
-            when=dt.date(2026, 5, i + 1), kwh=29.0, ctype="dc",
-            start_soc=10, end_soc=60,
+            test_sessionmaker,
+            user_id=uid,
+            car_id=car,
+            when=dt.date(2026, 5, i + 1),
+            kwh=29.0,
+            ctype="dc",
+            start_soc=10,
+            end_soc=60,
         )
 
     from plugtrack.services.ownership_trends import capacity_trend
@@ -428,9 +547,14 @@ async def test_capacity_trend_excludes_zero_kwh(test_sessionmaker, seeded_user_c
 
     # kwh=0 → should be excluded
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 6, 1), kwh=0.0, ctype="dc",
-        start_soc=10, end_soc=80,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 6, 1),
+        kwh=0.0,
+        ctype="dc",
+        start_soc=10,
+        end_soc=80,
     )
 
     from plugtrack.services.ownership_trends import capacity_trend
@@ -449,9 +573,14 @@ async def test_capacity_trend_ordered_by_date(test_sessionmaker, seeded_user_car
     dates = [dt.date(2026, 3, 15), dt.date(2026, 1, 5), dt.date(2026, 2, 20)]
     for d in dates:
         await _mk(
-            test_sessionmaker, user_id=uid, car_id=car,
-            when=d, kwh=29.0, ctype="dc",
-            start_soc=10, end_soc=60,
+            test_sessionmaker,
+            user_id=uid,
+            car_id=car,
+            when=d,
+            kwh=29.0,
+            ctype="dc",
+            start_soc=10,
+            end_soc=60,
         )
 
     from plugtrack.services.ownership_trends import capacity_trend
@@ -469,7 +598,9 @@ async def test_capacity_trend_ordered_by_date(test_sessionmaker, seeded_user_car
 
 
 @pytest.mark.asyncio
-async def test_current_estimated_capacity_none_when_no_qualifying(test_sessionmaker, seeded_user_car):
+async def test_current_estimated_capacity_none_when_no_qualifying(
+    test_sessionmaker, seeded_user_car
+):
     """No qualifying charges → None."""
     uid, car = seeded_user_car
 
@@ -489,17 +620,27 @@ async def test_current_estimated_capacity_dc_preferred(test_sessionmaker, seeded
     # 3 DC charges: usable_kwh = 58.0 each
     for i in range(3):
         await _mk(
-            test_sessionmaker, user_id=uid, car_id=car,
-            when=dt.date(2026, 6, i + 1), kwh=29.0, ctype="dc",
-            start_soc=10, end_soc=60,
+            test_sessionmaker,
+            user_id=uid,
+            car_id=car,
+            when=dt.date(2026, 6, i + 1),
+            kwh=29.0,
+            ctype="dc",
+            start_soc=10,
+            end_soc=60,
         )
 
     # 2 AC charges: usable_kwh = 60.0 each (should be ignored when DC preferred)
     for i in range(2):
         await _mk(
-            test_sessionmaker, user_id=uid, car_id=car,
-            when=dt.date(2026, 7, i + 1), kwh=30.0, ctype="ac",
-            start_soc=10, end_soc=60,
+            test_sessionmaker,
+            user_id=uid,
+            car_id=car,
+            when=dt.date(2026, 7, i + 1),
+            kwh=30.0,
+            ctype="ac",
+            start_soc=10,
+            end_soc=60,
         )
 
     from plugtrack.services.ownership_trends import current_estimated_capacity
@@ -518,20 +659,35 @@ async def test_current_estimated_capacity_fallback_to_ac(test_sessionmaker, seed
 
     # Only 2 DC qualifying
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 6, 1), kwh=29.0, ctype="dc",
-        start_soc=10, end_soc=60,  # usable=58
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 6, 1),
+        kwh=29.0,
+        ctype="dc",
+        start_soc=10,
+        end_soc=60,  # usable=58
     )
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 6, 2), kwh=28.0, ctype="dc",
-        start_soc=10, end_soc=60,  # usable=56
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 6, 2),
+        kwh=28.0,
+        ctype="dc",
+        start_soc=10,
+        end_soc=60,  # usable=56
     )
     # 1 AC qualifying
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 7, 1), kwh=30.0, ctype="ac",
-        start_soc=10, end_soc=60,  # usable=60
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 7, 1),
+        kwh=30.0,
+        ctype="ac",
+        start_soc=10,
+        end_soc=60,  # usable=60
     )
 
     from plugtrack.services.ownership_trends import current_estimated_capacity
@@ -554,15 +710,25 @@ async def test_current_estimated_capacity_rolling_median(test_sessionmaker, seed
     # The rolling window (N=10) should capture only the recent 10 (usable=58)
     for i in range(2):
         await _mk(
-            test_sessionmaker, user_id=uid, car_id=car,
-            when=dt.date(2025, 1, i + 1), kwh=20.0, ctype="dc",
-            start_soc=10, end_soc=60,  # usable=40
+            test_sessionmaker,
+            user_id=uid,
+            car_id=car,
+            when=dt.date(2025, 1, i + 1),
+            kwh=20.0,
+            ctype="dc",
+            start_soc=10,
+            end_soc=60,  # usable=40
         )
     for i in range(10):
         await _mk(
-            test_sessionmaker, user_id=uid, car_id=car,
-            when=dt.date(2026, 3, i + 1), kwh=29.0, ctype="dc",
-            start_soc=10, end_soc=60,  # usable=58
+            test_sessionmaker,
+            user_id=uid,
+            car_id=car,
+            when=dt.date(2026, 3, i + 1),
+            kwh=29.0,
+            ctype="dc",
+            start_soc=10,
+            end_soc=60,  # usable=58
         )
 
     from plugtrack.services.ownership_trends import current_estimated_capacity
@@ -586,9 +752,14 @@ async def test_battery_health_none_when_no_battery_kwh(test_sessionmaker, seeded
 
     # A qualifying charge exists, but battery_kwh is invalid.
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 5, 1), kwh=29.0, ctype="dc",
-        start_soc=10, end_soc=60,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 5, 1),
+        kwh=29.0,
+        ctype="dc",
+        start_soc=10,
+        end_soc=60,
     )
 
     from plugtrack.services.ownership_trends import battery_health_summary
@@ -605,9 +776,14 @@ async def test_battery_health_none_when_no_qualifying(test_sessionmaker, seeded_
 
     # Non-qualifying charge (30% delta only).
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 5, 1), kwh=17.4, ctype="dc",
-        start_soc=50, end_soc=80,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 5, 1),
+        kwh=17.4,
+        ctype="dc",
+        start_soc=50,
+        end_soc=80,
     )
 
     from plugtrack.services.ownership_trends import battery_health_summary
@@ -627,9 +803,14 @@ async def test_battery_health_happy_path(test_sessionmaker, seeded_user_car):
     # 3 DC charges: 28.5 kWh over 50% delta → usable_kwh = 57.0 each.
     for i in range(3):
         await _mk(
-            test_sessionmaker, user_id=uid, car_id=car,
-            when=dt.date(2026, 6, i + 1), kwh=28.5, ctype="dc",
-            start_soc=10, end_soc=60,
+            test_sessionmaker,
+            user_id=uid,
+            car_id=car,
+            when=dt.date(2026, 6, i + 1),
+            kwh=28.5,
+            ctype="dc",
+            start_soc=10,
+            end_soc=60,
         )
 
     from plugtrack.services.ownership_trends import battery_health_summary
@@ -655,9 +836,14 @@ async def test_battery_health_caps_soh_at_100(test_sessionmaker, seeded_user_car
     # 3 DC charges: 29 kWh over 50% delta → usable_kwh = 58.0 each (> 50 nominal).
     for i in range(3):
         await _mk(
-            test_sessionmaker, user_id=uid, car_id=car,
-            when=dt.date(2026, 6, i + 1), kwh=29.0, ctype="dc",
-            start_soc=10, end_soc=60,
+            test_sessionmaker,
+            user_id=uid,
+            car_id=car,
+            when=dt.date(2026, 6, i + 1),
+            kwh=29.0,
+            ctype="dc",
+            start_soc=10,
+            end_soc=60,
         )
 
     from plugtrack.services.ownership_trends import battery_health_summary
@@ -680,9 +866,14 @@ async def test_battery_health_low_confidence_below_threshold(test_sessionmaker, 
     # Only 2 qualifying charges.
     for i in range(2):
         await _mk(
-            test_sessionmaker, user_id=uid, car_id=car,
-            when=dt.date(2026, 6, i + 1), kwh=29.0, ctype="dc",
-            start_soc=10, end_soc=60,
+            test_sessionmaker,
+            user_id=uid,
+            car_id=car,
+            when=dt.date(2026, 6, i + 1),
+            kwh=29.0,
+            ctype="dc",
+            start_soc=10,
+            end_soc=60,
         )
 
     from plugtrack.services.ownership_trends import battery_health_summary
@@ -702,9 +893,14 @@ async def test_battery_health_low_confidence_false_at_threshold(test_sessionmake
 
     for i in range(3):
         await _mk(
-            test_sessionmaker, user_id=uid, car_id=car,
-            when=dt.date(2026, 6, i + 1), kwh=29.0, ctype="dc",
-            start_soc=10, end_soc=60,
+            test_sessionmaker,
+            user_id=uid,
+            car_id=car,
+            when=dt.date(2026, 6, i + 1),
+            kwh=29.0,
+            ctype="dc",
+            start_soc=10,
+            end_soc=60,
         )
 
     from plugtrack.services.ownership_trends import battery_health_summary
@@ -747,28 +943,48 @@ async def test_seasonal_range_span_min_max_avg(test_sessionmaker, seeded_user_ca
 
     # Dec 2025 anchor (before Jan window)
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2025, 12, 31), kwh=1.0, odometer_km=1000.0,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2025, 12, 31),
+        kwh=1.0,
+        odometer_km=1000.0,
     )
     # Jan: two sessions, +100 mi → 4.0 mi/kWh
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 1, 10), kwh=12.5, odometer_km=1000.0 + 50 * KM_PER_MILE,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 1, 10),
+        kwh=12.5,
+        odometer_km=1000.0 + 50 * KM_PER_MILE,
     )
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 1, 20), kwh=12.5, odometer_km=1000.0 + 100 * KM_PER_MILE,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 1, 20),
+        kwh=12.5,
+        odometer_km=1000.0 + 100 * KM_PER_MILE,
     )
 
     # Feb anchor (before Mar window): last Jan odo is the anchor
     # March: two sessions, +50 mi → 2.5 mi/kWh (20 kWh total)
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 3, 5), kwh=10.0, odometer_km=1000.0 + 120 * KM_PER_MILE,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 3, 5),
+        kwh=10.0,
+        odometer_km=1000.0 + 120 * KM_PER_MILE,
     )
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 3, 20), kwh=10.0, odometer_km=1000.0 + 150 * KM_PER_MILE,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 3, 20),
+        kwh=10.0,
+        odometer_km=1000.0 + 150 * KM_PER_MILE,
     )
     # Feb has no sessions so the March window anchor = Jan 20 odo (1000+100mi km)
     # Mar driven = (1000+150mi) - (1000+100mi) = 50 mi; kwh=20 → 2.5 mi/kWh
@@ -799,27 +1015,47 @@ async def test_seasonal_range_span_skips_none_months(test_sessionmaker, seeded_u
 
     # Dec anchor before Jan window
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2025, 12, 31), kwh=1.0, odometer_km=1000.0,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2025, 12, 31),
+        kwh=1.0,
+        odometer_km=1000.0,
     )
     # Jan: two sessions with odometer → 4.0 mi/kWh
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 1, 10), kwh=12.5, odometer_km=1000.0 + 50 * KM_PER_MILE,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 1, 10),
+        kwh=12.5,
+        odometer_km=1000.0 + 50 * KM_PER_MILE,
     )
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 1, 20), kwh=12.5, odometer_km=1000.0 + 100 * KM_PER_MILE,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 1, 20),
+        kwh=12.5,
+        odometer_km=1000.0 + 100 * KM_PER_MILE,
     )
 
     # Feb: no odometer → range=None
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 2, 10), kwh=20.0, odometer_km=None,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 2, 10),
+        kwh=20.0,
+        odometer_km=None,
     )
     await _mk(
-        test_sessionmaker, user_id=uid, car_id=car,
-        when=dt.date(2026, 2, 20), kwh=20.0, odometer_km=None,
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car,
+        when=dt.date(2026, 2, 20),
+        kwh=20.0,
+        odometer_km=None,
     )
 
     from plugtrack.services.ownership_trends import seasonal_range_span

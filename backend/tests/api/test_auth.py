@@ -1,11 +1,12 @@
 """Tests for /api/auth/login and /api/auth/logout."""
+
 from __future__ import annotations
 
 import pytest
-
 from plugtrack.api.auth_middleware import SESSION_COOKIE_NAME
 from plugtrack.api.login_throttle import login_throttle
 from plugtrack.services.auth_service import bootstrap_user
+
 from tests.api.conftest import csrf_headers
 
 

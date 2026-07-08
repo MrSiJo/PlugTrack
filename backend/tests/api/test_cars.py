@@ -1,4 +1,5 @@
 """Tests for /api/cars CRUD."""
+
 from __future__ import annotations
 
 import pytest
@@ -38,9 +39,7 @@ async def test_car_round_trip_with_vin(authed_client):
         "provider": "cupra_connect",
         "provider_vehicle_id": "abc-123",
     }
-    r = await authed_client.post(
-        "/api/cars", json=payload, headers=csrf_headers(authed_client)
-    )
+    r = await authed_client.post("/api/cars", json=payload, headers=csrf_headers(authed_client))
     assert r.status_code == 201, r.text
     body = r.json()
     car_id = body["id"]
@@ -170,9 +169,7 @@ async def test_delete_car(authed_client):
     )
     car_id = create.json()["id"]
 
-    r = await authed_client.delete(
-        f"/api/cars/{car_id}", headers=csrf_headers(authed_client)
-    )
+    r = await authed_client.delete(f"/api/cars/{car_id}", headers=csrf_headers(authed_client))
     assert r.status_code == 204
 
     r = await authed_client.get(f"/api/cars/{car_id}")
@@ -183,11 +180,10 @@ async def test_delete_car(authed_client):
 async def test_cross_user_isolation(app, test_sessionmaker):
     """User A cannot read or modify user B's cars."""
     from httpx import ASGITransport, AsyncClient
-
     from plugtrack.api.auth_middleware import SESSION_COOKIE_NAME, make_serializer
-    from plugtrack.security.csrf import CSRF_COOKIE_NAME
     from plugtrack.models import User
     from plugtrack.security.crypto import hash_password
+    from plugtrack.security.csrf import CSRF_COOKIE_NAME
     from plugtrack.services.auth_service import bootstrap_user
 
     async with app.router.lifespan_context(app):
@@ -205,11 +201,10 @@ async def test_cross_user_isolation(app, test_sessionmaker):
         token_b = serializer.dumps({"user_id": user_b.id})
 
         transport = ASGITransport(app=app)
-        async with AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client_a, AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client_b:
+        async with (
+            AsyncClient(transport=transport, base_url="http://testserver") as client_a,
+            AsyncClient(transport=transport, base_url="http://testserver") as client_b,
+        ):
             client_a.cookies.set(SESSION_COOKIE_NAME, token_a)
             client_b.cookies.set(SESSION_COOKIE_NAME, token_b)
             # Prime CSRF for both.
@@ -281,9 +276,9 @@ async def test_list_cars_masks_vin(authed_client):
     assert r.status_code == 200
     vin = r.json()[0]["vin"]
     assert vin is not None
-    assert "VSSZZZK1ZNP" not in vin          # body hidden
-    assert vin.endswith("23456")             # last 5 preserved
-    assert vin != "VSSZZZK1ZNP123456"        # not the full string
+    assert "VSSZZZK1ZNP" not in vin  # body hidden
+    assert vin.endswith("23456")  # last 5 preserved
+    assert vin != "VSSZZZK1ZNP123456"  # not the full string
 
 
 @pytest.mark.asyncio
@@ -342,17 +337,20 @@ async def test_reveal_vin_rejects_non_owner(app, authed_client, other_user_heade
 
 def test_mask_vin_none_returns_none():
     from plugtrack.api.routes.cars import _mask_vin
+
     assert _mask_vin(None) is None
 
 
 def test_mask_vin_empty_string_returns_none():
     from plugtrack.api.routes.cars import _mask_vin
+
     assert _mask_vin("") is None
 
 
 def test_mask_vin_short_string_fully_masked():
     """A VIN of 3 chars must be returned fully masked — no original chars."""
     from plugtrack.api.routes.cars import _mask_vin
+
     result = _mask_vin("ABC")
     assert result == "···"
     assert "A" not in result
@@ -363,6 +361,7 @@ def test_mask_vin_short_string_fully_masked():
 def test_mask_vin_exactly_five_chars_fully_masked():
     """A VIN of exactly 5 chars must be fully masked, not partially revealed."""
     from plugtrack.api.routes.cars import _mask_vin
+
     result = _mask_vin("ABCDE")
     assert result == "·····"
 
@@ -370,6 +369,7 @@ def test_mask_vin_exactly_five_chars_fully_masked():
 def test_mask_vin_standard_17_char_vin():
     """A standard 17-char VIN keeps its last 5 and masks the first 12."""
     from plugtrack.api.routes.cars import _mask_vin
+
     vin = "VSSZZZK1ZNP123456"
     result = _mask_vin(vin)
     assert result is not None
@@ -502,7 +502,8 @@ async def test_update_car_name(authed_client):
 async def test_delete_car_with_sessions_returns_409(authed_client, test_sessionmaker):
     """DELETE a car that has charging sessions must return 409 with the count."""
     from datetime import date as date_cls
-    from plugtrack.models import Car, ChargingSession, User
+
+    from plugtrack.models import Car, ChargingSession
     from sqlalchemy import select
 
     # Create a car via the API.
@@ -537,9 +538,7 @@ async def test_delete_car_with_sessions_returns_409(authed_client, test_sessionm
         )
         await session.commit()
 
-    r = await authed_client.delete(
-        f"/api/cars/{car_id}", headers=csrf_headers(authed_client)
-    )
+    r = await authed_client.delete(f"/api/cars/{car_id}", headers=csrf_headers(authed_client))
     assert r.status_code == 409, r.text
     detail = r.json()["detail"]
     assert "1" in detail
@@ -552,6 +551,7 @@ async def test_delete_car_without_sessions_removes_mileage_year_rows(
 ):
     """DELETE a zero-session car deletes its car_mileage_year rows and returns 204."""
     from datetime import date as date_cls
+
     from plugtrack.models import Car, CarMileageYear
     from sqlalchemy import select
 
@@ -586,18 +586,16 @@ async def test_delete_car_without_sessions_removes_mileage_year_rows(
         await session.commit()
 
     # Delete should succeed with 204.
-    r = await authed_client.delete(
-        f"/api/cars/{car_id}", headers=csrf_headers(authed_client)
-    )
+    r = await authed_client.delete(f"/api/cars/{car_id}", headers=csrf_headers(authed_client))
     assert r.status_code == 204, r.text
 
     # Confirm car_mileage_year rows are gone.
     async with test_sessionmaker() as session:
         rows = (
-            await session.execute(
-                select(CarMileageYear).where(CarMileageYear.car_id == car_id)
-            )
-        ).scalars().all()
+            (await session.execute(select(CarMileageYear).where(CarMileageYear.car_id == car_id)))
+            .scalars()
+            .all()
+        )
     assert rows == [], f"Expected no car_mileage_year rows, found {len(rows)}"
 
 
@@ -606,9 +604,9 @@ async def test_delete_another_users_car_returns_404(app, test_sessionmaker):
     """Attempting to delete a car owned by a different user returns 404."""
     from httpx import ASGITransport, AsyncClient
     from plugtrack.api.auth_middleware import SESSION_COOKIE_NAME, make_serializer
-    from plugtrack.security.csrf import CSRF_COOKIE_NAME
     from plugtrack.models import User
     from plugtrack.security.crypto import hash_password
+    from plugtrack.security.csrf import CSRF_COOKIE_NAME
     from plugtrack.services.auth_service import bootstrap_user
 
     async with app.router.lifespan_context(app):
@@ -627,11 +625,10 @@ async def test_delete_another_users_car_returns_404(app, test_sessionmaker):
         token_b = serializer.dumps({"user_id": user_b.id})
 
         transport = ASGITransport(app=app)
-        async with AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client_a, AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client_b:
+        async with (
+            AsyncClient(transport=transport, base_url="http://testserver") as client_a,
+            AsyncClient(transport=transport, base_url="http://testserver") as client_b,
+        ):
             client_a.cookies.set(SESSION_COOKIE_NAME, token_a)
             client_b.cookies.set(SESSION_COOKIE_NAME, token_b)
 
@@ -673,30 +670,42 @@ async def test_delete_another_users_car_returns_404(app, test_sessionmaker):
 async def test_car_lifetime_basic(authed_client, test_sessionmaker):
     """GET /api/cars/{id}/lifetime returns lifetime stats for the car."""
     from datetime import date as date_cls
-    from plugtrack.models import Car, ChargingSession, User
+
+    from plugtrack.models import Car, ChargingSession
     from sqlalchemy import select
 
     # Create car via API
     r = await authed_client.post(
         "/api/cars",
-        json={"make": "Cupra", "model": "Born",
-              "battery_kwh": 58.0, "nominal_efficiency_mi_per_kwh": 3.5},
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 3.5,
+        },
         headers=csrf_headers(authed_client),
     )
     assert r.status_code == 201, r.text
     car_id = r.json()["id"]
 
     async with test_sessionmaker() as session:
-        car = (await session.execute(
-            select(Car).where(Car.id == car_id)
-        )).scalar_one()
+        car = (await session.execute(select(Car).where(Car.id == car_id))).scalar_one()
         user_id = car.user_id
-        session.add(ChargingSession(
-            user_id=user_id, car_id=car_id,
-            date=date_cls(2026, 3, 1), start_soc=20, end_soc=80,
-            kwh_added=10.0, charging_type="ac", charging_mode="manual",
-            cost_pence=200, cost_basis="home_rate", source="manual",
-        ))
+        session.add(
+            ChargingSession(
+                user_id=user_id,
+                car_id=car_id,
+                date=date_cls(2026, 3, 1),
+                start_soc=20,
+                end_soc=80,
+                kwh_added=10.0,
+                charging_type="ac",
+                charging_mode="manual",
+                cost_pence=200,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await session.commit()
 
     r = await authed_client.get(f"/api/cars/{car_id}/lifetime")
@@ -722,8 +731,12 @@ async def test_car_lifetime_404_for_other_user(app, authed_client, test_sessionm
     # Create a car as authed_client (user A)
     r = await authed_client.post(
         "/api/cars",
-        json={"make": "Cupra", "model": "Born",
-              "battery_kwh": 58.0, "nominal_efficiency_mi_per_kwh": 3.5},
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 3.5,
+        },
         headers=csrf_headers(authed_client),
     )
     assert r.status_code == 201
@@ -817,29 +830,41 @@ async def test_update_car_max_ac_dc_kw(authed_client):
 async def test_car_lifetime_archived_car(authed_client, test_sessionmaker):
     """GET /api/cars/{id}/lifetime works for archived (active=False) cars."""
     from datetime import date as date_cls
-    from plugtrack.models import Car, ChargingSession, User
+
+    from plugtrack.models import Car, ChargingSession
     from sqlalchemy import select
 
     # Create car via API, then archive it
     r = await authed_client.post(
         "/api/cars",
-        json={"make": "Cupra", "model": "Born",
-              "battery_kwh": 58.0, "nominal_efficiency_mi_per_kwh": 3.5},
+        json={
+            "make": "Cupra",
+            "model": "Born",
+            "battery_kwh": 58.0,
+            "nominal_efficiency_mi_per_kwh": 3.5,
+        },
         headers=csrf_headers(authed_client),
     )
     car_id = r.json()["id"]
 
     async with test_sessionmaker() as session:
-        car = (await session.execute(
-            select(Car).where(Car.id == car_id)
-        )).scalar_one()
+        car = (await session.execute(select(Car).where(Car.id == car_id))).scalar_one()
         user_id = car.user_id
-        session.add(ChargingSession(
-            user_id=user_id, car_id=car_id,
-            date=date_cls(2025, 6, 1), start_soc=10, end_soc=90,
-            kwh_added=50.0, charging_type="ac", charging_mode="manual",
-            cost_pence=1000, cost_basis="home_rate", source="manual",
-        ))
+        session.add(
+            ChargingSession(
+                user_id=user_id,
+                car_id=car_id,
+                date=date_cls(2025, 6, 1),
+                start_soc=10,
+                end_soc=90,
+                kwh_added=50.0,
+                charging_type="ac",
+                charging_mode="manual",
+                cost_pence=1000,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await session.commit()
 
     # Archive the car

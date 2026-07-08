@@ -7,20 +7,20 @@ Covers:
 - GET  /api/maintenance/export/sessions (csv/json, user isolation, bad format)
 - Unauthenticated requests → 401
 """
+
 from __future__ import annotations
 
-import asyncio
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 
 import pytest
 
 from tests.api.conftest import csrf_headers
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _today() -> str:
     return date.today().isoformat()
@@ -29,6 +29,7 @@ def _today() -> str:
 # ---------------------------------------------------------------------------
 # POST /api/maintenance/backup
 # ---------------------------------------------------------------------------
+
 
 def _make_real_sqlite(path: Path) -> Path:
     """Create a minimal but valid SQLite database file at *path*."""
@@ -78,8 +79,8 @@ async def test_backup_prunes_to_retention(authed_client, test_sessionmaker, tmp_
     backup after inserting backup_retention=1 in the DB.  The prune should
     remove the older file, leaving only the newest.
     """
-    from plugtrack.services import backup as backup_svc
     from plugtrack.models import Setting
+    from plugtrack.services import backup as backup_svc
 
     monkeypatch.setattr(backup_svc, "_data_dir", lambda: tmp_path)
     fake_db = _make_real_sqlite(tmp_path / "plugtrack.db")
@@ -91,24 +92,30 @@ async def test_backup_prunes_to_retention(authed_client, test_sessionmaker, tmp_
 
     # Insert backup_retention=1 directly into the test DB.
     async with test_sessionmaker() as session:
-        row = (await session.execute(
-            __import__("sqlalchemy").select(Setting).where(Setting.key == "backup_retention")
-        )).scalar_one_or_none()
+        row = (
+            await session.execute(
+                __import__("sqlalchemy").select(Setting).where(Setting.key == "backup_retention")
+            )
+        ).scalar_one_or_none()
         if row is not None:
             row.value = "1"
         else:
-            session.add(Setting(
-                key="backup_retention",
-                value="1",
-                value_type="integer",
-                group_name="maintenance",
-                label="Backup retention",
-            ))
+            session.add(
+                Setting(
+                    key="backup_retention",
+                    value="1",
+                    value_type="integer",
+                    group_name="maintenance",
+                    label="Backup retention",
+                )
+            )
         await session.commit()
 
     # Patch the route's datetime so the second backup gets a distinct timestamp.
+    from unittest.mock import MagicMock, patch
+
     import plugtrack.api.routes.maintenance as maint_routes
-    from unittest.mock import patch, MagicMock
+
     fixed_dt = MagicMock()
     fixed_dt.now.return_value.strftime.return_value = "20260619T120000"
     with patch.object(maint_routes, "datetime", fixed_dt):
@@ -137,6 +144,7 @@ async def test_backup_requires_auth(seeded_client):
 # ---------------------------------------------------------------------------
 # GET /api/maintenance/backups
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_list_backups_empty(authed_client, tmp_path, monkeypatch):
@@ -181,6 +189,7 @@ async def test_list_backups_requires_auth(seeded_client):
 # ---------------------------------------------------------------------------
 # GET /api/maintenance/backups/{name}/download
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_download_valid_backup(authed_client, tmp_path, monkeypatch):
@@ -233,23 +242,20 @@ async def test_download_valid_pattern_nonexistent(authed_client, tmp_path, monke
 
     monkeypatch.setattr(backup_svc, "_data_dir", lambda: tmp_path)
 
-    r = await authed_client.get(
-        "/api/maintenance/backups/plugtrack-20260101T000000.db/download"
-    )
+    r = await authed_client.get("/api/maintenance/backups/plugtrack-20260101T000000.db/download")
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_download_requires_auth(seeded_client):
-    r = await seeded_client.get(
-        "/api/maintenance/backups/plugtrack-20260101T000000.db/download"
-    )
+    r = await seeded_client.get("/api/maintenance/backups/plugtrack-20260101T000000.db/download")
     assert r.status_code == 401
 
 
 # ---------------------------------------------------------------------------
 # GET /api/maintenance/export/sessions
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_export_sessions_csv(authed_client, tmp_path, monkeypatch):
@@ -295,7 +301,9 @@ async def test_export_sessions_bad_format(authed_client):
 
 
 @pytest.mark.asyncio
-async def test_export_sessions_user_isolation(authed_client, app, other_user_headers, test_sessionmaker):
+async def test_export_sessions_user_isolation(
+    authed_client, app, other_user_headers, test_sessionmaker
+):
     """Session belonging to user A must NOT appear in user B's export.
 
     We insert a ChargingSession for user A (the authed_client user) directly
@@ -303,13 +311,15 @@ async def test_export_sessions_user_isolation(authed_client, app, other_user_hea
     authenticated as user B, and assert user A's session data is absent.
     """
     from datetime import date as date_cls
+
     from httpx import ASGITransport, AsyncClient
-    from plugtrack.models import Car, ChargingSession, User
     from plugtrack.api.auth_middleware import SESSION_COOKIE_NAME
+    from plugtrack.models import Car, ChargingSession, User
 
     # Pull user A's id from the DB (authed_client user = "admin").
     async with test_sessionmaker() as session:
         from sqlalchemy import select
+
         users = (await session.execute(select(User))).scalars().all()
         admin_user = next(u for u in users if u.username == "admin")
         user_a_id = admin_user.id

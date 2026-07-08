@@ -9,16 +9,16 @@ every safe (GET/HEAD/OPTIONS) response. Mutating verbs
 EXEMPT_PATHS bypasses the check entirely. Adding a path here weakens
 CSRF — requires explicit user sign-off.
 """
+
 from __future__ import annotations
 
 import base64
 import secrets
-from typing import Iterable
+from collections.abc import Iterable
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-
 
 CSRF_COOKIE_NAME = "plugtrack_csrf"
 CSRF_HEADER_NAME = "X-CSRF-Token"
@@ -60,12 +60,8 @@ class CsrfMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         method = request.method.upper()
         path = request.url.path
-        is_exempt = (
-            path in self.exempt_paths
-            or any(
-                path == prefix or path.startswith(prefix + "/")
-                for prefix in _CSRF_EXEMPT_PREFIXES
-            )
+        is_exempt = path in self.exempt_paths or any(
+            path == prefix or path.startswith(prefix + "/") for prefix in _CSRF_EXEMPT_PREFIXES
         )
 
         if method not in SAFE_METHODS and not is_exempt:

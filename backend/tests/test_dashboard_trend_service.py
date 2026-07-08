@@ -1,10 +1,10 @@
 """Tests for `dashboard_trend.compute_spend_trend`."""
+
 from __future__ import annotations
 
 from datetime import date, timedelta
 
 import pytest
-
 from plugtrack.models import Car, ChargingSession, User
 from plugtrack.services.dashboard_trend import compute_spend_trend
 
@@ -65,9 +65,7 @@ async def test_empty_returns_zero_filled_window(test_sessionmaker) -> None:
     today = date(2026, 5, 5)
 
     async with test_sessionmaker() as s:
-        result = await compute_spend_trend(
-            s, user_id=user.id, days=7, today=today
-        )
+        result = await compute_spend_trend(s, user_id=user.id, days=7, today=today)
 
     assert len(result) == 7
     assert result[0].date == date(2026, 4, 29)
@@ -82,22 +80,29 @@ async def test_aggregates_multi_session_days(test_sessionmaker) -> None:
     today = date(2026, 5, 5)
 
     await _make_session(
-        test_sessionmaker, user_id=user.id, car_id=car.id,
-        when=today, cost_pence=400,
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=today,
+        cost_pence=400,
     )
     await _make_session(
-        test_sessionmaker, user_id=user.id, car_id=car.id,
-        when=today, cost_pence=600,
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=today,
+        cost_pence=600,
     )
     await _make_session(
-        test_sessionmaker, user_id=user.id, car_id=car.id,
-        when=today - timedelta(days=2), cost_pence=250,
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=today - timedelta(days=2),
+        cost_pence=250,
     )
 
     async with test_sessionmaker() as s:
-        result = await compute_spend_trend(
-            s, user_id=user.id, days=7, today=today
-        )
+        result = await compute_spend_trend(s, user_id=user.id, days=7, today=today)
 
     assert {d.date: d.cost_pence for d in result} == {
         today - timedelta(days=6): 0,
@@ -119,18 +124,22 @@ async def test_excludes_other_users(test_sessionmaker) -> None:
     today = date(2026, 5, 5)
 
     await _make_session(
-        test_sessionmaker, user_id=alice.id, car_id=alice_car.id,
-        when=today, cost_pence=300,
+        test_sessionmaker,
+        user_id=alice.id,
+        car_id=alice_car.id,
+        when=today,
+        cost_pence=300,
     )
     await _make_session(
-        test_sessionmaker, user_id=bob.id, car_id=bob_car.id,
-        when=today, cost_pence=900,
+        test_sessionmaker,
+        user_id=bob.id,
+        car_id=bob_car.id,
+        when=today,
+        cost_pence=900,
     )
 
     async with test_sessionmaker() as s:
-        result = await compute_spend_trend(
-            s, user_id=alice.id, days=3, today=today
-        )
+        result = await compute_spend_trend(s, user_id=alice.id, days=3, today=today)
 
     assert sum(d.cost_pence for d in result) == 300
 
@@ -142,14 +151,15 @@ async def test_ignores_sessions_outside_window(test_sessionmaker) -> None:
     today = date(2026, 5, 5)
 
     await _make_session(
-        test_sessionmaker, user_id=user.id, car_id=car.id,
-        when=today - timedelta(days=10), cost_pence=999,
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=today - timedelta(days=10),
+        cost_pence=999,
     )
 
     async with test_sessionmaker() as s:
-        result = await compute_spend_trend(
-            s, user_id=user.id, days=7, today=today
-        )
+        result = await compute_spend_trend(s, user_id=user.id, days=7, today=today)
 
     assert all(d.cost_pence == 0 for d in result)
 
@@ -161,13 +171,14 @@ async def test_treats_null_cost_as_zero(test_sessionmaker) -> None:
     today = date(2026, 5, 5)
 
     await _make_session(
-        test_sessionmaker, user_id=user.id, car_id=car.id,
-        when=today, cost_pence=None,
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=today,
+        cost_pence=None,
     )
 
     async with test_sessionmaker() as s:
-        result = await compute_spend_trend(
-            s, user_id=user.id, days=3, today=today
-        )
+        result = await compute_spend_trend(s, user_id=user.id, days=3, today=today)
 
     assert result[-1].cost_pence == 0

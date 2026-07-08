@@ -7,23 +7,23 @@ within TIME_TOLERANCE_MIN. Merge rule (source priority):
   - state-of-charge / power curve                 <- the SoC-bearing extraction
   - start/end times                               <- earliest start, latest end
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 from .screenshot_extraction import Extraction
 
 TIME_TOLERANCE_MIN = 20
 
 
-def _parse_dt(value: Optional[str]) -> Optional[datetime]:
+def _parse_dt(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
     except ValueError:
         return None
 
@@ -31,22 +31,22 @@ def _parse_dt(value: Optional[str]) -> Optional[datetime]:
 @dataclass
 class MergedSession:
     start_at: datetime
-    end_at: Optional[datetime]
-    energy_kwh: Optional[float]
-    cost_total_pence: Optional[int]
-    cost_per_kwh_pence: Optional[float]
-    soc_start: Optional[int]
-    soc_end: Optional[int]
-    location_name: Optional[str]
-    location_address: Optional[str]
-    network: Optional[str]
-    peak_kw: Optional[float]
+    end_at: datetime | None
+    energy_kwh: float | None
+    cost_total_pence: int | None
+    cost_per_kwh_pence: float | None
+    soc_start: int | None
+    soc_end: int | None
+    location_name: str | None
+    location_address: str | None
+    network: str | None
+    peak_kw: float | None
     confidence: float
-    odometer: Optional[float] = None
-    odometer_unit: Optional[str] = None
-    location_short_name: Optional[str] = None
-    actual_charge_seconds: Optional[int] = None
-    power_curve: Optional[list] = None
+    odometer: float | None = None
+    odometer_unit: str | None = None
+    location_short_name: str | None = None
+    actual_charge_seconds: int | None = None
+    power_curve: list | None = None
     source_kinds: list[str] = field(default_factory=list)
 
 
@@ -72,20 +72,29 @@ def _merge(group: list[Extraction]) -> MergedSession:
     return MergedSession(
         start_at=start_at,
         end_at=end_at,
-        energy_kwh=(cost_src.energy_kwh if cost_src else next((e.energy_kwh for e in group if e.energy_kwh is not None), None)),
+        energy_kwh=(
+            cost_src.energy_kwh
+            if cost_src
+            else next((e.energy_kwh for e in group if e.energy_kwh is not None), None)
+        ),
         cost_total_pence=cost_src.cost_total_pence if cost_src else None,
         cost_per_kwh_pence=cost_src.cost_per_kwh_pence if cost_src else None,
         soc_start=soc_src.soc_start if soc_src else None,
         soc_end=soc_src.soc_end if soc_src else None,
-        location_name=pick.location_name or next((e.location_name for e in group if e.location_name), None),
-        location_address=pick.location_address or next((e.location_address for e in group if e.location_address), None),
+        location_name=pick.location_name
+        or next((e.location_name for e in group if e.location_name), None),
+        location_address=pick.location_address
+        or next((e.location_address for e in group if e.location_address), None),
         network=pick.network or next((e.network for e in group if e.network), None),
         peak_kw=next((e.peak_kw for e in group if e.peak_kw is not None), None),
         confidence=min(e.confidence for e in group),
         odometer=odo_src.odometer if odo_src else None,
         odometer_unit=odo_src.odometer_unit if odo_src else None,
-        location_short_name=pick.location_short_name or next((e.location_short_name for e in group if e.location_short_name), None),
-        actual_charge_seconds=next((e.actual_charge_seconds for e in group if e.actual_charge_seconds is not None), None),
+        location_short_name=pick.location_short_name
+        or next((e.location_short_name for e in group if e.location_short_name), None),
+        actual_charge_seconds=next(
+            (e.actual_charge_seconds for e in group if e.actual_charge_seconds is not None), None
+        ),
         power_curve=next((e.power_curve for e in group if e.power_curve), None),
         source_kinds=sorted({e.source for e in group}),
     )

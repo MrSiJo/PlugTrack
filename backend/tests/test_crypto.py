@@ -1,4 +1,5 @@
 """Tests for password hashing + Fernet helpers."""
+
 from __future__ import annotations
 
 import pytest

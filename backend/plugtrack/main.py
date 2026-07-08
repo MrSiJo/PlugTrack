@@ -11,6 +11,7 @@ The lifespan handler:
 3. Calls `seed_defaults` to insert any catalogue rows missing from the
    `setting` table.
 """
+
 from __future__ import annotations
 
 import asyncio as _asyncio
@@ -20,7 +21,7 @@ import os
 import sys
 import tempfile
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -45,6 +46,7 @@ _LOCK_HANDLE = None  # module-level so the lock survives lifespan scope
 # Backup scheduler job — exported so tests can call it directly.
 # ---------------------------------------------------------------------------
 
+
 async def run_scheduled_backup(*, retention: int = 7) -> None:
     """Run one scheduled backup iteration: snapshot + prune.
 
@@ -63,7 +65,7 @@ async def run_scheduled_backup(*, retention: int = 7) -> None:
     from .services import backup as _bk
 
     try:
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H%M%S")
         await _asyncio.to_thread(_bk.create_backup, timestamp)
         await _asyncio.to_thread(_bk.prune_backups, retention)
         _log.info("Scheduled backup completed (retention=%d).", retention)
@@ -105,6 +107,7 @@ async def run_digest_tick(
 
     if now is None:
         from datetime import datetime as _datetime
+
         now = _datetime.now(LONDON)
 
     if sessionmaker is None:
@@ -112,26 +115,30 @@ async def run_digest_tick(
 
     if client_factory is None:
         from .services.telegram_client import TelegramClient as _TC
+
         client_factory = lambda token: _TC(token)  # noqa: E731
 
     if _weekly_builder is None:
         from .services.digest import build_weekly_digest as _bw
+
         _weekly_builder = _bw
 
     if _monthly_builder is None:
         from .services.digest import build_monthly_digest as _bm
+
         _monthly_builder = _bm
 
     client = None
     try:
         from sqlalchemy import select as _select
-        from .models import Setting as _Setting, User as _User
+
+        from .models import Setting as _Setting
+        from .models import User as _User
 
         async with sessionmaker() as session:
             # ── Load all relevant settings into a dict ────────────────────
             rows = {
-                r.key: r.value
-                for r in (await session.execute(_select(_Setting))).scalars().all()
+                r.key: r.value for r in (await session.execute(_select(_Setting))).scalars().all()
             }
 
         def _truthy(v) -> bool:
@@ -162,6 +169,7 @@ async def run_digest_tick(
         try:
             from .bootstrap import get_settings as _gs
             from .security.crypto import decrypt_secret as _ds
+
             token = _ds(raw_token, _gs().app_secret_key)
         except Exception:  # noqa: BLE001
             # In unit tests the token is seeded as plain text — use as-is.
@@ -219,7 +227,9 @@ async def run_digest_tick(
                 #   - weekday > 0 (Tue–Sun, anchor was earlier this week), OR
                 #   - weekday == 0 AND hour >= send_hour (Mon at or after send_hour)
                 weekday = now_local.weekday()  # 0=Mon, 6=Sun
-                weekly_anchor_passed = (weekday > 0) or (weekday == 0 and now_local.hour >= send_hour)
+                weekly_anchor_passed = (weekday > 0) or (
+                    weekday == 0 and now_local.hour >= send_hour
+                )
 
                 last_weekly = rows.get("digest_last_weekly_sent") or ""
 
@@ -233,24 +243,30 @@ async def run_digest_tick(
 
                     # Marker committed only after successful send (or empty period).
                     async with sessionmaker() as session:
-                        marker_row = (await session.execute(
-                            _select(_Setting).where(_Setting.key == "digest_last_weekly_sent")
-                        )).scalar_one_or_none()
+                        marker_row = (
+                            await session.execute(
+                                _select(_Setting).where(_Setting.key == "digest_last_weekly_sent")
+                            )
+                        ).scalar_one_or_none()
                         if marker_row is None:
-                            session.add(_Setting(
-                                key="digest_last_weekly_sent",
-                                value=current_iso_week,
-                                value_type="string",
-                                group_name="telegram",
-                                label="(internal) last weekly digest",
-                                description="",
-                                default_value=None,
-                            ))
+                            session.add(
+                                _Setting(
+                                    key="digest_last_weekly_sent",
+                                    value=current_iso_week,
+                                    value_type="string",
+                                    group_name="telegram",
+                                    label="(internal) last weekly digest",
+                                    description="",
+                                    default_value=None,
+                                )
+                            )
                         else:
                             marker_row.value = current_iso_week
                         await session.commit()
         except Exception:  # noqa: BLE001
-            _log.exception("run_digest_tick: weekly period failed — swallowed; will retry next tick.")
+            _log.exception(
+                "run_digest_tick: weekly period failed — swallowed; will retry next tick."
+            )
 
         # ── MONTHLY ──────────────────────────────────────────────────────
         try:
@@ -273,24 +289,30 @@ async def run_digest_tick(
 
                     # Marker committed only after successful send (or empty period).
                     async with sessionmaker() as session:
-                        marker_row = (await session.execute(
-                            _select(_Setting).where(_Setting.key == "digest_last_monthly_sent")
-                        )).scalar_one_or_none()
+                        marker_row = (
+                            await session.execute(
+                                _select(_Setting).where(_Setting.key == "digest_last_monthly_sent")
+                            )
+                        ).scalar_one_or_none()
                         if marker_row is None:
-                            session.add(_Setting(
-                                key="digest_last_monthly_sent",
-                                value=current_month,
-                                value_type="string",
-                                group_name="telegram",
-                                label="(internal) last monthly digest",
-                                description="",
-                                default_value=None,
-                            ))
+                            session.add(
+                                _Setting(
+                                    key="digest_last_monthly_sent",
+                                    value=current_month,
+                                    value_type="string",
+                                    group_name="telegram",
+                                    label="(internal) last monthly digest",
+                                    description="",
+                                    default_value=None,
+                                )
+                            )
                         else:
                             marker_row.value = current_month
                         await session.commit()
         except Exception:  # noqa: BLE001
-            _log.exception("run_digest_tick: monthly period failed — swallowed; will retry next tick.")
+            _log.exception(
+                "run_digest_tick: monthly period failed — swallowed; will retry next tick."
+            )
 
     except Exception:  # noqa: BLE001
         _log.exception("run_digest_tick failed — swallowed to protect scheduler.")
@@ -336,15 +358,16 @@ def _assert_single_worker() -> None:
     try:
         if os.name == "nt":
             import msvcrt
+
             msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
         else:
             import fcntl
+
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except (OSError, BlockingIOError) as exc:
         handle.close()
         raise RuntimeError(
-            f"Another PlugTrack worker already holds {lock_path}. "
-            "Run with a single worker only."
+            f"Another PlugTrack worker already holds {lock_path}. Run with a single worker only."
         ) from exc
     _LOCK_HANDLE = handle
 
@@ -379,9 +402,7 @@ async def _apply_additive_migrations(conn) -> None:
         cols = (await conn.execute(_text(f"PRAGMA table_info({table})"))).all()
         existing = {row[1] for row in cols}
         if column not in existing:
-            await conn.execute(
-                _text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
-            )
+            await conn.execute(_text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
 
 
 async def reconcile_ai_enabled(session) -> None:
@@ -393,10 +414,18 @@ async def reconcile_ai_enabled(session) -> None:
     still that default, flip it on. Never flips a user-chosen value.
     """
     from sqlalchemy import select
+
     from plugtrack.models.setting import Setting
-    rows = (await session.execute(
-        select(Setting).where(Setting.key.in_(["ai_enabled", "openai_api_key"]))
-    )).scalars().all()
+
+    rows = (
+        (
+            await session.execute(
+                select(Setting).where(Setting.key.in_(["ai_enabled", "openai_api_key"]))
+            )
+        )
+        .scalars()
+        .all()
+    )
     by_key = {r.key: r for r in rows}
     ai = by_key.get("ai_enabled")
     key = by_key.get("openai_api_key")
@@ -411,6 +440,7 @@ async def reconcile_ai_enabled(session) -> None:
 async def _read_bool_setting(session, key: str, default: bool) -> bool:
     """Read a bool setting value from the DB; fall back to `default`."""
     from sqlalchemy import select as _select
+
     from .models import Setting
 
     row = (await session.execute(_select(Setting).where(Setting.key == key))).scalar_one_or_none()
@@ -436,6 +466,7 @@ async def _lifespan(app: FastAPI):
     # owns the long-poll task and reconciles it against DB settings; it stays
     # off until `telegram_bot_enabled` is true (default off).
     from .services.telegram_manager import TelegramBotManager
+
     app.state.telegram_manager = TelegramBotManager(db_module.SessionLocal)
     await app.state.telegram_manager.reconcile()
 
@@ -446,6 +477,7 @@ async def _lifespan(app: FastAPI):
     # during the `yield` that serves requests.  Uses an AsyncExitStack so we
     # can enter it unconditionally (even if None, we just skip it).
     from .mcp import server as _mcp_server_module
+
     _mcp_sm = getattr(_mcp_server_module, "_mcp_session_manager", None)
     _mcp_stack = contextlib.AsyncExitStack()
     if _mcp_sm is not None:
@@ -459,9 +491,6 @@ async def _lifespan(app: FastAPI):
     # requires a restart (acceptable for v1).  Retention is read fresh inside
     # each job invocation so changes apply without a restart.
     # ---------------------------------------------------------------------------
-    from sqlalchemy import select as _select
-    from .models import Setting as _Setting
-
     # ---------------------------------------------------------------------------
     # Unified app-level scheduler.
     # One AsyncIOScheduler is always created so the digest-tick job runs
@@ -470,6 +499,9 @@ async def _lifespan(app: FastAPI):
     # ---------------------------------------------------------------------------
     from apscheduler.schedulers.asyncio import AsyncIOScheduler as _AsyncIOScheduler
     from apscheduler.triggers.interval import IntervalTrigger as _IntervalTrigger
+    from sqlalchemy import select as _select
+
+    from .models import Setting as _Setting
 
     app.state.scheduler = None
     # Keep backward-compat alias so existing code / tests that check
@@ -481,11 +513,17 @@ async def _lifespan(app: FastAPI):
         _bk_interval_hours = 24
         _bk_retention = 7
         if backup_enabled:
-            _bk_interval_row = (await _bk_session.execute(
-                _select(_Setting).where(_Setting.key == "backup_interval_hours")
-            )).scalar_one_or_none()
+            _bk_interval_row = (
+                await _bk_session.execute(
+                    _select(_Setting).where(_Setting.key == "backup_interval_hours")
+                )
+            ).scalar_one_or_none()
             try:
-                _bk_interval_hours = int(_bk_interval_row.value) if _bk_interval_row and _bk_interval_row.value else 24
+                _bk_interval_hours = (
+                    int(_bk_interval_row.value)
+                    if _bk_interval_row and _bk_interval_row.value
+                    else 24
+                )
             except (TypeError, ValueError):
                 _bk_interval_hours = 24
             if _bk_interval_hours < 1:
@@ -495,11 +533,17 @@ async def _lifespan(app: FastAPI):
                 )
                 _bk_interval_hours = 24
 
-            _bk_retention_row = (await _bk_session.execute(
-                _select(_Setting).where(_Setting.key == "backup_retention")
-            )).scalar_one_or_none()
+            _bk_retention_row = (
+                await _bk_session.execute(
+                    _select(_Setting).where(_Setting.key == "backup_retention")
+                )
+            ).scalar_one_or_none()
             try:
-                _bk_retention = int(_bk_retention_row.value) if _bk_retention_row and _bk_retention_row.value else 7
+                _bk_retention = (
+                    int(_bk_retention_row.value)
+                    if _bk_retention_row and _bk_retention_row.value
+                    else 7
+                )
             except (TypeError, ValueError):
                 _bk_retention = 7
 
@@ -522,6 +566,7 @@ async def _lifespan(app: FastAPI):
         #    gates on the mqtt_enabled setting) ─────────────────────────────
         async def _ha_publish_job() -> None:
             from .services.ha_publisher import run_ha_publish_tick
+
             await run_ha_publish_tick(db_module.SessionLocal)
 
         _scheduler.add_job(
@@ -541,9 +586,11 @@ async def _lifespan(app: FastAPI):
                 retention = _bk_retention_default
                 try:
                     async with db_module.SessionLocal() as _s:
-                        _ret_row = (await _s.execute(
-                            _select(_Setting).where(_Setting.key == "backup_retention")
-                        )).scalar_one_or_none()
+                        _ret_row = (
+                            await _s.execute(
+                                _select(_Setting).where(_Setting.key == "backup_retention")
+                            )
+                        ).scalar_one_or_none()
                         if _ret_row and _ret_row.value:
                             try:
                                 retention = int(_ret_row.value)
@@ -571,9 +618,7 @@ async def _lifespan(app: FastAPI):
             f", backup-scheduled={_bk_interval_hours}h" if backup_enabled else "",
         )
     except Exception:  # noqa: BLE001
-        _log.exception(
-            "App scheduler failed to start — continuing without scheduled jobs."
-        )
+        _log.exception("App scheduler failed to start — continuing without scheduled jobs.")
         app.state.scheduler = None
         app.state.backup_scheduler = None
 
@@ -598,7 +643,9 @@ async def _lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="PlugTrack", version="3.12.0", lifespan=_lifespan)  # x-release-please-version
+    app = FastAPI(
+        title="PlugTrack", version="3.12.0", lifespan=_lifespan
+    )  # x-release-please-version
 
     # Slowapi wiring.
     app.state.limiter = limiter
@@ -620,11 +667,11 @@ def create_app() -> FastAPI:
     from .api.routes import insights as insights_routes
     from .api.routes import locations as locations_routes
     from .api.routes import maintenance as maintenance_routes
+    from .api.routes import mcp_tokens as mcp_tokens_routes
     from .api.routes import sessions as sessions_routes
     from .api.routes import settings as settings_routes
     from .api.routes import setup as setup_routes
     from .api.routes import telegram as telegram_routes
-    from .api.routes import mcp_tokens as mcp_tokens_routes
 
     app.include_router(health_routes.router)
     app.include_router(setup_routes.router)
@@ -651,6 +698,7 @@ def create_app() -> FastAPI:
     # managed by passing it through the _McpAuthMiddleware lifespan scope, which
     # the Starlette inner app's lifespan handler handles natively.
     from .mcp.server import build_mcp_app
+
     mcp_asgi_app = build_mcp_app(db_module.SessionLocal)
     app.mount("/mcp", mcp_asgi_app)
 

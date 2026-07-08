@@ -4,6 +4,7 @@ We mock httpx.AsyncClient.get per provider and assert the parsing +
 factory behaviour. Nominatim's rate-limit is tested against a fake
 clock + sleeper so the suite stays fast.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -11,12 +12,11 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-
 from plugtrack.services.geocoding import (
     GeocodeResult,
     MapboxProvider,
-    NoOpProvider,
     NominatimProvider,
+    NoOpProvider,
     OpenCageProvider,
     _RateLimiter,
     get_provider,
@@ -51,9 +51,7 @@ async def test_noop_provider_always_returns_none():
 @pytest.mark.asyncio
 async def test_nominatim_parses_display_name():
     client = AsyncMock(spec=httpx.AsyncClient)
-    client.get.return_value = _mock_response(
-        200, {"display_name": "10 Downing St, London"}
-    )
+    client.get.return_value = _mock_response(200, {"display_name": "10 Downing St, London"})
     provider = NominatimProvider(client=client)
     result = await provider.reverse(51.5034, -0.1276)
     assert result == GeocodeResult(
@@ -226,9 +224,7 @@ def test_factory_returns_nominatim_default():
 
 
 def test_factory_returns_nominatim_explicit():
-    provider = get_provider(
-        {"geocoding_enabled": "true", "geocoding_provider": "nominatim"}
-    )
+    provider = get_provider({"geocoding_enabled": "true", "geocoding_provider": "nominatim"})
     assert isinstance(provider, NominatimProvider)
 
 
@@ -284,8 +280,9 @@ async def test_nominatim_forward_parses_first_hit():
     )
     provider = NominatimProvider(client=client)
     result = await provider.forward("1 Fore Street, Lifton, PL16 0AA")
-    assert result == GeocodeResult(address="Lifton, PL16 0AA", provider="nominatim",
-                                   lat=50.6437, lng=-4.2846)
+    assert result == GeocodeResult(
+        address="Lifton, PL16 0AA", provider="nominatim", lat=50.6437, lng=-4.2846
+    )
     args, kwargs = client.get.call_args
     assert args[0] == NominatimProvider.SEARCH_URL
     assert kwargs["params"]["q"] == "1 Fore Street, Lifton, PL16 0AA"

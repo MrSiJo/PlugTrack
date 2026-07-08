@@ -10,14 +10,15 @@ Covers:
   target's cost config differs.
 - DELETE /api/locations/{id} — sessions preserved with location_id=NULL.
 """
+
 from __future__ import annotations
 
 from datetime import date
 
 import pytest
+from plugtrack.models import ChargingSession, Location, User
 from sqlalchemy import select
 
-from plugtrack.models import ChargingSession, Location, User
 from tests.api.conftest import csrf_headers
 
 
@@ -38,9 +39,7 @@ async def _create_car(client) -> int:
 
 async def _user_id(test_sessionmaker) -> int:
     async with test_sessionmaker() as session:
-        row = (
-            await session.execute(select(User).where(User.username == "admin"))
-        ).scalar_one()
+        row = (await session.execute(select(User).where(User.username == "admin"))).scalar_one()
         return row.id
 
 
@@ -144,9 +143,7 @@ async def test_list_locations_with_aggregates(authed_client, test_sessionmaker):
 
 
 @pytest.mark.asyncio
-async def test_put_location_forward_only_does_not_recompute(
-    authed_client, test_sessionmaker
-):
+async def test_put_location_forward_only_does_not_recompute(authed_client, test_sessionmaker):
     user_id = await _user_id(test_sessionmaker)
     car_id = await _create_car(authed_client)
     loc_id = await _make_location(
@@ -204,9 +201,7 @@ async def test_put_location_404_when_other_user(authed_client, test_sessionmaker
 
 
 @pytest.mark.asyncio
-async def test_recalculate_past_costs_excludes_override_sessions(
-    authed_client, test_sessionmaker
-):
+async def test_recalculate_past_costs_excludes_override_sessions(authed_client, test_sessionmaker):
     user_id = await _user_id(test_sessionmaker)
     car_id = await _create_car(authed_client)
     loc_id = await _make_location(
@@ -238,9 +233,7 @@ async def test_recalculate_past_costs_excludes_override_sessions(
         assert r.status_code == 201
         sids.append(r.json()["id"])
 
-    pre = [
-        (await authed_client.get(f"/api/sessions/{sid}")).json() for sid in sids
-    ]
+    pre = [(await authed_client.get(f"/api/sessions/{sid}")).json() for sid in sids]
 
     # Bump rate via PUT (forward-only), THEN explicit recalc.
     await authed_client.put(
@@ -256,9 +249,7 @@ async def test_recalculate_past_costs_excludes_override_sessions(
     assert r.status_code == 200, r.text
     assert r.json()["sessions_recomputed_count"] == 1
 
-    post = [
-        (await authed_client.get(f"/api/sessions/{sid}")).json() for sid in sids
-    ]
+    post = [(await authed_client.get(f"/api/sessions/{sid}")).json() for sid in sids]
     # Non-override session got recomputed at the new rate.
     assert post[0]["cost_pence"] == round(10.0 * 25.0)
     assert post[0]["tariff_p_per_kwh"] == 25.0
@@ -273,18 +264,24 @@ async def test_recalculate_past_costs_excludes_override_sessions(
 
 
 @pytest.mark.asyncio
-async def test_merge_redirects_sessions_and_plug_ins(
-    authed_client, test_sessionmaker
-):
+async def test_merge_redirects_sessions_and_plug_ins(authed_client, test_sessionmaker):
     user_id = await _user_id(test_sessionmaker)
     car_id = await _create_car(authed_client)
     src_id = await _make_location(
-        test_sessionmaker, user_id, name="A", visit_count=3,
-        centroid_lat=50.0, centroid_lng=0.0,
+        test_sessionmaker,
+        user_id,
+        name="A",
+        visit_count=3,
+        centroid_lat=50.0,
+        centroid_lng=0.0,
     )
     tgt_id = await _make_location(
-        test_sessionmaker, user_id, name="B", visit_count=2,
-        centroid_lat=51.0, centroid_lng=1.0,
+        test_sessionmaker,
+        user_id,
+        name="B",
+        visit_count=2,
+        centroid_lat=51.0,
+        centroid_lng=1.0,
     )
 
     # Two sessions on source.
@@ -326,24 +323,32 @@ async def test_merge_redirects_sessions_and_plug_ins(
 
 
 @pytest.mark.asyncio
-async def test_merge_recomputes_only_when_target_cost_differs(
-    authed_client, test_sessionmaker
-):
+async def test_merge_recomputes_only_when_target_cost_differs(authed_client, test_sessionmaker):
     user_id = await _user_id(test_sessionmaker)
     car_id = await _create_car(authed_client)
     # Source and target both 10p — identical → no recompute.
     src_id = await _make_location(
-        test_sessionmaker, user_id, name="src", default_cost_per_kwh_p=10.0,
+        test_sessionmaker,
+        user_id,
+        name="src",
+        default_cost_per_kwh_p=10.0,
     )
     tgt_id = await _make_location(
-        test_sessionmaker, user_id, name="tgt", default_cost_per_kwh_p=10.0,
-        centroid_lat=51.0, centroid_lng=1.0,
+        test_sessionmaker,
+        user_id,
+        name="tgt",
+        default_cost_per_kwh_p=10.0,
+        centroid_lat=51.0,
+        centroid_lng=1.0,
     )
     create = await authed_client.post(
         "/api/sessions",
         json={
-            "car_id": car_id, "date": date.today().isoformat(),
-            "start_soc": 20, "end_soc": 80, "kwh_added": 10.0,
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
             "location_id": src_id,
         },
         headers=csrf_headers(authed_client),
@@ -364,18 +369,29 @@ async def test_merge_recomputes_only_when_target_cost_differs(
 
     # Now do another merge where costs DO differ.
     src2_id = await _make_location(
-        test_sessionmaker, user_id, name="src2", default_cost_per_kwh_p=10.0,
-        centroid_lat=52.0, centroid_lng=2.0,
+        test_sessionmaker,
+        user_id,
+        name="src2",
+        default_cost_per_kwh_p=10.0,
+        centroid_lat=52.0,
+        centroid_lng=2.0,
     )
     tgt2_id = await _make_location(
-        test_sessionmaker, user_id, name="tgt2", default_cost_per_kwh_p=40.0,
-        centroid_lat=53.0, centroid_lng=3.0,
+        test_sessionmaker,
+        user_id,
+        name="tgt2",
+        default_cost_per_kwh_p=40.0,
+        centroid_lat=53.0,
+        centroid_lng=3.0,
     )
     create2 = await authed_client.post(
         "/api/sessions",
         json={
-            "car_id": car_id, "date": date.today().isoformat(),
-            "start_soc": 20, "end_soc": 80, "kwh_added": 10.0,
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
             "location_id": src2_id,
         },
         headers=csrf_headers(authed_client),
@@ -413,19 +429,23 @@ async def test_merge_self_returns_400(authed_client, test_sessionmaker):
 
 
 @pytest.mark.asyncio
-async def test_delete_location_preserves_sessions(
-    authed_client, test_sessionmaker
-):
+async def test_delete_location_preserves_sessions(authed_client, test_sessionmaker):
     user_id = await _user_id(test_sessionmaker)
     car_id = await _create_car(authed_client)
     loc_id = await _make_location(
-        test_sessionmaker, user_id, name="X", default_cost_per_kwh_p=10.0,
+        test_sessionmaker,
+        user_id,
+        name="X",
+        default_cost_per_kwh_p=10.0,
     )
     create = await authed_client.post(
         "/api/sessions",
         json={
-            "car_id": car_id, "date": date.today().isoformat(),
-            "start_soc": 20, "end_soc": 80, "kwh_added": 10.0,
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 10.0,
             "location_id": loc_id,
         },
         headers=csrf_headers(authed_client),
@@ -525,9 +545,7 @@ async def test_create_location_rejects_out_of_range_coords(authed_client):
 
 
 @pytest.mark.asyncio
-async def test_delete_location_bakes_rate_into_override(
-    authed_client, test_sessionmaker
-):
+async def test_delete_location_bakes_rate_into_override(authed_client, test_sessionmaker):
     """location_rate + location_free sessions are baked into a frozen
     cost_per_kwh_override_p before detach, so a later edit can never silently
     drop them to the home rate."""
@@ -577,9 +595,7 @@ async def test_delete_location_bakes_rate_into_override(
     assert free_s.json()["cost_pence"] == 0
 
     # Delete the paid location → bake into override.
-    r = await authed_client.delete(
-        f"/api/locations/{paid_id}", headers=csrf_headers(authed_client)
-    )
+    r = await authed_client.delete(f"/api/locations/{paid_id}", headers=csrf_headers(authed_client))
     assert r.status_code == 204
     rate_after = (await authed_client.get(f"/api/sessions/{rate_sid}")).json()
     assert rate_after["location_id"] is None

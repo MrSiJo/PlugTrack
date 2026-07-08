@@ -15,9 +15,8 @@ The freeze invariant (spec §3.3 / spec 01):
   cost-precedence rule.  Override bases re-derive from their own frozen
   override columns, which is correct.
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -29,14 +28,12 @@ from .cost import compute_session_cost
 
 
 async def _get_owned_location(
-    session: AsyncSession, location_id: Optional[int], user_id: int
-) -> Optional[Location]:
+    session: AsyncSession, location_id: int | None, user_id: int
+) -> Location | None:
     if location_id is None:
         return None
     result = await session.execute(
-        select(Location).where(
-            Location.id == location_id, Location.user_id == user_id
-        )
+        select(Location).where(Location.id == location_id, Location.user_id == user_id)
     )
     loc = result.scalar_one_or_none()
     if loc is None:

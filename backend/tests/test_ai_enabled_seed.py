@@ -1,8 +1,8 @@
 import pytest
-from sqlalchemy import select
+from plugtrack.main import reconcile_ai_enabled
 from plugtrack.models.setting import Setting
 from plugtrack.settings.seeds import seed_defaults  # real module is seeds (plural)
-from plugtrack.main import reconcile_ai_enabled
+from sqlalchemy import select
 
 
 @pytest.mark.asyncio

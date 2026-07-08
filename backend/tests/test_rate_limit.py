@@ -1,14 +1,14 @@
 """Tests for the slowapi rate limiter."""
+
 from __future__ import annotations
 
 import pytest
 from fastapi import FastAPI, Request, Response
 from httpx import ASGITransport, AsyncClient
+from plugtrack.api.rate_limit import client_ip_key, limiter
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.datastructures import Headers
-
-from plugtrack.api.rate_limit import client_ip_key, limiter
 
 
 class _FakeRequest:

@@ -5,22 +5,21 @@ Lower layer shared by the Insights `/overview` endpoint and the
 Telegram usage-chat (`usage_stats`). These return plain numbers — no
 formatting, no unit conversion. Every query filters by `user_id`.
 """
+
 from __future__ import annotations
 
 import calendar
 import datetime as dt
-from typing import Optional
 
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import ChargingSession
 from . import mileage_tracking
-from .mileage_tracking import KM_PER_MILE
 from .session_metrics import drive_cycles
 
 
-def _base_filter(user_id: int, car_id: Optional[int] = None):
+def _base_filter(user_id: int, car_id: int | None = None):
     filters = [ChargingSession.user_id == user_id]
     if car_id is not None:
         filters.append(ChargingSession.car_id == car_id)
@@ -54,7 +53,7 @@ def _period_bounds(key: str, granularity: str) -> tuple[dt.date, dt.date]:
     return start, start.replace(day=last)
 
 
-def _scope(stmt, *, user_id, date_from, date_to, car_id: Optional[int] = None):
+def _scope(stmt, *, user_id, date_from, date_to, car_id: int | None = None):
     stmt = stmt.where(*_base_filter(user_id, car_id))
     if date_from is not None:
         stmt = stmt.where(ChargingSession.date >= date_from)
@@ -64,9 +63,12 @@ def _scope(stmt, *, user_id, date_from, date_to, car_id: Optional[int] = None):
 
 
 async def window_totals(
-    session: AsyncSession, *, user_id: int,
-    lo: Optional[dt.date], hi: Optional[dt.date],
-    car_id: Optional[int] = None,
+    session: AsyncSession,
+    *,
+    user_id: int,
+    lo: dt.date | None,
+    hi: dt.date | None,
+    car_id: int | None = None,
 ) -> dict:
     """Single-bucket totals for [lo, hi] (None bounds = open-ended)."""
     costed_kwh = func.sum(
@@ -90,25 +92,33 @@ async def window_totals(
 
 
 async def miles_driven_km(
-    session: AsyncSession, *, user_id: int,
-    lo: Optional[dt.date], hi: Optional[dt.date],
-    car_id: Optional[int] = None,
-) -> Optional[float]:
+    session: AsyncSession,
+    *,
+    user_id: int,
+    lo: dt.date | None,
+    hi: dt.date | None,
+    car_id: int | None = None,
+) -> float | None:
     """Distance driven (km) in [lo, hi], summed across cars (or a single car
     when car_id is supplied), from odometer deltas:
     max(odo <= hi) - max(odo <= lo-1day). Lifetime (lo is None) = max - min.
     Returns None when no car has a computable (bounded) delta."""
-    car_id_filter = (
-        [ChargingSession.car_id == car_id] if car_id is not None else []
-    )
+    car_id_filter = [ChargingSession.car_id == car_id] if car_id is not None else []
     car_ids = (
-        await session.execute(
-            select(ChargingSession.car_id)
-            .where(*_base_filter(user_id), ChargingSession.odometer_at_session_km.isnot(None),
-                   *car_id_filter)
-            .distinct()
+        (
+            await session.execute(
+                select(ChargingSession.car_id)
+                .where(
+                    *_base_filter(user_id),
+                    ChargingSession.odometer_at_session_km.isnot(None),
+                    *car_id_filter,
+                )
+                .distinct()
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     total = 0.0
     any_data = False
     for car_id in car_ids:
@@ -146,13 +156,20 @@ async def miles_driven_km(
 
 
 async def spend_energy_over_time(
-    session: AsyncSession, *, user_id: int,
-    date_from: Optional[dt.date], date_to: Optional[dt.date], granularity: str,
-    car_id: Optional[int] = None,
+    session: AsyncSession,
+    *,
+    user_id: int,
+    date_from: dt.date | None,
+    date_to: dt.date | None,
+    granularity: str,
+    car_id: int | None = None,
 ) -> list[dict]:
     stmt = _scope(
         select(ChargingSession.date, ChargingSession.cost_pence, ChargingSession.kwh_added),
-        user_id=user_id, date_from=date_from, date_to=date_to, car_id=car_id,
+        user_id=user_id,
+        date_from=date_from,
+        date_to=date_to,
+        car_id=car_id,
     )
     buckets: dict[str, dict] = {}
     for d, cost, kwh in (await session.execute(stmt)).all():
@@ -162,8 +179,12 @@ async def spend_energy_over_time(
         b["kwh"] += float(kwh or 0.0)
         b["sessions"] += 1
     return [
-        {"period": k, "spend_pence": buckets[k]["spend_pence"],
-         "kwh": round(buckets[k]["kwh"], 3), "sessions": buckets[k]["sessions"]}
+        {
+            "period": k,
+            "spend_pence": buckets[k]["spend_pence"],
+            "kwh": round(buckets[k]["kwh"], 3),
+            "sessions": buckets[k]["sessions"],
+        }
         for k in sorted(buckets)
     ]
 
@@ -171,19 +192,29 @@ async def spend_energy_over_time(
 def _bucket_finalise(b: dict) -> dict:
     avg = round(b["spend_pence"] / b["costed_kwh"], 1) if b["costed_kwh"] > 0 else None
     return {
-        "spend_pence": b["spend_pence"], "kwh": round(b["kwh"], 3),
-        "sessions": b["sessions"], "avg_p_per_kwh": avg,
+        "spend_pence": b["spend_pence"],
+        "kwh": round(b["kwh"], 3),
+        "sessions": b["sessions"],
+        "avg_p_per_kwh": avg,
     }
 
 
 async def home_public_split(
-    session: AsyncSession, *, user_id: int,
-    date_from: Optional[dt.date], date_to: Optional[dt.date],
-    car_id: Optional[int] = None,
+    session: AsyncSession,
+    *,
+    user_id: int,
+    date_from: dt.date | None,
+    date_to: dt.date | None,
+    car_id: int | None = None,
 ) -> dict:
     stmt = _scope(
-        select(ChargingSession.charging_type, ChargingSession.cost_pence, ChargingSession.kwh_added),
-        user_id=user_id, date_from=date_from, date_to=date_to, car_id=car_id,
+        select(
+            ChargingSession.charging_type, ChargingSession.cost_pence, ChargingSession.kwh_added
+        ),
+        user_id=user_id,
+        date_from=date_from,
+        date_to=date_to,
+        car_id=car_id,
     )
 
     def blank():
@@ -204,13 +235,21 @@ async def home_public_split(
 
 
 async def network_breakdown(
-    session: AsyncSession, *, user_id: int,
-    date_from: Optional[dt.date], date_to: Optional[dt.date],
-    car_id: Optional[int] = None,
+    session: AsyncSession,
+    *,
+    user_id: int,
+    date_from: dt.date | None,
+    date_to: dt.date | None,
+    car_id: int | None = None,
 ) -> list[dict]:
     stmt = _scope(
-        select(ChargingSession.charge_network, ChargingSession.cost_pence, ChargingSession.kwh_added),
-        user_id=user_id, date_from=date_from, date_to=date_to, car_id=car_id,
+        select(
+            ChargingSession.charge_network, ChargingSession.cost_pence, ChargingSession.kwh_added
+        ),
+        user_id=user_id,
+        date_from=date_from,
+        date_to=date_to,
+        car_id=car_id,
     )
     _UNKNOWN_VALUES = {"", "unknown", "none", "n/a"}
 
@@ -230,9 +269,13 @@ async def network_breakdown(
 
 
 async def efficiency_over_time(
-    session: AsyncSession, *, user_id: int,
-    date_from: Optional[dt.date], date_to: Optional[dt.date], granularity: str,
-    car_id: Optional[int] = None,
+    session: AsyncSession,
+    *,
+    user_id: int,
+    date_from: dt.date | None,
+    date_to: dt.date | None,
+    granularity: str,
+    car_id: int | None = None,
 ) -> list[dict]:
     """Per-period real-world efficiency, de-spiked.
 
@@ -247,8 +290,13 @@ async def efficiency_over_time(
     `cost_per_mile_p` is the period's charging spend ÷ miles driven that period.
     """
     over = await spend_energy_over_time(
-        session, user_id=user_id, date_from=date_from, date_to=date_to,
-        granularity=granularity, car_id=car_id)
+        session,
+        user_id=user_id,
+        date_from=date_from,
+        date_to=date_to,
+        granularity=granularity,
+        car_id=car_id,
+    )
     # All cycles across full history (so the rolling lifetime includes data
     # before the window). Each is (date, miles, energy_consumed_kwh).
     cycles = await drive_cycles(session, user_id=user_id, car_id=car_id)
@@ -263,36 +311,48 @@ async def efficiency_over_time(
 
         observed = round(period_miles / period_energy, 3) if period_energy > 0 else None
         rolling = round(cum_miles / cum_energy, 3) if cum_energy > 0 else None
-        cost_per_mile = (
-            round(b["spend_pence"] / period_miles, 2) if period_miles > 0 else None
+        cost_per_mile = round(b["spend_pence"] / period_miles, 2) if period_miles > 0 else None
+        out.append(
+            {
+                "period": b["period"],
+                "observed_mi_per_kwh": observed,
+                "rolling_mi_per_kwh": rolling,
+                "cost_per_mile_p": cost_per_mile,
+            }
         )
-        out.append({
-            "period": b["period"],
-            "observed_mi_per_kwh": observed,
-            "rolling_mi_per_kwh": rolling,
-            "cost_per_mile_p": cost_per_mile,
-        })
     return out
 
 
-def _round_or_none(v: Optional[float], digits: int = 1) -> Optional[float]:
+def _round_or_none(v: float | None, digits: int = 1) -> float | None:
     return None if v is None else round(v, digits)
 
 
 async def mileage_allowance_view(
-    session: AsyncSession, *, user_id: int, car_id: int, today: dt.date,
+    session: AsyncSession,
+    *,
+    user_id: int,
+    car_id: int,
+    today: dt.date,
 ) -> dict:
     """Per-car annual-allowance view: used/remaining/projected/pace over the
     active tracking period. Ignores any page date filter — the allowance
     period is what matters. Sourced from mileage_tracking.get_status."""
     empty = {
-        "enabled": False, "car_id": car_id, "period_start": None, "period_end": None,
-        "opening_km": None, "current_km": None, "target_km": None, "used_km": None,
-        "remaining_km": None, "days_elapsed": None, "days_total": None,
-        "projected_year_end_km": None, "pace": None,
+        "enabled": False,
+        "car_id": car_id,
+        "period_start": None,
+        "period_end": None,
+        "opening_km": None,
+        "current_km": None,
+        "target_km": None,
+        "used_km": None,
+        "remaining_km": None,
+        "days_elapsed": None,
+        "days_total": None,
+        "projected_year_end_km": None,
+        "pace": None,
     }
-    status = await mileage_tracking.get_status(
-        session, user_id=user_id, car_id=car_id, today=today)
+    status = await mileage_tracking.get_status(session, user_id=user_id, car_id=car_id, today=today)
     if not status.enabled or status.current_period is None:
         return empty
 
@@ -306,8 +366,8 @@ async def mileage_allowance_view(
     days_elapsed = (today - cp.period_start_date).days + 1
     days_elapsed = max(0, min(days_elapsed, days_total))
 
-    projected_year_end: Optional[float] = None
-    pace: Optional[str] = None
+    projected_year_end: float | None = None
+    pace: str | None = None
     if days_elapsed > 0:
         projected_used = used / days_elapsed * days_total
         projected_year_end = opening + projected_used

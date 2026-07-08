@@ -1,17 +1,16 @@
 """Tests for the session-cookie auth middleware."""
+
 from __future__ import annotations
 
 import pytest
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
-
 from plugtrack.api.auth_middleware import (
     EXEMPT_PATHS,
     SESSION_COOKIE_NAME,
     AuthMiddleware,
     make_serializer,
 )
-
 
 SECRET = "x" * 48
 

@@ -4,11 +4,12 @@ Returns one entry per day in `[start, today]` (inclusive). Days with no
 sessions return `cost_pence=0`. All filtering happens server-side and
 respects multi-user isolation via `user_id`.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date as date_cls, timedelta
-from typing import List
+from datetime import date as date_cls
+from datetime import timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +29,7 @@ async def compute_spend_trend(
     user_id: int,
     days: int = 30,
     today: date_cls | None = None,
-) -> List[SpendDay]:
+) -> list[SpendDay]:
     """Return per-day spend totals for the trailing `days` days.
 
     `today` defaults to `date.today()` and is exposed as a param so tests

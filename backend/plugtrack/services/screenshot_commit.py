@@ -7,11 +7,11 @@ location_id left null (cost comes from the override, not a location rate).
 Dedupe: skip if an existing session for the same car overlaps in time and
 matches energy within tolerance.
 """
+
 from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,11 +26,11 @@ DEDUPE_KWH_TOL = 0.5
 
 
 def map_curve_points(
-    points: Optional[list],
-    secs: Optional[int],
-    soc_start: Optional[int],
-    soc_end: Optional[int],
-) -> Optional[list]:
+    points: list | None,
+    secs: int | None,
+    soc_start: int | None,
+    soc_end: int | None,
+) -> list | None:
     """Map extracted [fraction, kw] points to the renderer's
     [t_seconds, soc, power_kw] triplets, interpolating SoC linearly across the
     charge and stripping leading/trailing zero-power points (pre-charge lead-in
@@ -52,7 +52,7 @@ def map_curve_points(
     return triplets or None
 
 
-def _map_extracted_curve(merged: MergedSession) -> Optional[list]:
+def _map_extracted_curve(merged: MergedSession) -> list | None:
     """Map a MergedSession's extracted curve to renderer triplets, falling back
     to the plug-in window when actual_charge_seconds is unknown."""
     secs = merged.actual_charge_seconds
@@ -64,6 +64,7 @@ def _map_extracted_curve(merged: MergedSession) -> Optional[list]:
 async def distance_unit(session: AsyncSession) -> str:
     """The user-facing distance unit ('mi'/'km') from settings; default 'mi'."""
     from ..models import Setting
+
     row = (
         await session.execute(select(Setting).where(Setting.key == "distance_unit"))
     ).scalar_one_or_none()
@@ -74,15 +75,19 @@ async def _is_duplicate(session: AsyncSession, *, car_id: int, merged: MergedSes
     lo = merged.start_at - timedelta(minutes=DEDUPE_TIME_MIN)
     hi = merged.start_at + timedelta(minutes=DEDUPE_TIME_MIN)
     rows = (
-        await session.execute(
-            select(ChargingSession).where(
-                ChargingSession.car_id == car_id,
-                ChargingSession.charge_start_at.is_not(None),
-                ChargingSession.charge_start_at >= lo,
-                ChargingSession.charge_start_at <= hi,
+        (
+            await session.execute(
+                select(ChargingSession).where(
+                    ChargingSession.car_id == car_id,
+                    ChargingSession.charge_start_at.is_not(None),
+                    ChargingSession.charge_start_at >= lo,
+                    ChargingSession.charge_start_at <= hi,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     target = merged.energy_kwh
     for r in rows:
         if target is None or abs((r.kwh_added or 0.0) - target) <= DEDUPE_KWH_TOL:
@@ -91,11 +96,12 @@ async def _is_duplicate(session: AsyncSession, *, car_id: int, merged: MergedSes
 
 
 async def match_location_by_name(
-    session: AsyncSession, *, user_id: int, name: Optional[str]
-) -> Optional[int]:
+    session: AsyncSession, *, user_id: int, name: str | None
+) -> int | None:
     if not name or not name.strip():
         return None
     from ..models import Location
+
     norm = name.strip().lower()
     row = (
         await session.execute(
@@ -112,9 +118,7 @@ async def match_location_by_name(
     if norm == "home":
         return (
             await session.execute(
-                select(Location.id).where(
-                    Location.user_id == user_id, Location.is_home.is_(True)
-                )
+                select(Location.id).where(Location.user_id == user_id, Location.is_home.is_(True))
             )
         ).scalar_one_or_none()
     return None
@@ -135,7 +139,7 @@ async def _build_session(
     if has_network:
         charging_type = "dc"
     elif has_soc:
-        charging_type = "ac"        # home / AC
+        charging_type = "ac"  # home / AC
     else:
         charging_type = "unknown"
 
@@ -165,11 +169,14 @@ async def _build_session(
     )
 
     # Match a named location (e.g. caption "home") for rate-based costing.
-    cs.location_id = await match_location_by_name(session, user_id=user_id, name=merged.location_name)
+    cs.location_id = await match_location_by_name(
+        session, user_id=user_id, name=merged.location_name
+    )
 
     # Snapshot the location's default network onto the session when the
     # screenshot carried none (e.g. a home charge -> the user's energy supplier).
     from .ingest_location import snapshot_location_network
+
     await snapshot_location_network(session, cs)
 
     # Banked energy from SoC (kwh_calculated). For home/metered-less charges,
@@ -182,6 +189,7 @@ async def _build_session(
 
     if merged.odometer is not None:
         from .mileage_tracking import miles_to_km
+
         unit = (merged.odometer_unit or await distance_unit(session)).lower()
         is_km = unit.startswith("k")
         cs.odometer_at_session_km = (
@@ -202,20 +210,29 @@ async def preview_merged_session(
 
 async def commit_merged_session(
     session: AsyncSession, *, user_id: int, car_id: int, merged: MergedSession
-) -> Optional[ChargingSession]:
+) -> ChargingSession | None:
     if await _is_duplicate(session, car_id=car_id, merged=merged):
         return None
     cs = await _build_session(session, user_id=user_id, car_id=car_id, merged=merged)
     if cs.location_id is None and (merged.location_name or merged.location_address):
         from .ingest_location import compose_location_name, resolve_ingested_location
-        name = merged.location_short_name or compose_location_name(merged.network, merged.location_name)
+
+        name = merged.location_short_name or compose_location_name(
+            merged.network, merged.location_name
+        )
         try:
             loc_id = await resolve_ingested_location(
-                session, user_id=user_id, place_name=name, raw_label=merged.location_name,
-                address=merged.location_address, network=merged.network)
+                session,
+                user_id=user_id,
+                place_name=name,
+                raw_label=merged.location_name,
+                address=merged.location_address,
+                network=merged.network,
+            )
             if loc_id is not None:
                 cs.location_id = loc_id
                 from .ingest_location import snapshot_location_network
+
                 await snapshot_location_network(session, cs)
         except Exception:  # noqa: BLE001 — never abort a Save over geocoding
             logger.exception("ingest location resolution failed; leaving text-only")

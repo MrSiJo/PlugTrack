@@ -1,6 +1,5 @@
 import httpx
 import pytest
-
 from plugtrack.services.openai_admin import (
     ModelInfo,
     OpenAIAuthError,
@@ -11,8 +10,16 @@ from plugtrack.services.openai_admin import (
 )
 
 RAW_IDS = [
-    "gpt-5.5", "gpt-5.5-pro", "gpt-5.4", "gpt-5.4-mini", "gpt-5-mini",
-    "gpt-5-nano", "gpt-5.3-codex", "gpt-5-codex-mini", "gpt-4o", "dall-e-3",
+    "gpt-5.5",
+    "gpt-5.5-pro",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5.3-codex",
+    "gpt-5-codex-mini",
+    "gpt-4o",
+    "dall-e-3",
 ]
 
 

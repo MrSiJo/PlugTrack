@@ -1,4 +1,5 @@
 """Idempotent seeding of the `setting` table from the catalogue."""
+
 from __future__ import annotations
 
 from sqlalchemy import select

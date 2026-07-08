@@ -4,12 +4,12 @@ Tokens are hashed at rest using sha256(app_secret + plaintext). The plaintext
 is returned once from ``mint`` and never stored. Tokens are scoped
 ("read" | "readwrite") and revocable by the owning user only.
 """
+
 from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,21 +55,19 @@ async def mint(
     return row, plaintext
 
 
-async def verify(session: AsyncSession, token: str) -> Optional[MCPToken]:
+async def verify(session: AsyncSession, token: str) -> MCPToken | None:
     """Look up a token by hash; update ``last_used_at`` on a hit.
 
     Returns the ``MCPToken`` row on success, or ``None`` if the token is
     unknown or has been revoked.
     """
     token_hash = hash_token(token)
-    result = await session.execute(
-        select(MCPToken).where(MCPToken.token_hash == token_hash)
-    )
+    result = await session.execute(select(MCPToken).where(MCPToken.token_hash == token_hash))
     row = result.scalar_one_or_none()
     if row is None:
         return None
 
-    row.last_used_at = datetime.now(timezone.utc)
+    row.last_used_at = datetime.now(UTC)
     await session.commit()
     await session.refresh(row)
     return row
@@ -78,9 +76,7 @@ async def verify(session: AsyncSession, token: str) -> Optional[MCPToken]:
 async def list_for_user(session: AsyncSession, user_id: int) -> list[MCPToken]:
     """Return all tokens belonging to ``user_id``, newest first."""
     result = await session.execute(
-        select(MCPToken)
-        .where(MCPToken.user_id == user_id)
-        .order_by(MCPToken.created_at.desc())
+        select(MCPToken).where(MCPToken.user_id == user_id).order_by(MCPToken.created_at.desc())
     )
     return list(result.scalars().all())
 

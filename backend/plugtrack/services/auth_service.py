@@ -5,9 +5,8 @@ exists, and uses an INSERT inside a single transaction so two concurrent
 calls cannot both succeed (the second hits the unique constraint or
 sees the row created by the first).
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -15,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import User
 from ..security.crypto import hash_password, verify_password
-
 
 MIN_PASSWORD_LENGTH = 12
 
@@ -33,9 +31,7 @@ async def _user_exists(session: AsyncSession) -> bool:
     return (result.scalar_one() or 0) > 0
 
 
-async def bootstrap_user(
-    session: AsyncSession, username: str, password: str
-) -> User:
+async def bootstrap_user(session: AsyncSession, username: str, password: str) -> User:
     """Create the single application user. Race-safe.
 
     Raises SetupAlreadyComplete if any user already exists. Raises
@@ -44,9 +40,7 @@ async def bootstrap_user(
     if not username or not username.strip():
         raise ValueError("username is required")
     if password is None or len(password) < MIN_PASSWORD_LENGTH:
-        raise WeakPasswordError(
-            f"password must be at least {MIN_PASSWORD_LENGTH} characters"
-        )
+        raise WeakPasswordError(f"password must be at least {MIN_PASSWORD_LENGTH} characters")
 
     if await _user_exists(session):
         raise SetupAlreadyComplete("a user already exists")
@@ -66,16 +60,12 @@ async def bootstrap_user(
     return user
 
 
-async def find_user_by_username(
-    session: AsyncSession, username: str
-) -> Optional[User]:
+async def find_user_by_username(session: AsyncSession, username: str) -> User | None:
     result = await session.execute(select(User).where(User.username == username))
     return result.scalar_one_or_none()
 
 
-async def authenticate(
-    session: AsyncSession, username: str, password: str
-) -> Optional[User]:
+async def authenticate(session: AsyncSession, username: str, password: str) -> User | None:
     """Return the user if username+password match, else None."""
     if not username or not password:
         return None

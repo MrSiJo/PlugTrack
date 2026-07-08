@@ -1,4 +1,5 @@
 """Tests for the Setting model."""
+
 from __future__ import annotations
 
 import pytest
@@ -24,6 +25,7 @@ async def test_setting_round_trip(test_sessionmaker):
 
     async with test_sessionmaker() as session:
         from sqlalchemy import select
+
         result = await session.execute(select(Setting).where(Setting.key == "foo"))
         loaded = result.scalar_one()
         assert loaded.value == "bar"

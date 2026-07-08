@@ -25,11 +25,11 @@ The odometer reading is still used to calibrate `eff` via
 odometer span vs the previous odometer-bearing session) but it does NOT
 feed savings.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date as date_cls
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,55 +37,54 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import Car, ChargingSession, Setting
 from .formatting import KM_PER_MILE
 
-
 _LITRES_PER_UK_GALLON = 4.54609
 
 
 @dataclass
 class SessionMetrics:
-    miles_since_previous: Optional[float]
-    cost_per_mile_p: Optional[float]
-    petrol_ppm: Optional[float]
-    petrol_equivalent_cost_p: Optional[int]
-    savings_vs_petrol_p: Optional[int]
-    petrol_price_p_per_litre: Optional[float]
-    petrol_mpg: Optional[float]
+    miles_since_previous: float | None
+    cost_per_mile_p: float | None
+    petrol_ppm: float | None
+    petrol_equivalent_cost_p: int | None
+    savings_vs_petrol_p: int | None
+    petrol_price_p_per_litre: float | None
+    petrol_mpg: float | None
     # How the comparison was derived: "estimated" (energy × efficiency) or
     # None (no comparison — missing energy, efficiency, or petrol settings).
-    comparison_basis: Optional[str] = None
+    comparison_basis: str | None = None
     # Chain wiring — kept for API consumers that read these fields; the
     # savings logic no longer populates them (all savings are per-charge
     # energy-based now), so chain_session_ids defaults to [session_id] and
     # chain_total_cost_pence / chain_anchor_id are always None.
     chain_session_ids: list[int] = field(default_factory=list)
-    chain_total_cost_pence: Optional[int] = None
-    chain_anchor_id: Optional[int] = None
+    chain_total_cost_pence: int | None = None
+    chain_anchor_id: int | None = None
     # Charge-mechanics metrics (derived; NULL when inputs are missing).
     # range_added_miles = (Δsoc/100) × battery_kwh × nominal_mi_per_kwh.
     # duration_minutes = (charge_end_at - charge_start_at), only when both set.
     # average_power_kw = kwh_added / hours, only when duration is known.
     # peak_power_kw = max kW from power_curve samples (synthesis-only).
     # efficiency_percent = kwh_calculated / kwh_added * 100 when both present.
-    range_added_miles: Optional[float] = None
-    duration_minutes: Optional[int] = None
-    average_power_kw: Optional[float] = None
-    peak_power_kw: Optional[float] = None
-    efficiency_percent: Optional[float] = None
+    range_added_miles: float | None = None
+    duration_minutes: int | None = None
+    average_power_kw: float | None = None
+    peak_power_kw: float | None = None
+    efficiency_percent: float | None = None
     # Genuine odometer-measured span to the previous odometer-bearing
     # session — informational only, does not feed savings.
-    measured_miles_since_previous: Optional[float] = None
+    measured_miles_since_previous: float | None = None
     # The real-world efficiency (mi/kWh) used to derive this session's range
     # and savings estimates: the car's observed efficiency (Method B, from
     # odometer history) when available, else its configured nominal. The
     # `efficiency_basis` flags which one ("observed" | "nominal" | None).
-    efficiency_mi_per_kwh: Optional[float] = None
-    efficiency_basis: Optional[str] = None
+    efficiency_mi_per_kwh: float | None = None
+    efficiency_basis: str | None = None
     # The charge rate (p/kWh) above which this charge costs more than an
     # equivalent petrol trip. None when ppm or efficiency is unavailable.
-    breakeven_p_per_kwh: Optional[float] = None
+    breakeven_p_per_kwh: float | None = None
 
 
-def petrol_pence_per_mile(p_per_litre: float, mpg_uk: float) -> Optional[float]:
+def petrol_pence_per_mile(p_per_litre: float, mpg_uk: float) -> float | None:
     """UK petrol cost per mile. Returns None for non-positive inputs."""
     if p_per_litre <= 0 or mpg_uk <= 0:
         return None
@@ -99,7 +98,7 @@ async def _previous_session_with_odometer(
     user_id: int,
     current_session_id: int,
     current_date,
-) -> Optional[ChargingSession]:
+) -> ChargingSession | None:
     """Most recent prior session for this car that *has* an odometer
     reading. Used for the measured-span computation (informational).
     """
@@ -113,10 +112,7 @@ async def _previous_session_with_odometer(
         )
         .where(
             (ChargingSession.date < current_date)
-            | (
-                (ChargingSession.date == current_date)
-                & (ChargingSession.id < current_session_id)
-            )
+            | ((ChargingSession.date == current_date) & (ChargingSession.id < current_session_id))
         )
         .order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
         .limit(1)
@@ -143,7 +139,7 @@ async def _immediately_previous_session(
     user_id: int,
     current_session_id: int,
     current_date,
-) -> Optional[ChargingSession]:
+) -> ChargingSession | None:
     """The single most recent prior session for this car (regardless of
     odometer). Used to bound the per-session efficiency to one real drive
     cycle — only an *adjacent* pair is trustworthy."""
@@ -156,10 +152,7 @@ async def _immediately_previous_session(
         )
         .where(
             (ChargingSession.date < current_date)
-            | (
-                (ChargingSession.date == current_date)
-                & (ChargingSession.id < current_session_id)
-            )
+            | ((ChargingSession.date == current_date) & (ChargingSession.id < current_session_id))
         )
         .order_by(ChargingSession.date.desc(), ChargingSession.id.desc())
         .limit(1)
@@ -169,10 +162,10 @@ async def _immediately_previous_session(
 
 def _per_session_cycle(
     cs: ChargingSession,
-    prev: Optional[ChargingSession],
+    prev: ChargingSession | None,
     *,
-    battery_kwh: Optional[float],
-) -> Optional[tuple[float, float]]:
+    battery_kwh: float | None,
+) -> tuple[float, float] | None:
     """Return `(miles_driven, energy_consumed_kwh)` for the one real drive cycle
     ending at this session, or None.
 
@@ -203,11 +196,11 @@ def _per_session_cycle(
 
 def _per_session_efficiency(
     cs: ChargingSession,
-    prev: Optional[ChargingSession],
+    prev: ChargingSession | None,
     *,
-    battery_kwh: Optional[float],
-    nominal_mi_per_kwh: Optional[float],
-) -> tuple[Optional[float], Optional[str]]:
+    battery_kwh: float | None,
+    nominal_mi_per_kwh: float | None,
+) -> tuple[float | None, str | None]:
     """Return `(mi_per_kwh, basis)` for one session.
 
     "measured" — the genuine per-cycle efficiency (miles ÷ energy consumed, see
@@ -226,13 +219,13 @@ def _per_session_efficiency(
 
 def _previous_with_odometer_in_memory(
     history: list[ChargingSession], cs: ChargingSession
-) -> Optional[ChargingSession]:
+) -> ChargingSession | None:
     """In-memory equivalent of `_previous_session_with_odometer`: the most
     recent prior session (by date, id) for the same car that has an
     odometer reading. `history` must be the car's full session list sorted
     ascending by (date, id).
     """
-    found: Optional[ChargingSession] = None
+    found: ChargingSession | None = None
     for s in history:
         if s.id == cs.id:
             continue
@@ -245,7 +238,7 @@ def _previous_with_odometer_in_memory(
     return found
 
 
-async def _float_setting(session: AsyncSession, key: str) -> Optional[float]:
+async def _float_setting(session: AsyncSession, key: str) -> float | None:
     row = (
         await session.execute(select(Setting.value).where(Setting.key == key))
     ).scalar_one_or_none()
@@ -263,7 +256,7 @@ async def _observed_mi_per_kwh(
     car_id: int,
     user_id: int,
     battery_kwh: float,
-) -> Optional[float]:
+) -> float | None:
     """The car's real-world mi/kWh from its measured (odometer-having)
     history. Energy is the energy *consumed while driving*, derived from
     SoC drops between consecutive charges — not energy added, which would
@@ -323,11 +316,11 @@ async def _observed_mi_per_kwh(
 
 async def _estimate_from_energy(
     cs: ChargingSession,
-    car: Optional[Car],
+    car: Car | None,
     base: SessionMetrics,
     *,
-    ppm: Optional[float],
-    observed_eff: Optional[float],
+    ppm: float | None,
+    observed_eff: float | None,
 ) -> SessionMetrics:
     """Per-charge energy-based comparison: estimate the distance this charge
     buys from `energy × efficiency`, where efficiency is the car's observed
@@ -343,9 +336,7 @@ async def _estimate_from_energy(
     if car is None:
         return base
     eff = observed_eff if observed_eff is not None else car.nominal_efficiency_mi_per_kwh
-    energy_kwh = (
-        cs.kwh_calculated if cs.kwh_calculated is not None else cs.kwh_added
-    )
+    energy_kwh = cs.kwh_calculated if cs.kwh_calculated is not None else cs.kwh_added
     if not energy_kwh or energy_kwh <= 0:
         return base
     if eff is None:
@@ -354,9 +345,9 @@ async def _estimate_from_energy(
 
     est_miles = float(energy_kwh) * float(eff)
 
-    cost_per_mile_p: Optional[float] = None
-    petrol_equiv_p: Optional[int] = None
-    savings_p: Optional[int] = None
+    cost_per_mile_p: float | None = None
+    petrol_equiv_p: int | None = None
+    savings_p: int | None = None
 
     if cs.cost_pence is not None and est_miles > 0:
         cost_per_mile_p = int(cs.cost_pence) / est_miles
@@ -366,9 +357,7 @@ async def _estimate_from_energy(
             savings_p = petrol_equiv_p - int(cs.cost_pence)
 
     base.miles_since_previous = float(round(est_miles))
-    base.cost_per_mile_p = (
-        round(cost_per_mile_p, 2) if cost_per_mile_p is not None else None
-    )
+    base.cost_per_mile_p = round(cost_per_mile_p, 2) if cost_per_mile_p is not None else None
     base.petrol_equivalent_cost_p = petrol_equiv_p
     base.savings_vs_petrol_p = savings_p
     base.comparison_basis = "estimated"
@@ -378,9 +367,7 @@ async def _estimate_from_energy(
     return base
 
 
-async def compute_session_metrics(
-    session: AsyncSession, cs: ChargingSession
-) -> SessionMetrics:
+async def compute_session_metrics(session: AsyncSession, cs: ChargingSession) -> SessionMetrics:
     """Compute petrol-comparison metrics for a single session.
 
     All savings are per-charge energy-based:
@@ -463,15 +450,11 @@ async def compute_session_metrics(
         cs,
         prev_adjacent,
         battery_kwh=float(car.battery_kwh) if car is not None else None,
-        nominal_mi_per_kwh=(
-            car.nominal_efficiency_mi_per_kwh if car is not None else None
-        ),
+        nominal_mi_per_kwh=(car.nominal_efficiency_mi_per_kwh if car is not None else None),
     )
 
     # Per-charge energy-based savings — uniform for every row.
-    return await _estimate_from_energy(
-        cs, car, base, ppm=ppm, observed_eff=observed_eff
-    )
+    return await _estimate_from_energy(cs, car, base, ppm=ppm, observed_eff=observed_eff)
 
 
 async def _attach_charge_mechanics(
@@ -491,12 +474,10 @@ async def _attach_charge_mechanics(
             car = await session.get(Car, cs.car_id)
             if car is not None:
                 kwh = (delta_soc / 100.0) * float(car.battery_kwh)
-                metrics.range_added_miles = round(
-                    kwh * float(car.nominal_efficiency_mi_per_kwh), 2
-                )
+                metrics.range_added_miles = round(kwh * float(car.nominal_efficiency_mi_per_kwh), 2)
 
     # Duration is the plug-in window (start -> end timestamps).
-    window_seconds: Optional[float] = None
+    window_seconds: float | None = None
     if cs.charge_start_at is not None and cs.charge_end_at is not None:
         window_seconds = (cs.charge_end_at - cs.charge_start_at).total_seconds()
         if window_seconds > 0:
@@ -515,19 +496,13 @@ async def _attach_charge_mechanics(
     # accumulated a power_curve.
     if cs.power_curve:
         try:
-            metrics.peak_power_kw = round(
-                max(float(sample[2]) for sample in cs.power_curve), 2
-            )
+            metrics.peak_power_kw = round(max(float(sample[2]) for sample in cs.power_curve), 2)
         except (TypeError, ValueError, IndexError):
             metrics.peak_power_kw = None
 
     # Efficiency = energy banked in the pack / energy delivered by the
     # charger. Surfaces cold-weather losses or sketchy meters.
-    if (
-        cs.kwh_calculated is not None
-        and cs.kwh_added is not None
-        and cs.kwh_added > 0
-    ):
+    if cs.kwh_calculated is not None and cs.kwh_added is not None and cs.kwh_added > 0:
         metrics.efficiency_percent = round(
             float(cs.kwh_calculated) / float(cs.kwh_added) * 100.0, 1
         )
@@ -535,11 +510,11 @@ async def _attach_charge_mechanics(
 
 def _estimate_savings_in_memory(
     cs: ChargingSession,
-    car: Optional[Car],
+    car: Car | None,
     *,
-    ppm: Optional[float],
-    observed_eff: Optional[float],
-) -> tuple[Optional[int], Optional[str], Optional[float]]:
+    ppm: float | None,
+    observed_eff: float | None,
+) -> tuple[int | None, str | None, float | None]:
     """Pure energy-estimate computation returning
     `(saved_vs_petrol_p, comparison_basis, breakeven_p_per_kwh)`.
 
@@ -555,9 +530,7 @@ def _estimate_savings_in_memory(
     if car is None:
         return None, None, None
     eff = observed_eff if observed_eff is not None else car.nominal_efficiency_mi_per_kwh
-    energy_kwh = (
-        cs.kwh_calculated if cs.kwh_calculated is not None else cs.kwh_added
-    )
+    energy_kwh = cs.kwh_calculated if cs.kwh_calculated is not None else cs.kwh_added
     if not energy_kwh or energy_kwh <= 0:
         return None, None, None
     if eff is None:
@@ -565,8 +538,8 @@ def _estimate_savings_in_memory(
 
     est_miles = float(energy_kwh) * float(eff)
 
-    savings_p: Optional[int] = None
-    breakeven: Optional[float] = None
+    savings_p: int | None = None
+    breakeven: float | None = None
     if ppm is not None:
         petrol_equiv_p = int(round(est_miles * ppm))
         if cs.cost_pence is not None:
@@ -577,7 +550,7 @@ def _estimate_savings_in_memory(
 
 async def compute_savings_for_sessions(
     session: AsyncSession, rows: list[ChargingSession]
-) -> dict[int, tuple[Optional[int], Optional[str], Optional[float]]]:
+) -> dict[int, tuple[int | None, str | None, float | None]]:
     """Batch per-charge energy-based savings for a set of sessions, keyed
     by session id.
 
@@ -594,7 +567,7 @@ async def compute_savings_for_sessions(
     The numbers for `(saved_vs_petrol_p, comparison_basis)` are consistent
     with what `compute_session_metrics` returns for each row.
     """
-    out: dict[int, tuple[Optional[int], Optional[str], Optional[float]]] = {}
+    out: dict[int, tuple[int | None, str | None, float | None]] = {}
     if not rows:
         return out
 
@@ -641,14 +614,14 @@ async def compute_savings_for_sessions(
 
 async def compute_efficiency_for_sessions(
     session: AsyncSession, rows: list[ChargingSession]
-) -> dict[int, tuple[Optional[float], Optional[str]]]:
+) -> dict[int, tuple[float | None, str | None]]:
     """Batch per-session efficiency `{ session_id: (mi_per_kwh, basis) }`.
 
     Loads each car's full ascending history once and resolves the immediately
     preceding session in memory, so the result matches what the detail page
     computes via `_per_session_efficiency`.
     """
-    out: dict[int, tuple[Optional[float], Optional[str]]] = {}
+    out: dict[int, tuple[float | None, str | None]] = {}
     if not rows:
         return out
 
@@ -675,7 +648,7 @@ async def compute_efficiency_for_sessions(
         history = list((await session.execute(hist_stmt)).scalars().all())
 
         for cs in car_rows:
-            prev_adjacent: Optional[ChargingSession] = None
+            prev_adjacent: ChargingSession | None = None
             for h in history:
                 if h.id == cs.id:
                     continue
@@ -697,7 +670,7 @@ async def drive_cycles(
     session: AsyncSession,
     *,
     user_id: int,
-    car_id: Optional[int] = None,
+    car_id: int | None = None,
 ) -> list[tuple[date_cls, float, float]]:
     """Every adjacent drive cycle for the user's cars (optionally one car) as
     `(date, miles_driven, energy_consumed_kwh)`, sorted by (date, id).
@@ -711,11 +684,9 @@ async def drive_cycles(
     if car_id is not None:
         car_filter.append(ChargingSession.car_id == car_id)
     car_ids = list(
-        (
-            await session.execute(
-                select(ChargingSession.car_id).where(*car_filter).distinct()
-            )
-        ).scalars().all()
+        (await session.execute(select(ChargingSession.car_id).where(*car_filter).distinct()))
+        .scalars()
+        .all()
     )
 
     rows: list[tuple[date_cls, int, float, float]] = []
@@ -732,7 +703,9 @@ async def drive_cycles(
                     )
                     .order_by(ChargingSession.date.asc(), ChargingSession.id.asc())
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         for i in range(1, len(history)):
             cycle = _per_session_cycle(history[i], history[i - 1], battery_kwh=battery)
@@ -747,13 +720,11 @@ async def drive_cycles(
 def _savings_for_row(
     cs: ChargingSession,
     *,
-    car: Optional[Car],
-    ppm: Optional[float],
-    observed_eff: Optional[float],
-) -> tuple[Optional[int], Optional[str], Optional[float]]:
+    car: Car | None,
+    ppm: float | None,
+    observed_eff: float | None,
+) -> tuple[int | None, str | None, float | None]:
     """Derive `(saved_vs_petrol_p, comparison_basis, breakeven_p_per_kwh)`
     for one row using the per-charge energy estimate.
     """
-    return _estimate_savings_in_memory(
-        cs, car, ppm=ppm, observed_eff=observed_eff
-    )
+    return _estimate_savings_in_memory(cs, car, ppm=ppm, observed_eff=observed_eff)

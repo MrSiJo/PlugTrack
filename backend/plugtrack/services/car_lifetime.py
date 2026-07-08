@@ -1,18 +1,16 @@
 """Per-car lifetime statistics aggregator."""
-from __future__ import annotations
 
-import datetime as dt
-from typing import Optional
+from __future__ import annotations
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Car, ChargingSession
+from .formatting import KM_PER_MILE
 from .insights_stats import (
     home_public_split,
-    window_totals,
     miles_driven_km,
-    KM_PER_MILE,
+    window_totals,
 )
 from .ownership_trends import (
     current_estimated_capacity,
@@ -20,9 +18,7 @@ from .ownership_trends import (
 )
 
 
-async def compute_car_lifetime(
-    session: AsyncSession, *, user_id: int, car_id: int
-) -> dict:
+async def compute_car_lifetime(session: AsyncSession, *, user_id: int, car_id: int) -> dict:
     """Compute lifetime statistics for a single car.
 
     Returned keys:
@@ -38,11 +34,9 @@ async def compute_car_lifetime(
     """
     # Load the car to obtain battery_kwh (no active filter — works for archived cars)
     car = (
-        await session.execute(
-            select(Car).where(Car.user_id == user_id, Car.id == car_id)
-        )
+        await session.execute(select(Car).where(Car.user_id == user_id, Car.id == car_id))
     ).scalar_one_or_none()
-    battery_kwh: Optional[float] = car.battery_kwh if car is not None else None
+    battery_kwh: float | None = car.battery_kwh if car is not None else None
     # ownership span — min/max date for this car's sessions
     span_stmt = select(
         func.min(ChargingSession.date).label("first"),
@@ -60,23 +54,19 @@ async def compute_car_lifetime(
     }
 
     # totals — reuse window_totals with no date bounds
-    totals = await window_totals(
-        session, user_id=user_id, lo=None, hi=None, car_id=car_id
-    )
+    totals = await window_totals(session, user_id=user_id, lo=None, hi=None, car_id=car_id)
     total_sessions = totals["sessions"]
     total_kwh = totals["kwh"]
     total_cost_pence = totals["spend_pence"]
     costed_kwh = totals["costed_kwh"]
 
-    lifetime_avg_p_per_kwh: Optional[float] = None
+    lifetime_avg_p_per_kwh: float | None = None
     if costed_kwh > 0:
         lifetime_avg_p_per_kwh = round(total_cost_pence / costed_kwh, 2)
 
     # lifetime mi/kWh — use miles_driven_km with car_id, no date bounds
-    driven_km = await miles_driven_km(
-        session, user_id=user_id, lo=None, hi=None, car_id=car_id
-    )
-    lifetime_mi_per_kwh: Optional[float] = None
+    driven_km = await miles_driven_km(session, user_id=user_id, lo=None, hi=None, car_id=car_id)
+    lifetime_mi_per_kwh: float | None = None
     if driven_km is not None and driven_km > 0 and total_kwh > 0:
         total_miles = driven_km / KM_PER_MILE
         lifetime_mi_per_kwh = round(total_miles / total_kwh, 3)

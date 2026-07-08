@@ -16,16 +16,18 @@ Key design points
 - Grounding discipline: the system prompt only permits answers drawn from
   tool results (mirrors usage_chat.py discipline).
 """
+
 from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Optional
+from collections.abc import Awaitable, Callable
+from datetime import UTC
+from typing import Any
 
 import httpx
 
-from .screenshot_extraction import RESPONSES_URL, parse_usage
+from .screenshot_extraction import RESPONSES_URL
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +36,13 @@ MAX_TOOL_ITERATIONS = 6
 
 # Tool names that, when called, signal a propose_* result: stop the loop and
 # return the result as a proposal for the user to confirm.
-_PROPOSE_TOOL_NAMES = frozenset({
-    "propose_create_location",
-    "propose_set_location",
-    "propose_edit_charge",
-})
+_PROPOSE_TOOL_NAMES = frozenset(
+    {
+        "propose_create_location",
+        "propose_set_location",
+        "propose_edit_charge",
+    }
+)
 
 AGENT_SYSTEM_PROMPT = (
     "You are a helpful assistant for PlugTrack, an EV charging tracker. "
@@ -66,6 +70,7 @@ AGENT_SYSTEM_PROMPT = (
 # ---------------------------------------------------------------------------
 # Tool catalogue (function definitions for the Responses API)
 # ---------------------------------------------------------------------------
+
 
 def build_tool_catalogue() -> list[dict[str, Any]]:
     """Return the list of function tool definitions for the Responses API.
@@ -307,6 +312,7 @@ def build_tool_catalogue() -> list[dict[str, Any]]:
 # Tool runner factory
 # ---------------------------------------------------------------------------
 
+
 def make_tool_runner(session, user_id: int) -> Callable[[str, dict], Awaitable[Any]]:
     """Return an async callable that routes tool_name + args → the tool-core functions.
 
@@ -326,7 +332,8 @@ def make_tool_runner(session, user_id: int) -> Callable[[str, dict], Awaitable[A
                 if args.get("date_to"):
                     date_to = dt.date.fromisoformat(args["date_to"])
                 return await tc.find_charges(
-                    session, user_id,
+                    session,
+                    user_id,
                     query=args.get("query") or None,
                     date_from=date_from,
                     date_to=date_to,
@@ -342,12 +349,11 @@ def make_tool_runner(session, user_id: int) -> Callable[[str, dict], Awaitable[A
                     date_from = dt.date.fromisoformat(args["date_from"])
                 if args.get("date_to"):
                     date_to = dt.date.fromisoformat(args["date_to"])
-                return await tc.get_insights(
-                    session, user_id, date_from=date_from, date_to=date_to
-                )
+                return await tc.get_insights(session, user_id, date_from=date_from, date_to=date_to)
             elif tool_name == "propose_create_location":
                 return await tc.propose_create_location(
-                    session, user_id,
+                    session,
+                    user_id,
                     name=args.get("name"),
                     lat=args.get("lat"),
                     lng=args.get("lng"),
@@ -355,7 +361,8 @@ def make_tool_runner(session, user_id: int) -> Callable[[str, dict], Awaitable[A
                 )
             elif tool_name == "propose_set_location":
                 return await tc.propose_set_location(
-                    session, user_id,
+                    session,
+                    user_id,
                     charge_id=int(args["charge_id"]),
                     location_id=(args.get("location_id") or None),
                     location_name=args.get("location_name") or None,
@@ -365,7 +372,8 @@ def make_tool_runner(session, user_id: int) -> Callable[[str, dict], Awaitable[A
                 if args.get("date"):
                     date = dt.date.fromisoformat(args["date"])
                 return await tc.propose_edit_charge(
-                    session, user_id,
+                    session,
+                    user_id,
                     charge_id=int(args["charge_id"]),
                     kwh=args.get("kwh"),
                     price_p_per_kwh=args.get("price_p_per_kwh"),
@@ -379,9 +387,7 @@ def make_tool_runner(session, user_id: int) -> Callable[[str, dict], Awaitable[A
                     odometer_unit=args.get("odometer_unit"),
                 )
             elif tool_name == "commit_change":
-                return await tc.commit_change(
-                    session, user_id, str(args["change_token"])
-                )
+                return await tc.commit_change(session, user_id, str(args["change_token"]))
             else:
                 return {"error": f"unknown tool: {tool_name}"}
         except Exception as exc:
@@ -395,6 +401,7 @@ def make_tool_runner(session, user_id: int) -> Callable[[str, dict], Awaitable[A
 # Agent loop
 # ---------------------------------------------------------------------------
 
+
 def _extract_tool_calls(body: dict) -> list[dict]:
     """Extract tool call items from a Responses API response body."""
     calls = []
@@ -404,7 +411,7 @@ def _extract_tool_calls(body: dict) -> list[dict]:
     return calls
 
 
-def _extract_text(body: dict) -> Optional[str]:
+def _extract_text(body: dict) -> str | None:
     """Extract the final text content from a Responses API response body."""
     for item in body.get("output", []):
         if item.get("type") == "message":
@@ -412,7 +419,6 @@ def _extract_text(body: dict) -> Optional[str]:
                 if part.get("type") == "output_text":
                     return part.get("text")
     return None
-
 
 
 async def run_agent_turn(
@@ -442,8 +448,9 @@ async def run_agent_turn(
        d. Loop (up to MAX_TOOL_ITERATIONS total).
     4. When the model returns a final text → return it as reply_text.
     """
-    from datetime import datetime, timezone as _tz
-    today = datetime.now(_tz.utc).date().isoformat()
+    from datetime import datetime
+
+    today = datetime.now(UTC).date().isoformat()
     date_line = (
         f"Today's date is {today}. When the user gives a relative date "
         "(today, yesterday, last week, this month), resolve it to YYYY-MM-DD "
@@ -464,8 +471,8 @@ async def run_agent_turn(
     input_items.append({"role": "user", "content": [{"type": "input_text", "text": text}]})
 
     usage_agg: dict = {}
-    proposal: Optional[dict] = None
-    reply_text: Optional[str] = None
+    proposal: dict | None = None
+    reply_text: str | None = None
 
     try:
         async with httpx.AsyncClient(timeout=60) as client:
@@ -524,11 +531,13 @@ async def run_agent_turn(
                                     "change_token": result["change_token"],
                                 }
 
-                        tool_results.append({
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": json.dumps(result, default=str),
-                        })
+                        tool_results.append(
+                            {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps(result, default=str),
+                            }
+                        )
 
                     # Append tool results as next input
                     input_items.extend(tool_results)

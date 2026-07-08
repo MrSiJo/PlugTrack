@@ -10,6 +10,7 @@ so it does not run on every commit but is trivial to invoke:
 
     pre-commit run --hook-stage manual security-invariants
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -17,12 +18,11 @@ import json
 
 import pytest
 from fastapi.routing import APIRoute
-from starlette.routing import Route
-
 from plugtrack.api.auth_middleware import EXEMPT_PATHS as AUTH_EXEMPT
 from plugtrack.security.csrf import EXEMPT_PATHS as CSRF_EXEMPT
-from tests.api.conftest import csrf_headers
+from starlette.routing import Route
 
+from tests.api.conftest import csrf_headers
 
 # Pinned hash of the sorted union of EXEMPT_PATHS for both auth and CSRF
 # middlewares. Recompute via:
@@ -44,9 +44,7 @@ from tests.api.conftest import csrf_headers
 #   after:      auth=[/api/auth/login, /api/health, /api/setup, /mcp]
 #               csrf=[/api/health, /mcp]
 #               hash=a1298edd5255fc08a51417d4ed7efcb49f5197764e5a2d5e92bdca91fae90e81
-EXPECTED_EXEMPT_HASH = (
-    "a1298edd5255fc08a51417d4ed7efcb49f5197764e5a2d5e92bdca91fae90e81"
-)
+EXPECTED_EXEMPT_HASH = "a1298edd5255fc08a51417d4ed7efcb49f5197764e5a2d5e92bdca91fae90e81"
 
 
 def _compute_exempt_hash() -> str:
@@ -99,8 +97,7 @@ async def test_csrf_fires_on_every_mutating_route_except_exempt(authed_client, a
             else:
                 if r.status_code != 403:
                     failures.append(
-                        f"{method} {path} returned {r.status_code} without CSRF "
-                        f"(expected 403)"
+                        f"{method} {path} returned {r.status_code} without CSRF (expected 403)"
                     )
 
     assert not failures, "CSRF invariant violations:\n  " + "\n  ".join(failures)
@@ -123,15 +120,11 @@ async def test_setup_is_one_shot(seeded_client):
         json={"username": "second", "password": "very-strong-pass"},
         headers=headers,
     )
-    assert 400 <= r2.status_code < 500, (
-        "second /api/setup must be a 4xx; got " f"{r2.status_code}"
-    )
+    assert 400 <= r2.status_code < 500, f"second /api/setup must be a 4xx; got {r2.status_code}"
 
 
 def test_settings_rejects_placeholder_app_secret(monkeypatch):
-    monkeypatch.setenv(
-        "APP_SECRET_KEY", "replace-with-output-of-bootstrap-script"
-    )
+    monkeypatch.setenv("APP_SECRET_KEY", "replace-with-output-of-bootstrap-script")
     from plugtrack.bootstrap import Settings
 
     with pytest.raises(ValueError, match="placeholder"):

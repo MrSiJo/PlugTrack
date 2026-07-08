@@ -27,18 +27,19 @@ Internal helpers
 ``_source_db_path()`` and ``_data_dir()`` are small callables so that tests can
 monkeypatch them without replacing the whole settings object.
 """
+
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from plugtrack.bootstrap import get_settings
 
-
 # ---------------------------------------------------------------------------
 # Internal helpers — monkeypatchable by tests
 # ---------------------------------------------------------------------------
+
 
 def _data_dir() -> Path:
     """Return the data directory as a Path object."""
@@ -55,13 +56,14 @@ def _source_db_path() -> Path:
     url = get_settings().database_url
     prefix = "sqlite+aiosqlite:///"
     if url.startswith(prefix):
-        return Path(url[len(prefix):])
+        return Path(url[len(prefix) :])
     return _data_dir() / "plugtrack.db"
 
 
 # ---------------------------------------------------------------------------
 # Public interface
 # ---------------------------------------------------------------------------
+
 
 def backups_dir() -> Path:
     """Return the backups directory, creating it (parents / exist_ok) on first access."""
@@ -119,7 +121,7 @@ def list_backups() -> list[dict]:
     result = []
     for f in files:
         st = f.stat()
-        mtime = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc)
+        mtime = datetime.fromtimestamp(st.st_mtime, tz=UTC)
         result.append(
             {
                 "name": f.name,

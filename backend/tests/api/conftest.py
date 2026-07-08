@@ -8,15 +8,15 @@ Provides:
 - `other_user_headers`: headers for a second authenticated user (no
   shared state with `authed_client`), used to prove cross-user 404.
 """
+
 from __future__ import annotations
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-
 from plugtrack.api.auth_middleware import SESSION_COOKIE_NAME, make_serializer
-from plugtrack.security.csrf import CSRF_COOKIE_NAME
 from plugtrack.models import User
 from plugtrack.security.crypto import hash_password
+from plugtrack.security.csrf import CSRF_COOKIE_NAME
 from plugtrack.services.auth_service import bootstrap_user
 
 
@@ -24,9 +24,7 @@ from plugtrack.services.auth_service import bootstrap_user
 async def seeded_client(app):
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
-        async with AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as c:
+        async with AsyncClient(transport=transport, base_url="http://testserver") as c:
             yield c
 
 
@@ -40,9 +38,7 @@ async def authed_client(app, test_sessionmaker):
         token = serializer.dumps({"user_id": user.id})
 
         transport = ASGITransport(app=app)
-        async with AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as c:
+        async with AsyncClient(transport=transport, base_url="http://testserver") as c:
             c.cookies.set(SESSION_COOKIE_NAME, token)
             # Prime CSRF cookie via a safe request.
             await c.get("/api/health")

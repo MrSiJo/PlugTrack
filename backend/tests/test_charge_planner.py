@@ -2,19 +2,17 @@
 
 No DB, no fixtures — just pure math.
 """
+
 from __future__ import annotations
 
 import pytest
-
 from plugtrack.services.charge_planner import (
     DcSession,
-    ScenarioRow,
     build_dc_capability,
     build_scenario_table,
     compute_charge_plan,
     estimate_scenario,
 )
-
 
 # Default window: 23:45 → 07:15 = 450 minutes.
 _WINDOW_START = "23:45"
@@ -193,7 +191,7 @@ class TestWindowCrossingMidnight:
             target_soc=80,
             battery_kwh=77.0,
             power_kw=7.4,
-            window_minutes=420,   # 23:00 → 06:00 = 7h = 420 min
+            window_minutes=420,  # 23:00 → 06:00 = 7h = 420 min
             window_start_str="23:00",
         )
         assert p.nights_needed == 1
@@ -274,13 +272,13 @@ class TestDcCapabilityTier1Curve:
         # Band 60-70 (query soc=60 maps to band 60-70) has points: 80, 100, 90 kW.
         # Median of [80, 90, 100] = 90.
         curve = [
-            [0, 52, 75.0],   # band 50-60
+            [0, 52, 75.0],  # band 50-60
             [30, 55, 80.0],  # band 50-60
             [60, 62, 80.0],  # band 60-70
-            [90, 65, 100.0], # band 60-70
-            [120, 68, 90.0], # band 60-70
-            [150, 72, 70.0], # band 70-80
-            [180, 78, 60.0], # band 70-80
+            [90, 65, 100.0],  # band 60-70
+            [120, 68, 90.0],  # band 60-70
+            [150, 72, 70.0],  # band 70-80
+            [180, 78, 60.0],  # band 70-80
         ]
         session = DcSession(
             start_soc=50,
@@ -591,10 +589,10 @@ class TestDcCapabilityCeiling:
         # Band 30-40 gets points: 96, 104, 100.  Median = 100.
         # Max of all band medians = 101  → ceiling ≤ 120 (well below 170).
         curve = [
-            [0,   22, 98.0],
-            [30,  24, 102.0],
-            [60,  25, 99.0],
-            [90,  27, 101.0],
+            [0, 22, 98.0],
+            [30, 24, 102.0],
+            [60, 25, 99.0],
+            [90, 27, 101.0],
             [120, 29, 170.0],  # ← transient spike — must NOT drive ceiling
             [150, 32, 96.0],
             [180, 35, 104.0],
@@ -623,7 +621,8 @@ class TestDcCapabilityCeiling:
 
 # Helpers -----------------------------------------------------------------
 
-def _two_band_capability() -> "DcCapability":
+
+def _two_band_capability() -> DcCapability:
     """Build a known 2-band DC capability for deterministic integration tests.
 
     Band 30-40: average 80 kW  (sessions, no curve)
@@ -635,7 +634,7 @@ def _two_band_capability() -> "DcCapability":
         DcSession(
             start_soc=30,
             end_soc=40,
-            kwh_added=7.7,   # 10% of 77 kWh
+            kwh_added=7.7,  # 10% of 77 kWh
             actual_charge_seconds=int(7.7 / 80 * 3600),  # → 80 kW effective
             wall_seconds=None,
             power_curve=None,
@@ -731,17 +730,35 @@ class TestEstimateScenarioDC:
         large enough that integer rounding doesn't swamp the ratio signal.
         """
         cap = build_dc_capability(
-            battery_kwh=77.0, dc_sessions=[], max_dc_kw=150.0,
+            battery_kwh=77.0,
+            dc_sessions=[],
+            max_dc_kw=150.0,
         )
         row_no_loss = estimate_scenario(
-            kind="dc", label="X", start_soc=0, target_soc=100,
-            battery_kwh=77.0, charger_cap_kw=150.0, capability=cap,
-            flat_power_kw=None, loss_factor=1.0, ac_window=None, source_tag="",
+            kind="dc",
+            label="X",
+            start_soc=0,
+            target_soc=100,
+            battery_kwh=77.0,
+            charger_cap_kw=150.0,
+            capability=cap,
+            flat_power_kw=None,
+            loss_factor=1.0,
+            ac_window=None,
+            source_tag="",
         )
         row_with_loss = estimate_scenario(
-            kind="dc", label="X", start_soc=0, target_soc=100,
-            battery_kwh=77.0, charger_cap_kw=150.0, capability=cap,
-            flat_power_kw=None, loss_factor=0.9, ac_window=None, source_tag="",
+            kind="dc",
+            label="X",
+            start_soc=0,
+            target_soc=100,
+            battery_kwh=77.0,
+            charger_cap_kw=150.0,
+            capability=cap,
+            flat_power_kw=None,
+            loss_factor=0.9,
+            ac_window=None,
+            source_tag="",
         )
         # time should scale by 1/0.9 ≈ 1.11; allow 6% tolerance for rounding
         ratio = row_with_loss.minutes / row_no_loss.minutes
@@ -751,16 +768,30 @@ class TestEstimateScenarioDC:
         """When charger_cap < capability, charger_cap is the bottleneck."""
         cap = _two_band_capability()  # band 40-50 → 100 kW
         row_capped = estimate_scenario(
-            kind="dc", label="X", start_soc=40, target_soc=50,
-            battery_kwh=77.0, charger_cap_kw=50.0,  # cap below capability
-            capability=cap, flat_power_kw=None, loss_factor=1.0,
-            ac_window=None, source_tag="",
+            kind="dc",
+            label="X",
+            start_soc=40,
+            target_soc=50,
+            battery_kwh=77.0,
+            charger_cap_kw=50.0,  # cap below capability
+            capability=cap,
+            flat_power_kw=None,
+            loss_factor=1.0,
+            ac_window=None,
+            source_tag="",
         )
         row_uncapped = estimate_scenario(
-            kind="dc", label="X", start_soc=40, target_soc=50,
-            battery_kwh=77.0, charger_cap_kw=150.0,
-            capability=cap, flat_power_kw=None, loss_factor=1.0,
-            ac_window=None, source_tag="",
+            kind="dc",
+            label="X",
+            start_soc=40,
+            target_soc=50,
+            battery_kwh=77.0,
+            charger_cap_kw=150.0,
+            capability=cap,
+            flat_power_kw=None,
+            loss_factor=1.0,
+            ac_window=None,
+            source_tag="",
         )
         assert row_capped.minutes > row_uncapped.minutes
 
@@ -771,18 +802,29 @@ class TestEstimateScenarioDC:
             battery_kwh=77.0,
             dc_sessions=[
                 DcSession(
-                    start_soc=40, end_soc=50, kwh_added=7.7,
+                    start_soc=40,
+                    end_soc=50,
+                    kwh_added=7.7,
                     actual_charge_seconds=int(7.7 / 100 * 3600),
-                    wall_seconds=None, power_curve=None,
+                    wall_seconds=None,
+                    power_curve=None,
                 )
             ],
             max_dc_kw=150.0,
         )
         # Range 40→60 spans bands 40 (average) and 50 (modelled) → dominant = modelled
         row = estimate_scenario(
-            kind="dc", label="X", start_soc=40, target_soc=60,
-            battery_kwh=77.0, charger_cap_kw=150.0, capability=cap,
-            flat_power_kw=None, loss_factor=1.0, ac_window=None, source_tag="",
+            kind="dc",
+            label="X",
+            start_soc=40,
+            target_soc=60,
+            battery_kwh=77.0,
+            charger_cap_kw=150.0,
+            capability=cap,
+            flat_power_kw=None,
+            loss_factor=1.0,
+            ac_window=None,
+            source_tag="",
         )
         assert row.source_tag == "modelled"
 
@@ -792,20 +834,35 @@ class TestEstimateScenarioDC:
         curve = [[0, 45, 100.0]]
         sessions = [
             DcSession(
-                start_soc=40, end_soc=50, kwh_added=7.7,
-                actual_charge_seconds=None, wall_seconds=None, power_curve=curve,
+                start_soc=40,
+                end_soc=50,
+                kwh_added=7.7,
+                actual_charge_seconds=None,
+                wall_seconds=None,
+                power_curve=curve,
             ),
             DcSession(
-                start_soc=50, end_soc=60, kwh_added=7.7,
+                start_soc=50,
+                end_soc=60,
+                kwh_added=7.7,
                 actual_charge_seconds=int(7.7 / 80 * 3600),
-                wall_seconds=None, power_curve=None,
+                wall_seconds=None,
+                power_curve=None,
             ),
         ]
         cap = build_dc_capability(battery_kwh=77.0, dc_sessions=sessions, max_dc_kw=150.0)
         row = estimate_scenario(
-            kind="dc", label="X", start_soc=40, target_soc=60,
-            battery_kwh=77.0, charger_cap_kw=150.0, capability=cap,
-            flat_power_kw=None, loss_factor=1.0, ac_window=None, source_tag="",
+            kind="dc",
+            label="X",
+            start_soc=40,
+            target_soc=60,
+            battery_kwh=77.0,
+            charger_cap_kw=150.0,
+            capability=cap,
+            flat_power_kw=None,
+            loss_factor=1.0,
+            ac_window=None,
+            source_tag="",
         )
         assert row.source_tag == "average"
 
@@ -813,9 +870,17 @@ class TestEstimateScenarioDC:
         """power_kw in ScenarioRow should be within [0, charger_cap]."""
         cap = _two_band_capability()
         row = estimate_scenario(
-            kind="dc", label="X", start_soc=30, target_soc=50,
-            battery_kwh=77.0, charger_cap_kw=150.0, capability=cap,
-            flat_power_kw=None, loss_factor=1.0, ac_window=None, source_tag="",
+            kind="dc",
+            label="X",
+            start_soc=30,
+            target_soc=50,
+            battery_kwh=77.0,
+            charger_cap_kw=150.0,
+            capability=cap,
+            flat_power_kw=None,
+            loss_factor=1.0,
+            ac_window=None,
+            source_tag="",
         )
         assert 0 < row.power_kw <= 150.0
 
@@ -831,9 +896,9 @@ class TestEstimateScenarioAC:
             start_soc=20,
             target_soc=80,
             battery_kwh=77.0,
-            charger_cap_kw=22.0,    # AC ceiling (car or EVSE max)
+            charger_cap_kw=22.0,  # AC ceiling (car or EVSE max)
             capability=None,
-            flat_power_kw=7.0,      # scenario power
+            flat_power_kw=7.0,  # scenario power
             loss_factor=1.0,
             ac_window=_AC_WINDOW,
             source_tag="spec",
@@ -848,17 +913,30 @@ class TestEstimateScenarioAC:
     def test_ac_ceiling_caps_scenario_power(self):
         """If scenario power > AC ceiling, effective power = ceiling."""
         row_11 = estimate_scenario(
-            kind="ac", label="11 kW",
-            start_soc=20, target_soc=80, battery_kwh=77.0,
-            charger_cap_kw=7.4,     # ceiling lower than scenario
-            capability=None, flat_power_kw=11.0, loss_factor=1.0,
-            ac_window=_AC_WINDOW, source_tag="spec",
+            kind="ac",
+            label="11 kW",
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            charger_cap_kw=7.4,  # ceiling lower than scenario
+            capability=None,
+            flat_power_kw=11.0,
+            loss_factor=1.0,
+            ac_window=_AC_WINDOW,
+            source_tag="spec",
         )
         row_74 = estimate_scenario(
-            kind="ac", label="7.4 kW",
-            start_soc=20, target_soc=80, battery_kwh=77.0,
-            charger_cap_kw=22.0, capability=None, flat_power_kw=7.4, loss_factor=1.0,
-            ac_window=_AC_WINDOW, source_tag="spec",
+            kind="ac",
+            label="7.4 kW",
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            charger_cap_kw=22.0,
+            capability=None,
+            flat_power_kw=7.4,
+            loss_factor=1.0,
+            ac_window=_AC_WINDOW,
+            source_tag="spec",
         )
         # Capped at 7.4 → same as the 7.4 kW row
         assert row_11.minutes == row_74.minutes
@@ -866,25 +944,44 @@ class TestEstimateScenarioAC:
     def test_ac_loss_factor_applied(self):
         """With loss_factor < 1, effective power is reduced → more minutes."""
         row_no_loss = estimate_scenario(
-            kind="ac", label="7 kW",
-            start_soc=20, target_soc=80, battery_kwh=77.0,
-            charger_cap_kw=22.0, capability=None, flat_power_kw=7.0,
-            loss_factor=1.0, ac_window=_AC_WINDOW, source_tag="spec",
+            kind="ac",
+            label="7 kW",
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            charger_cap_kw=22.0,
+            capability=None,
+            flat_power_kw=7.0,
+            loss_factor=1.0,
+            ac_window=_AC_WINDOW,
+            source_tag="spec",
         )
         row_with_loss = estimate_scenario(
-            kind="ac", label="7 kW",
-            start_soc=20, target_soc=80, battery_kwh=77.0,
-            charger_cap_kw=22.0, capability=None, flat_power_kw=7.0,
-            loss_factor=0.9, ac_window=_AC_WINDOW, source_tag="spec",
+            kind="ac",
+            label="7 kW",
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            charger_cap_kw=22.0,
+            capability=None,
+            flat_power_kw=7.0,
+            loss_factor=0.9,
+            ac_window=_AC_WINDOW,
+            source_tag="spec",
         )
         assert row_with_loss.minutes > row_no_loss.minutes
 
     def test_ac_multi_night_preserved(self):
         """Small power against large battery → nights > 1."""
         row = estimate_scenario(
-            kind="ac", label="3.6 kW",
-            start_soc=0, target_soc=80, battery_kwh=100.0,
-            charger_cap_kw=22.0, capability=None, flat_power_kw=3.6,
+            kind="ac",
+            label="3.6 kW",
+            start_soc=0,
+            target_soc=80,
+            battery_kwh=100.0,
+            charger_cap_kw=22.0,
+            capability=None,
+            flat_power_kw=3.6,
             loss_factor=1.0,
             ac_window={**_AC_WINDOW, "window_minutes": 450},
             source_tag="spec",
@@ -894,10 +991,17 @@ class TestEstimateScenarioAC:
     def test_ac_power_kw_is_effective_pre_loss_value(self):
         """power_kw on the row = min(flat_power_kw, charger_cap_kw), not loss-derated."""
         row = estimate_scenario(
-            kind="ac", label="7 kW",
-            start_soc=20, target_soc=80, battery_kwh=77.0,
-            charger_cap_kw=22.0, capability=None, flat_power_kw=7.0,
-            loss_factor=0.85, ac_window=_AC_WINDOW, source_tag="history",
+            kind="ac",
+            label="7 kW",
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            charger_cap_kw=22.0,
+            capability=None,
+            flat_power_kw=7.0,
+            loss_factor=0.85,
+            ac_window=_AC_WINDOW,
+            source_tag="history",
         )
         assert row.power_kw == pytest.approx(7.0, abs=0.01)
 
@@ -907,7 +1011,9 @@ class TestBuildScenarioTable:
 
     def _default_dc(self) -> dict:
         cap = build_dc_capability(
-            battery_kwh=77.0, dc_sessions=[], max_dc_kw=150.0,
+            battery_kwh=77.0,
+            dc_sessions=[],
+            max_dc_kw=150.0,
         )
         return {"capability": cap, "ceiling": 150.0}
 
@@ -920,22 +1026,37 @@ class TestBuildScenarioTable:
 
     def test_returns_seven_rows_with_custom_kw(self):
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0, loss_factor=1.0,
-            ac=self._default_ac(), dc=self._default_dc(), custom_kw=50.0,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            loss_factor=1.0,
+            ac=self._default_ac(),
+            dc=self._default_dc(),
+            custom_kw=50.0,
         )
         assert len(table) == 7
 
     def test_returns_six_rows_without_custom_kw(self):
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0, loss_factor=1.0,
-            ac=self._default_ac(), dc=self._default_dc(), custom_kw=None,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            loss_factor=1.0,
+            ac=self._default_ac(),
+            dc=self._default_dc(),
+            custom_kw=None,
         )
         assert len(table) == 6
 
     def test_ordered_labels(self):
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0, loss_factor=1.0,
-            ac=self._default_ac(), dc=self._default_dc(), custom_kw=50.0,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            loss_factor=1.0,
+            ac=self._default_ac(),
+            dc=self._default_dc(),
+            custom_kw=50.0,
         )
         labels = [r.label for r in table]
         assert labels == [
@@ -952,16 +1073,26 @@ class TestBuildScenarioTable:
         """11 kW row capped at ac_ceiling_kw=7.4 → power_kw = 7.4."""
         ac = {**self._default_ac(), "ac_ceiling_kw": 7.4}
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0, loss_factor=1.0,
-            ac=ac, dc=self._default_dc(), custom_kw=None,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            loss_factor=1.0,
+            ac=ac,
+            dc=self._default_dc(),
+            custom_kw=None,
         )
         row_11 = next(r for r in table if r.label == "11 kW")
         assert row_11.power_kw == pytest.approx(7.4, abs=0.01)
 
     def test_home_actual_tag_is_history(self):
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0, loss_factor=1.0,
-            ac=self._default_ac(), dc=self._default_dc(), custom_kw=None,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            loss_factor=1.0,
+            ac=self._default_ac(),
+            dc=self._default_dc(),
+            custom_kw=None,
         )
         home_row = table[0]
         assert home_row.label == "Your home (actual)"
@@ -977,8 +1108,13 @@ class TestBuildScenarioTable:
         uncapped 300 kW value, and that the note mentions the ceiling.
         """
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0, loss_factor=1.0,
-            ac=self._default_ac(), dc=self._default_dc(), custom_kw=300.0,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            loss_factor=1.0,
+            ac=self._default_ac(),
+            dc=self._default_dc(),
+            custom_kw=300.0,
         )
         custom_row = table[-1]
         assert custom_row.label == "Custom kW"
@@ -992,8 +1128,13 @@ class TestBuildScenarioTable:
     def test_custom_kw_below_ceiling_no_note(self):
         """custom_kw < ceiling → power_kw == custom_kw and note is None."""
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0, loss_factor=1.0,
-            ac=self._default_ac(), dc=self._default_dc(), custom_kw=80.0,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            loss_factor=1.0,
+            ac=self._default_ac(),
+            dc=self._default_dc(),
+            custom_kw=80.0,
         )
         custom_row = table[-1]
         assert custom_row.label == "Custom kW"
@@ -1004,8 +1145,13 @@ class TestBuildScenarioTable:
     def test_car_max_row_uses_ceiling(self):
         """Car max row power_kw should equal the ceiling (for a fully modelled car)."""
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0, loss_factor=1.0,
-            ac=self._default_ac(), dc=self._default_dc(), custom_kw=None,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            loss_factor=1.0,
+            ac=self._default_ac(),
+            dc=self._default_dc(),
+            custom_kw=None,
         )
         car_max_row = next(r for r in table if r.label == "Car max")
         # Car max integrates using ceiling — representative power ≤ ceiling
@@ -1014,10 +1160,18 @@ class TestBuildScenarioTable:
     def test_dominant_tag_modelled_across_range(self):
         """When DC range spans a modelled band, that row has source_tag=='modelled'."""
         # Empty sessions → all bands are modelled.
-        dc = {"capability": build_dc_capability(battery_kwh=77.0, dc_sessions=[], max_dc_kw=150.0), "ceiling": 150.0}
+        dc = {
+            "capability": build_dc_capability(battery_kwh=77.0, dc_sessions=[], max_dc_kw=150.0),
+            "ceiling": 150.0,
+        }
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0, loss_factor=1.0,
-            ac=self._default_ac(), dc=dc, custom_kw=None,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            loss_factor=1.0,
+            ac=self._default_ac(),
+            dc=dc,
+            custom_kw=None,
         )
         dc_rows = [r for r in table if r.label in ("50 kW", "150 kW", "Car max")]
         for row in dc_rows:
@@ -1025,8 +1179,13 @@ class TestBuildScenarioTable:
 
     def test_all_rows_have_positive_minutes(self):
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0, loss_factor=1.0,
-            ac=self._default_ac(), dc=self._default_dc(), custom_kw=50.0,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            loss_factor=1.0,
+            ac=self._default_ac(),
+            dc=self._default_dc(),
+            custom_kw=50.0,
         )
         for row in table:
             assert row.minutes > 0, f"{row.label} has non-positive minutes"
@@ -1036,12 +1195,22 @@ class TestBuildScenarioTable:
         ac = self._default_ac()
         dc = self._default_dc()
         table_no_loss = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0, loss_factor=1.0,
-            ac=ac, dc=dc, custom_kw=None,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            loss_factor=1.0,
+            ac=ac,
+            dc=dc,
+            custom_kw=None,
         )
         table_with_loss = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0, loss_factor=0.9,
-            ac=ac, dc=dc, custom_kw=None,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
+            loss_factor=0.9,
+            ac=ac,
+            dc=dc,
+            custom_kw=None,
         )
         for r_no, r_loss in zip(table_no_loss, table_with_loss):
             assert r_loss.minutes >= r_no.minutes, (

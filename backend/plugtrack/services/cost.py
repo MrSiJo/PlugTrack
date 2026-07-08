@@ -35,24 +35,25 @@ print the total on the receipt, and this lets PlugTrack still answer
 "what did I pay per kWh" without the user having to do the maths.
 Returns `None` when `kwh_added == 0` to avoid division by zero.
 """
+
 from __future__ import annotations
 
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 from ..models.location import Location
 
 
 class SessionOverrides(TypedDict, total=False):
-    cost_per_kwh_override_p: Optional[float]
-    total_cost_pence_override: Optional[int]
+    cost_per_kwh_override_p: float | None
+    total_cost_pence_override: int | None
 
 
 def compute_session_cost(
     kwh_added: float,
-    location: Optional[Location],
+    location: Location | None,
     session_overrides: SessionOverrides,
     settings_default_home_rate_p_per_kwh: float,
-) -> tuple[Optional[int], str, Optional[float]]:
+) -> tuple[int | None, str, float | None]:
     """Apply the cost-precedence rule.
 
     Returns `(cost_pence, cost_basis, tariff_p_per_kwh)`. `cost_pence`
@@ -69,7 +70,7 @@ def compute_session_cost(
     #   - kwh_added is zero → None to avoid division-by-zero.
     if total_override is not None:
         if per_kwh_override is not None:
-            tariff_for_breakdown: Optional[float] = float(per_kwh_override)
+            tariff_for_breakdown: float | None = float(per_kwh_override)
         elif kwh_added > 0:
             tariff_for_breakdown = round(float(total_override) / float(kwh_added), 2)
         else:

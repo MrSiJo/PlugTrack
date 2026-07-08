@@ -4,10 +4,11 @@ from sqlalchemy import select
 
 
 async def _seed(test_sessionmaker, **overrides):
-    from plugtrack.models import Setting
-    from plugtrack.settings.seeds import seed_defaults
-    from plugtrack.security.crypto import encrypt_secret
     from plugtrack.bootstrap import get_settings
+    from plugtrack.models import Setting
+    from plugtrack.security.crypto import encrypt_secret
+    from plugtrack.settings.seeds import seed_defaults
+
     get_settings.cache_clear()
     secret = get_settings().app_secret_key
     async with test_sessionmaker() as s:
@@ -30,7 +31,8 @@ async def _seed(test_sessionmaker, **overrides):
 @pytest.mark.asyncio
 async def test_problem_when_no_user(test_sessionmaker):
     """No user account at all → ConfigProblem (user_id cannot be resolved)."""
-    from plugtrack.services.telegram_ingest import load_bot_config, ConfigProblem
+    from plugtrack.services.telegram_ingest import ConfigProblem, load_bot_config
+
     await _seed(test_sessionmaker)
     cfg = await load_bot_config(test_sessionmaker)
     assert isinstance(cfg, ConfigProblem)
@@ -39,7 +41,8 @@ async def test_problem_when_no_user(test_sessionmaker):
 
 @pytest.mark.asyncio
 async def test_problem_when_disabled(test_sessionmaker, seeded_user_car):
-    from plugtrack.services.telegram_ingest import load_bot_config, ConfigProblem
+    from plugtrack.services.telegram_ingest import ConfigProblem, load_bot_config
+
     await _seed(test_sessionmaker, telegram_bot_enabled="false")
     cfg = await load_bot_config(test_sessionmaker)
     assert isinstance(cfg, ConfigProblem)
@@ -49,7 +52,8 @@ async def test_problem_when_disabled(test_sessionmaker, seeded_user_car):
 @pytest.mark.asyncio
 async def test_valid_config(test_sessionmaker, seeded_user_car):
     """Bot starts successfully with token/allowed/enabled — no default car required."""
-    from plugtrack.services.telegram_ingest import load_bot_config, BotConfig
+    from plugtrack.services.telegram_ingest import BotConfig, load_bot_config
+
     user_id, _car_id = seeded_user_car
     await _seed(test_sessionmaker)
     cfg = await load_bot_config(test_sessionmaker)
@@ -63,7 +67,8 @@ async def test_valid_config(test_sessionmaker, seeded_user_car):
 async def test_valid_config_no_car_needed(test_sessionmaker, seeded_user_car):
     """load_bot_config returns BotConfig even when no car is seeded, as long as
     token/allowed/enabled are set and a user account exists."""
-    from plugtrack.services.telegram_ingest import load_bot_config, BotConfig
+    from plugtrack.services.telegram_ingest import BotConfig, load_bot_config
+
     # seeded_user_car created a user; ignore the car — bot must not require it
     await _seed(test_sessionmaker)
     cfg = await load_bot_config(test_sessionmaker)
@@ -72,7 +77,8 @@ async def test_valid_config_no_car_needed(test_sessionmaker, seeded_user_car):
 
 @pytest.mark.asyncio
 async def test_ai_enabled_true(test_sessionmaker, seeded_user_car):
-    from plugtrack.services.telegram_ingest import load_bot_config, BotConfig
+    from plugtrack.services.telegram_ingest import BotConfig, load_bot_config
+
     await _seed(test_sessionmaker, ai_enabled="true")
     cfg = await load_bot_config(test_sessionmaker)
     assert isinstance(cfg, BotConfig)
@@ -81,7 +87,8 @@ async def test_ai_enabled_true(test_sessionmaker, seeded_user_car):
 
 @pytest.mark.asyncio
 async def test_ai_enabled_false(test_sessionmaker, seeded_user_car):
-    from plugtrack.services.telegram_ingest import load_bot_config, BotConfig
+    from plugtrack.services.telegram_ingest import BotConfig, load_bot_config
+
     await _seed(test_sessionmaker, ai_enabled="false")
     cfg = await load_bot_config(test_sessionmaker)
     assert isinstance(cfg, BotConfig)

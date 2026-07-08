@@ -41,13 +41,13 @@ NOTE: do NOT use ``from __future__ import annotations`` in this file — the
 FastMCP SDK uses ``inspect.signature()`` at tool-registration time and cannot
 handle stringified annotations (PEP 563).  Use concrete types directly.
 """
+
 import collections
-import contextlib
 import contextvars
 import json
 import logging
 import time
-from typing import Optional, Tuple, Any
+from typing import Any
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -57,15 +57,13 @@ _log = logging.getLogger(__name__)
 # Per-request context (set by auth middleware, read by tools)
 # ---------------------------------------------------------------------------
 
-_user_id_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar(
+_user_id_var: contextvars.ContextVar[int | None] = contextvars.ContextVar(
     "mcp_user_id", default=None
 )
-_scope_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
-    "mcp_scope", default=None
-)
+_scope_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("mcp_scope", default=None)
 
 
-def get_mcp_context() -> Tuple[int, str]:
+def get_mcp_context() -> tuple[int, str]:
     """Return ``(user_id, scope)`` for the current MCP request.
 
     Raises RuntimeError if called outside an authenticated MCP request.
@@ -73,9 +71,7 @@ def get_mcp_context() -> Tuple[int, str]:
     user_id = _user_id_var.get()
     scope = _scope_var.get()
     if user_id is None or scope is None:
-        raise RuntimeError(
-            "get_mcp_context() called outside an authenticated MCP request"
-        )
+        raise RuntimeError("get_mcp_context() called outside an authenticated MCP request")
     return user_id, scope
 
 
@@ -83,8 +79,8 @@ def get_mcp_context() -> Tuple[int, str]:
 # Rate limiter (sliding-window per identity)
 # ---------------------------------------------------------------------------
 
-_RATE_LIMIT_REQUESTS = 60   # requests per window
-_RATE_LIMIT_WINDOW = 60.0   # seconds
+_RATE_LIMIT_REQUESTS = 60  # requests per window
+_RATE_LIMIT_WINDOW = 60.0  # seconds
 
 
 class _RateLimiter:
@@ -114,6 +110,7 @@ _rate_limiter = _RateLimiter()
 # ---------------------------------------------------------------------------
 # ASGI bearer-token auth + rate-limit middleware
 # ---------------------------------------------------------------------------
+
 
 class _McpAuthMiddleware:
     """Wraps the FastMCP ASGI app with bearer-token auth and rate limiting.
@@ -150,9 +147,9 @@ class _McpAuthMiddleware:
         auth_bytes = headers.get(b"authorization", b"")
         auth_header = auth_bytes.decode("utf-8", errors="replace")
 
-        token_str: Optional[str] = None
+        token_str: str | None = None
         if auth_header.startswith("Bearer "):
-            token_str = auth_header[len("Bearer "):]
+            token_str = auth_header[len("Bearer ") :]
 
         if not token_str:
             await _send_401(scope, receive, send, "Bearer token required")
@@ -161,8 +158,8 @@ class _McpAuthMiddleware:
         # Verify the token against the DB
         from ..services import mcp_tokens as _mcp_tokens
 
-        user_id: Optional[int] = None
-        scope_str: Optional[str] = None
+        user_id: int | None = None
+        scope_str: str | None = None
 
         try:
             async with self._db() as session:
@@ -181,6 +178,7 @@ class _McpAuthMiddleware:
 
         # Rate limit by short hash of the token (avoids storing plaintext)
         import hashlib
+
         identity = hashlib.sha256(token_str.encode()).hexdigest()[:16]
         if not _rate_limiter.is_allowed(identity):
             await _send_429(scope, receive, send)
@@ -200,36 +198,51 @@ async def _send_json_response(
     scope: Scope, receive: Receive, send: Send, status: int, body: dict
 ) -> None:
     body_bytes = json.dumps(body).encode("utf-8")
-    await send({
-        "type": "http.response.start",
-        "status": status,
-        "headers": [
-            (b"content-type", b"application/json"),
-            (b"content-length", str(len(body_bytes)).encode()),
-        ],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body_bytes)).encode()),
+            ],
+        }
+    )
     await send({"type": "http.response.body", "body": body_bytes})
 
 
 async def _send_401(scope: Scope, receive: Receive, send: Send, detail: str) -> None:
-    await _send_json_response(scope, receive, send, 401, {
-        "detail": detail,
-        "error": "unauthorized",
-    })
+    await _send_json_response(
+        scope,
+        receive,
+        send,
+        401,
+        {
+            "detail": detail,
+            "error": "unauthorized",
+        },
+    )
 
 
 async def _send_429(scope: Scope, receive: Receive, send: Send) -> None:
-    await _send_json_response(scope, receive, send, 429, {
-        "detail": "Rate limit exceeded. Please wait before retrying.",
-        "error": "rate_limited",
-    })
+    await _send_json_response(
+        scope,
+        receive,
+        send,
+        429,
+        {
+            "detail": "Rate limit exceeded. Please wait before retrying.",
+            "error": "rate_limited",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
 # Scope enforcement helpers (called inside tool handlers)
 # ---------------------------------------------------------------------------
 
-def require_readwrite() -> Optional[dict]:
+
+def require_readwrite() -> dict | None:
     """Return a scope-error dict if the current token is read-only, else None."""
     _, current_scope = get_mcp_context()
     if current_scope != "readwrite":
@@ -283,9 +296,9 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
     @mcp.tool()
     async def find_charges(
         limit: int = 10,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None,
-        location_id: Optional[int] = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        location_id: int | None = None,
     ) -> str:
         """Find recent charging sessions (most-recent first).
 
@@ -299,13 +312,16 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
             JSON array of charge dicts.
         """
         import datetime as dt
+
         user_id, _ = get_mcp_context()
         df = dt.date.fromisoformat(date_from) if date_from else None
         dt2 = dt.date.fromisoformat(date_to) if date_to else None
         async with db_sessionmaker() as session:
             result = await _tools.find_charges(
-                session, user_id,
-                date_from=df, date_to=dt2,
+                session,
+                user_id,
+                date_from=df,
+                date_to=dt2,
                 location_id=location_id,
                 limit=limit,
             )
@@ -328,8 +344,8 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
 
     @mcp.tool()
     async def get_insights(
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
     ) -> str:
         """Get charging insights / stats for a date window.
 
@@ -342,6 +358,7 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
             and spend/energy over time.
         """
         import datetime as dt
+
         user_id, _ = get_mcp_context()
         df = dt.date.fromisoformat(date_from) if date_from else None
         dt2 = dt.date.fromisoformat(date_to) if date_to else None
@@ -355,10 +372,10 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
 
     @mcp.tool()
     async def propose_create_location(
-        name: Optional[str] = None,
-        lat: Optional[float] = None,
-        lng: Optional[float] = None,
-        address: Optional[str] = None,
+        name: str | None = None,
+        lat: float | None = None,
+        lng: float | None = None,
+        address: str | None = None,
     ) -> str:
         """Propose creating a new location (two-phase: no DB write yet).
 
@@ -386,8 +403,8 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
     @mcp.tool()
     async def propose_set_location(
         charge_id: int,
-        location_id: Optional[int] = None,
-        location_name: Optional[str] = None,
+        location_id: int | None = None,
+        location_name: str | None = None,
     ) -> str:
         """Propose assigning a location to a charge session (two-phase).
 
@@ -407,22 +424,25 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
         user_id, _ = get_mcp_context()
         async with db_sessionmaker() as session:
             result = await _tools.propose_set_location(
-                session, user_id, charge_id=charge_id,
-                location_id=location_id, location_name=location_name,
+                session,
+                user_id,
+                charge_id=charge_id,
+                location_id=location_id,
+                location_name=location_name,
             )
         return json.dumps(result, default=str)
 
     @mcp.tool()
     async def propose_edit_charge(
         charge_id: int,
-        kwh: Optional[float] = None,
-        price_p_per_kwh: Optional[float] = None,
-        total_cost_p: Optional[int] = None,
-        start_soc: Optional[int] = None,
-        end_soc: Optional[int] = None,
-        date: Optional[str] = None,
-        network: Optional[str] = None,
-        notes: Optional[str] = None,
+        kwh: float | None = None,
+        price_p_per_kwh: float | None = None,
+        total_cost_p: int | None = None,
+        start_soc: int | None = None,
+        end_soc: int | None = None,
+        date: str | None = None,
+        network: str | None = None,
+        notes: str | None = None,
     ) -> str:
         """Propose editing fields on a charge session (two-phase).
 
@@ -447,11 +467,13 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
         if err is not None:
             return json.dumps(err)
         import datetime as dt
+
         user_id, _ = get_mcp_context()
         date_obj = dt.date.fromisoformat(date) if date else None
         async with db_sessionmaker() as session:
             result = await _tools.propose_edit_charge(
-                session, user_id,
+                session,
+                user_id,
                 charge_id=charge_id,
                 kwh=kwh,
                 price_p_per_kwh=price_p_per_kwh,

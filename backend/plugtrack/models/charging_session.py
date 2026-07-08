@@ -18,10 +18,10 @@ Cost columns:
   user-entered cost overlays. The cost service treats them as sacred —
   re-syncs never overwrite.
 """
+
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
-from typing import Optional
+from datetime import UTC, date, datetime
 
 from sqlalchemy import (
     JSON,
@@ -41,7 +41,7 @@ from .base import Base
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class ChargingSession(Base):
@@ -54,12 +54,8 @@ class ChargingSession(Base):
     # Denormalised so list queries are fast.
     date: Mapped[date] = mapped_column(Date, nullable=False)
 
-    charge_start_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    charge_end_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    charge_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    charge_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     start_soc: Mapped[int] = mapped_column(Integer, nullable=False)
     end_soc: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -72,11 +68,11 @@ class ChargingSession(Base):
     # alongside `kwh_added` and never updated by user edits. We surface
     # it next to the editable value so the user can compare metered vs
     # battery-implied energy and notice big losses.
-    kwh_calculated: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    kwh_calculated: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Distance snapshot at charge_start_at — every distance column ends
     # in `_km` per the spec's distance-unit rule.
-    odometer_at_session_km: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    odometer_at_session_km: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     charging_type: Mapped[str] = mapped_column(
         String(16), nullable=False, default="unknown"
@@ -84,45 +80,37 @@ class ChargingSession(Base):
     charging_mode: Mapped[str] = mapped_column(
         String(16), nullable=False, default="unknown"
     )  # 'timer' | 'manual' | 'profile' | 'unknown'
-    battery_care: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
-    max_charge_current: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    battery_care: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    max_charge_current: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # Real energy-transfer time in seconds. Distinct from the plug-in window
     # (charge_start_at..charge_end_at): for AC scheduled charges the car can sit
     # plugged in for hours before/after actually drawing power. NULL when unknown.
-    actual_charge_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    actual_charge_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     interrupted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    error_reason: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    error_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # ---- Cost ----
-    cost_pence: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    cost_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cost_basis: Mapped[str] = mapped_column(
         String(32), nullable=False, default="unknown"
     )  # 'override_total' | 'override_per_kwh' | 'location_free' |
-       # 'location_rate' | 'home_rate' | 'unknown'
-    tariff_p_per_kwh: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    cost_per_kwh_override_p: Mapped[Optional[float]] = mapped_column(
-        Float, nullable=True
-    )
-    total_cost_pence_override: Mapped[Optional[int]] = mapped_column(
-        Integer, nullable=True
-    )
+    # 'location_rate' | 'home_rate' | 'unknown'
+    tariff_p_per_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cost_per_kwh_override_p: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_cost_pence_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # ---- Location overlay ----
-    location_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("location.id"), nullable=True
-    )
-    user_label: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    charge_network: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    notes: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    location_id: Mapped[int | None] = mapped_column(ForeignKey("location.id"), nullable=True)
+    user_label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    charge_network: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     source: Mapped[str] = mapped_column(
         String(16), nullable=False
     )  # 'synthesis' | 'manual' | 'telegram' | 'import' | 'unconfirmed'
-    telematics_session_id: Mapped[Optional[str]] = mapped_column(
-        String(128), nullable=True
-    )
-    raw_payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    power_curve: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    telematics_session_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    raw_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    power_curve: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -132,13 +120,13 @@ class ChargingSession(Base):
     )
 
     # ---- Reserved cariad columns — NULL on v1 synthesis. ----
-    evse_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    station_address: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    energy_loss_kwh: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    authentication_type: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
-    contract: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    voucher_amount_pence: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    blocking_fees_pence: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    evse_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    station_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    energy_loss_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    authentication_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    contract: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    voucher_amount_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    blocking_fees_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     __table_args__ = (
         # Partial unique: only enforced when telematics_session_id is set,

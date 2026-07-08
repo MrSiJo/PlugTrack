@@ -9,17 +9,16 @@ Rules under test (spec §4):
 5. Zero active cars  -> kind="none"
 6. Ambiguous caption (matches 2 active cars)  -> kind="prompt"
 """
+
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import select
-
 from plugtrack.models import Car, User
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 async def _seed_user(s) -> int:
     user = User(username="tester", password_hash="x")
@@ -28,8 +27,9 @@ async def _seed_user(s) -> int:
     return user.id
 
 
-async def _add_car(s, *, user_id: int, make: str, model: str,
-                   name: str | None = None, active: bool = True) -> Car:
+async def _add_car(
+    s, *, user_id: int, make: str, model: str, name: str | None = None, active: bool = True
+) -> Car:
     car = Car(
         user_id=user_id,
         make=make,
@@ -49,9 +49,10 @@ async def _add_car(s, *, user_id: int, make: str, model: str,
 # Rule 1 — single active car => auto
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_single_active_car_is_auto(test_sessionmaker):
-    from plugtrack.services.telegram_ingest import resolve_car_for_message, CarResolution
+    from plugtrack.services.telegram_ingest import CarResolution, resolve_car_for_message
 
     async with test_sessionmaker() as s:
         uid = await _seed_user(s)
@@ -70,7 +71,7 @@ async def test_single_active_car_is_auto(test_sessionmaker):
 @pytest.mark.asyncio
 async def test_single_active_car_ignores_caption(test_sessionmaker):
     """Even if caption is present, 1 active car -> auto (caption not needed)."""
-    from plugtrack.services.telegram_ingest import resolve_car_for_message, CarResolution
+    from plugtrack.services.telegram_ingest import resolve_car_for_message
 
     async with test_sessionmaker() as s:
         uid = await _seed_user(s)
@@ -89,15 +90,18 @@ async def test_single_active_car_ignores_caption(test_sessionmaker):
 # Rule 2 — 2+ active + caption uniquely matching one active car
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_caption_matches_name_active(test_sessionmaker):
     """Caption contains the car's name => matched."""
-    from plugtrack.services.telegram_ingest import resolve_car_for_message, CarResolution
+    from plugtrack.services.telegram_ingest import resolve_car_for_message
 
     async with test_sessionmaker() as s:
         uid = await _seed_user(s)
         born = await _add_car(s, user_id=uid, make="Cupra", model="Born", name="Born")
-        _formentor = await _add_car(s, user_id=uid, make="Cupra", model="Formentor", name="Formentor")
+        _formentor = await _add_car(
+            s, user_id=uid, make="Cupra", model="Formentor", name="Formentor"
+        )
         await s.commit()
         born_id = born.id
 
@@ -150,9 +154,10 @@ async def test_caption_match_is_case_insensitive(test_sessionmaker):
 # Rule 3 — 2+ active + no caption => prompt
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_two_active_no_caption_is_prompt(test_sessionmaker):
-    from plugtrack.services.telegram_ingest import resolve_car_for_message, CarResolution
+    from plugtrack.services.telegram_ingest import CarResolution, resolve_car_for_message
 
     async with test_sessionmaker() as s:
         uid = await _seed_user(s)
@@ -192,6 +197,7 @@ async def test_two_active_no_caption_prompt_lists_active_only(test_sessionmaker)
 # ---------------------------------------------------------------------------
 # Rule 4 — caption uniquely matches an archived car (active-first, then archive)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_archived_car_matched_when_two_active_no_active_match(test_sessionmaker):
@@ -240,9 +246,10 @@ async def test_archived_car_matched_when_zero_active(test_sessionmaker):
 # Rule 5 — zero active cars => none
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_zero_active_cars_is_none(test_sessionmaker):
-    from plugtrack.services.telegram_ingest import resolve_car_for_message, CarResolution
+    from plugtrack.services.telegram_ingest import CarResolution, resolve_car_for_message
 
     async with test_sessionmaker() as s:
         uid = await _seed_user(s)
@@ -276,6 +283,7 @@ async def test_zero_active_but_archived_without_caption_is_none(test_sessionmake
 # Rule 6 — ambiguous caption (matches 2+ active cars) => prompt
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_ambiguous_caption_is_prompt(test_sessionmaker):
     """Caption 'Cupra' matches both active cars => prompt."""
@@ -299,6 +307,7 @@ async def test_ambiguous_caption_is_prompt(test_sessionmaker):
 # ---------------------------------------------------------------------------
 # Word-boundary matching regression tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_word_boundary_no_false_positive_airborne(test_sessionmaker):
@@ -341,9 +350,11 @@ async def test_word_boundary_born_matches_standalone_word(test_sessionmaker):
 # IngestContext — pending_car_choice field exists
 # ---------------------------------------------------------------------------
 
+
 def test_ingest_context_has_pending_car_choice():
     """IngestContext must have the pending_car_choice dict field."""
     from plugtrack.services.telegram_ingest import IngestContext
+
     ctx = IngestContext(
         telegram=None,
         sessionmaker=None,

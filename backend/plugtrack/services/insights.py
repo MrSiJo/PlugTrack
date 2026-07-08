@@ -4,11 +4,11 @@ Pure aggregation over a user's charging sessions, grouped by location.
 Extracted from the route so the avg-p/kWh + pct-of-spend rules are unit-
 testable in isolation. See spec 02 §1.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date as date_cls
-from typing import Optional
 
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,16 +18,16 @@ from ..models import ChargingSession, Location
 
 @dataclass
 class LocationBreakdownRow:
-    location_id: Optional[int]
-    name: Optional[str]
+    location_id: int | None
+    name: str | None
     is_home: bool
     is_free: bool
     spend_pence: int
     kwh: float
     sessions: int
-    avg_p_per_kwh: Optional[float]
-    first_at: Optional[str]
-    last_at: Optional[str]
+    avg_p_per_kwh: float | None
+    first_at: str | None
+    last_at: str | None
     pct_of_spend: float
 
 
@@ -41,9 +41,9 @@ async def aggregate_by_location(
     session: AsyncSession,
     *,
     user_id: int,
-    date_from: Optional[date_cls],
-    date_to: Optional[date_cls],
-    car_id: Optional[int] = None,
+    date_from: date_cls | None,
+    date_to: date_cls | None,
+    car_id: int | None = None,
 ) -> InsightsByLocation:
     """Aggregate spend/kWh/sessions per location for one user in a window.
 
@@ -61,9 +61,9 @@ async def aggregate_by_location(
             ChargingSession.location_id.label("location_id"),
             func.count(ChargingSession.id).label("sessions"),
             func.coalesce(func.sum(ChargingSession.kwh_added), 0.0).label("kwh"),
-            func.coalesce(
-                func.sum(case((costed, ChargingSession.cost_pence), else_=0)), 0
-            ).label("spend_pence"),
+            func.coalesce(func.sum(case((costed, ChargingSession.cost_pence), else_=0)), 0).label(
+                "spend_pence"
+            ),
             func.coalesce(
                 func.sum(case((costed, ChargingSession.kwh_added), else_=0.0)), 0.0
             ).label("costed_kwh"),
@@ -84,20 +84,18 @@ async def aggregate_by_location(
     agg_by_id = {r.location_id: r for r in agg_rows}
 
     locations = (
-        await session.execute(
-            select(Location).where(Location.user_id == user_id)
-        )
-    ).scalars().all()
+        (await session.execute(select(Location).where(Location.user_id == user_id))).scalars().all()
+    )
 
     total_spend = sum(int(r.spend_pence) for r in agg_rows)
 
     def _pct(spend: int) -> float:
         return round(spend / total_spend * 100, 1) if total_spend > 0 else 0.0
 
-    def _avg(spend: int, costed_kwh: float) -> Optional[float]:
+    def _avg(spend: int, costed_kwh: float) -> float | None:
         return round(spend / costed_kwh, 2) if costed_kwh > 0 else None
 
-    def _iso(d) -> Optional[str]:
+    def _iso(d) -> str | None:
         return d.isoformat() if d is not None else None
 
     rows: list[LocationBreakdownRow] = []

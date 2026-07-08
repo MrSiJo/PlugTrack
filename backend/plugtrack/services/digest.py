@@ -5,11 +5,10 @@
 
 Both return ``None`` when the reported window has zero sessions.
 """
+
 from __future__ import annotations
 
-import calendar
 import datetime as dt
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -17,14 +16,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Car, Setting
 from .formatting import format_currency, format_distance
-from .insights_stats import miles_driven_km, home_public_split, window_totals
-from .mileage_tracking import KM_PER_MILE, get_status as mileage_get_status
+from .insights_stats import home_public_split, miles_driven_km, window_totals
+from .mileage_tracking import get_status as mileage_get_status
 
 LONDON = ZoneInfo("Europe/London")
 
 # ---------------------------------------------------------------------------
 # Delta helper
 # ---------------------------------------------------------------------------
+
 
 def _delta_phrase(cur: float, prev: float) -> str:
     """Render a relative change as 'up N%', 'down N%', or 'flat'.
@@ -46,6 +46,7 @@ def _delta_phrase(cur: float, prev: float) -> str:
 # Settings helpers
 # ---------------------------------------------------------------------------
 
+
 async def _str_setting(session: AsyncSession, key: str, default: str) -> str:
     row = (
         await session.execute(select(Setting.value).where(Setting.key == key))
@@ -58,6 +59,7 @@ async def _str_setting(session: AsyncSession, key: str, default: str) -> str:
 # ---------------------------------------------------------------------------
 # Mileage pace verdict
 # ---------------------------------------------------------------------------
+
 
 def _pace_verdict(
     days_elapsed: int,
@@ -92,9 +94,7 @@ async def _pace_lines(
     """Build one pace-verdict line per active car (only when tracking is enabled)."""
     lines: list[str] = []
     for car in active_cars:
-        status = await mileage_get_status(
-            session, user_id=user_id, car_id=car.id, today=today
-        )
+        status = await mileage_get_status(session, user_id=user_id, car_id=car.id, today=today)
         if not status.enabled or status.current_period is None:
             continue
         cp = status.current_period
@@ -114,15 +114,14 @@ async def _pace_lines(
         used_disp = format_distance(used_km, distance_unit)
         target_disp = format_distance(target_km, distance_unit)
 
-        lines.append(
-            f"{car.display_name} — {verdict}: {used_disp}/{target_disp} this period"
-        )
+        lines.append(f"{car.display_name} — {verdict}: {used_disp}/{target_disp} this period")
     return lines
 
 
 # ---------------------------------------------------------------------------
 # Week/month boundary helpers
 # ---------------------------------------------------------------------------
+
 
 def _reported_week(now: dt.datetime) -> tuple[dt.date, dt.date]:
     """Return (lo, hi) for the previous Mon–Sun week relative to *now* in London time."""
@@ -148,6 +147,7 @@ def _reported_month(now: dt.datetime) -> tuple[dt.date, dt.date]:
 # Core block (shared by both digests)
 # ---------------------------------------------------------------------------
 
+
 async def _core_block(
     session: AsyncSession,
     *,
@@ -158,7 +158,7 @@ async def _core_block(
     prv_hi: dt.date,
     currency: str,
     distance_unit: str,
-) -> tuple[dict, dict, Optional[float], Optional[float]]:
+) -> tuple[dict, dict, float | None, float | None]:
     """Fetch window_totals + miles for rep + prev windows.
 
     Returns (rep_totals, prv_totals, rep_miles_km, prv_miles_km).
@@ -181,12 +181,13 @@ def _metric_line(label: str, value: str, delta: str, vs_label: str) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
+
 async def build_weekly_digest(
     session: AsyncSession,
     *,
     user_id: int,
     now: dt.datetime,
-) -> Optional[str]:
+) -> str | None:
     """Build a weekly digest string for the previous Mon–Sun week.
 
     Returns ``None`` when the reported week has zero sessions.
@@ -201,8 +202,10 @@ async def build_weekly_digest(
     rep, prv, rep_km, prv_km = await _core_block(
         session,
         user_id=user_id,
-        rep_lo=rep_lo, rep_hi=rep_hi,
-        prv_lo=prv_lo, prv_hi=prv_hi,
+        rep_lo=rep_lo,
+        rep_hi=rep_hi,
+        prv_lo=prv_lo,
+        prv_hi=prv_hi,
         currency=currency,
         distance_unit=distance_unit,
     )
@@ -215,8 +218,7 @@ async def build_weekly_digest(
         return d.strftime("%d %b").lstrip("0")
 
     header = (
-        f"\U0001f4ca Weekly recap  "
-        f"{_fmt_day(rep_lo)} – {rep_hi.strftime('%d %b %Y').lstrip('0')}"
+        f"\U0001f4ca Weekly recap  {_fmt_day(rep_lo)} – {rep_hi.strftime('%d %b %Y').lstrip('0')}"
     )
 
     lines = [header, ""]
@@ -240,11 +242,9 @@ async def build_weekly_digest(
     # Per-car mileage pace
     today = now.astimezone(LONDON).date()
     active_cars = list(
-        (
-            await session.execute(
-                select(Car).where(Car.user_id == user_id, Car.active.is_(True))
-            )
-        ).scalars().all()
+        (await session.execute(select(Car).where(Car.user_id == user_id, Car.active.is_(True))))
+        .scalars()
+        .all()
     )
     pace_lines = await _pace_lines(
         session,
@@ -263,7 +263,7 @@ async def build_monthly_digest(
     *,
     user_id: int,
     now: dt.datetime,
-) -> Optional[str]:
+) -> str | None:
     """Build a monthly digest string for the previous calendar month.
 
     Returns ``None`` when the reported month has zero sessions.
@@ -278,8 +278,10 @@ async def build_monthly_digest(
     rep, prv, rep_km, prv_km = await _core_block(
         session,
         user_id=user_id,
-        rep_lo=rep_lo, rep_hi=rep_hi,
-        prv_lo=prv_lo, prv_hi=prv_hi,
+        rep_lo=rep_lo,
+        rep_hi=rep_hi,
+        prv_lo=prv_lo,
+        prv_hi=prv_hi,
         currency=currency,
         distance_unit=distance_unit,
     )
@@ -313,9 +315,7 @@ async def build_monthly_digest(
         lines.append(_metric_line("Driven", miles_str, miles_delta, prv_month_name))
 
     # Home/public split
-    split = await home_public_split(
-        session, user_id=user_id, date_from=rep_lo, date_to=rep_hi
-    )
+    split = await home_public_split(session, user_id=user_id, date_from=rep_lo, date_to=rep_hi)
     home_p = split["home"]["spend_pence"]
     pub_p = split["public"]["spend_pence"]
     total_split_p = home_p + pub_p
@@ -327,11 +327,9 @@ async def build_monthly_digest(
     # Per-car mileage pace
     today = now.astimezone(LONDON).date()
     active_cars = list(
-        (
-            await session.execute(
-                select(Car).where(Car.user_id == user_id, Car.active.is_(True))
-            )
-        ).scalars().all()
+        (await session.execute(select(Car).where(Car.user_id == user_id, Car.active.is_(True))))
+        .scalars()
+        .all()
     )
     pace_lines = await _pace_lines(
         session,

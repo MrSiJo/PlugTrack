@@ -11,6 +11,7 @@ populates `Location.address` on creation. It lets the UI turn a typed
 address ("Instavolt McDonalds, Lysander Road, Yeovil") into a centroid for
 a new location instead of requiring a map-pick.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -20,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...db import get_db
 from ...models import Setting
 from ...services.geocoding import get_provider
-
 
 router = APIRouter(prefix="/api/geocode", tags=["geocode"])
 
@@ -34,9 +34,7 @@ def _user_id(request: Request) -> int:
 
 async def _geocoding_settings(session: AsyncSession) -> dict:
     keys = ["geocoding_enabled", "geocoding_provider", "geocoding_api_key"]
-    rows = (
-        await session.execute(select(Setting).where(Setting.key.in_(keys)))
-    ).scalars().all()
+    rows = (await session.execute(select(Setting).where(Setting.key.in_(keys)))).scalars().all()
     return {r.key: r.value for r in rows}
 
 

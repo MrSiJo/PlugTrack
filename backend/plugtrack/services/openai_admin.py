@@ -4,10 +4,10 @@
 tokens. We surface only vision-capable gpt-5 chat models (exclude `codex`),
 mini/nano first, and flag a recommended cheapest-mini default.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 import httpx
 
@@ -35,7 +35,7 @@ def filter_vision_models(ids: list[str]) -> list[str]:
     return minis + rest
 
 
-def pick_recommended(ids: list[str]) -> Optional[str]:
+def pick_recommended(ids: list[str]) -> str | None:
     for pref in _MINI_PREFERENCE:
         if pref in ids:
             return pref
@@ -45,13 +45,11 @@ def pick_recommended(ids: list[str]) -> Optional[str]:
     return ids[0] if ids else None
 
 
-async def _get_model_ids(api_key: str, *, client: Optional[httpx.AsyncClient]) -> list[str]:
+async def _get_model_ids(api_key: str, *, client: httpx.AsyncClient | None) -> list[str]:
     owns = client is None
     client = client or httpx.AsyncClient(timeout=30)
     try:
-        resp = await client.get(
-            MODELS_URL, headers={"Authorization": f"Bearer {api_key}"}
-        )
+        resp = await client.get(MODELS_URL, headers={"Authorization": f"Bearer {api_key}"})
         if resp.status_code == 401:
             raise OpenAIAuthError("OpenAI rejected the API key (401)")
         resp.raise_for_status()
@@ -62,7 +60,7 @@ async def _get_model_ids(api_key: str, *, client: Optional[httpx.AsyncClient]) -
 
 
 async def list_vision_models(
-    api_key: str, *, client: Optional[httpx.AsyncClient] = None
+    api_key: str, *, client: httpx.AsyncClient | None = None
 ) -> list[ModelInfo]:
     ids = filter_vision_models(await _get_model_ids(api_key, client=client))
     rec = pick_recommended(ids)
@@ -70,7 +68,7 @@ async def list_vision_models(
 
 
 async def validate_key(
-    api_key: str, *, client: Optional[httpx.AsyncClient] = None
+    api_key: str, *, client: httpx.AsyncClient | None = None
 ) -> tuple[bool, str]:
     try:
         ids = await _get_model_ids(api_key, client=client)

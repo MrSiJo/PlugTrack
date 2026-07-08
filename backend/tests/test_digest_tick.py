@@ -11,29 +11,29 @@ Fixed "now" choices:
 ISO week:  2026-W26  (week containing Mon 2026-06-22)
 Month:     2026-07   (July 2026)
 """
+
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import select
-
 from plugtrack.models import Setting, User
+from sqlalchemy import select
 
 LONDON = ZoneInfo("Europe/London")
 
 # ── Fixed instants (all tz-aware, Europe/London) ────────────────────────────
-MONDAY_AFTER   = dt.datetime(2026, 6, 22,  9,  0, tzinfo=LONDON)   # Mon, hour>=8
-MONDAY_BEFORE  = dt.datetime(2026, 6, 22,  7, 30, tzinfo=LONDON)   # Mon, hour<8
-WEDNESDAY      = dt.datetime(2026, 6, 24,  9,  0, tzinfo=LONDON)   # Wed, anchor passed
-FIRST_AFTER    = dt.datetime(2026, 7,  1,  9,  0, tzinfo=LONDON)   # 1st, hour>=8
-FIRST_BEFORE   = dt.datetime(2026, 7,  1,  7, 30, tzinfo=LONDON)   # 1st, hour<8
-SECOND         = dt.datetime(2026, 7,  2,  9,  0, tzinfo=LONDON)   # 2nd, anchor passed
+MONDAY_AFTER = dt.datetime(2026, 6, 22, 9, 0, tzinfo=LONDON)  # Mon, hour>=8
+MONDAY_BEFORE = dt.datetime(2026, 6, 22, 7, 30, tzinfo=LONDON)  # Mon, hour<8
+WEDNESDAY = dt.datetime(2026, 6, 24, 9, 0, tzinfo=LONDON)  # Wed, anchor passed
+FIRST_AFTER = dt.datetime(2026, 7, 1, 9, 0, tzinfo=LONDON)  # 1st, hour>=8
+FIRST_BEFORE = dt.datetime(2026, 7, 1, 7, 30, tzinfo=LONDON)  # 1st, hour<8
+SECOND = dt.datetime(2026, 7, 2, 9, 0, tzinfo=LONDON)  # 2nd, anchor passed
 
-WEEK_MARKER   = "2026-W26"
-MONTH_MARKER  = "2026-07"
+WEEK_MARKER = "2026-W26"
+MONTH_MARKER = "2026-07"
 
 # ISO week for SECOND (2026-07-02 is Thursday of W27)
 WEEK_MARKER_W27 = "2026-W27"
@@ -41,11 +41,12 @@ WEEK_MARKER_W27 = "2026-W27"
 MONTH_MARKER_JUL = "2026-07"
 
 # Bot creds
-FAKE_TOKEN     = "faketoken123"
-FAKE_CHAT_ID   = 99999
+FAKE_TOKEN = "faketoken123"
+FAKE_CHAT_ID = 99999
 
 
 # ── Fake Telegram client ─────────────────────────────────────────────────────
+
 
 class FakeTelegramClient:
     """Records calls to send_message without hitting the network."""
@@ -55,8 +56,8 @@ class FakeTelegramClient:
         self.closed = False
 
     async def send_message(
-        self, *, chat_id: int, text: str, reply_markup: Optional[dict] = None
-    ) -> Optional[int]:
+        self, *, chat_id: int, text: str, reply_markup: dict | None = None
+    ) -> int | None:
         self.calls.append({"chat_id": chat_id, "text": text, "reply_markup": reply_markup})
         return 1  # fake message_id
 
@@ -71,13 +72,14 @@ class FailingTelegramClient:
         self.calls: list[dict[str, Any]] = []
 
     async def send_message(
-        self, *, chat_id: int, text: str, reply_markup: Optional[dict] = None
-    ) -> Optional[int]:
+        self, *, chat_id: int, text: str, reply_markup: dict | None = None
+    ) -> int | None:
         self.calls.append({"chat_id": chat_id, "text": text, "reply_markup": reply_markup})
         raise RuntimeError("Telegram network error (simulated)")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 async def _seed_user(sm) -> int:
     async with sm() as s:
@@ -88,20 +90,27 @@ async def _seed_user(sm) -> int:
         return user.id
 
 
-async def _upsert_setting(sm, key: str, value: Optional[str]) -> None:
+async def _upsert_setting(sm, key: str, value: str | None) -> None:
     async with sm() as s:
         row = (await s.execute(select(Setting).where(Setting.key == key))).scalar_one_or_none()
         if row is None:
-            s.add(Setting(
-                key=key, value=value, value_type="string",
-                group_name="telegram", label=key, description="", default_value=None,
-            ))
+            s.add(
+                Setting(
+                    key=key,
+                    value=value,
+                    value_type="string",
+                    group_name="telegram",
+                    label=key,
+                    description="",
+                    default_value=None,
+                )
+            )
         else:
             row.value = value
         await s.commit()
 
 
-async def _get_marker(sm, key: str) -> Optional[str]:
+async def _get_marker(sm, key: str) -> str | None:
     async with sm() as s:
         row = (await s.execute(select(Setting).where(Setting.key == key))).scalar_one_or_none()
         return row.value if row else None
@@ -110,12 +119,12 @@ async def _get_marker(sm, key: str) -> Optional[str]:
 async def _seed_bot_settings(sm, *, weekly=True, monthly=True, send_hour=8):
     """Seed just enough settings for the bot channel to be deemed available."""
     settings = {
-        "telegram_bot_enabled":    "true",
-        "telegram_bot_token":      FAKE_TOKEN,   # plain text — no encryption in tests
+        "telegram_bot_enabled": "true",
+        "telegram_bot_token": FAKE_TOKEN,  # plain text — no encryption in tests
         "telegram_allowed_user_ids": str(FAKE_CHAT_ID),
-        "digest_weekly_enabled":   "true" if weekly else "false",
-        "digest_monthly_enabled":  "true" if monthly else "false",
-        "digest_send_hour":        str(send_hour),
+        "digest_weekly_enabled": "true" if weekly else "false",
+        "digest_monthly_enabled": "true" if monthly else "false",
+        "digest_send_hour": str(send_hour),
     }
     for k, v in settings.items():
         await _upsert_setting(sm, k, v)
@@ -125,10 +134,10 @@ async def _seed_bot_settings(sm, *, weekly=True, monthly=True, send_hour=8):
 
 from plugtrack.main import run_digest_tick  # noqa: E402 (module imported after helpers)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Weekly tests
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_weekly_sends_on_monday_at_send_hour(test_sessionmaker):
@@ -257,7 +266,7 @@ async def test_weekly_not_sent_before_send_hour(test_sessionmaker):
         return None
 
     await run_digest_tick(
-        now=MONDAY_BEFORE,   # 07:30, before send_hour 8
+        now=MONDAY_BEFORE,  # 07:30, before send_hour 8
         sessionmaker=test_sessionmaker,
         client_factory=lambda token: fake,
         _weekly_builder=_fake_weekly,
@@ -307,6 +316,7 @@ async def test_both_toggles_off_no_send(test_sessionmaker):
 # ─────────────────────────────────────────────────────────────────────────────
 # Monthly tests
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_monthly_sends_on_first_at_send_hour(test_sessionmaker):
@@ -430,7 +440,7 @@ async def test_monthly_not_sent_before_send_hour(test_sessionmaker):
         return "should not be called"
 
     await run_digest_tick(
-        now=FIRST_BEFORE,   # 07:30, before send_hour 8
+        now=FIRST_BEFORE,  # 07:30, before send_hour 8
         sessionmaker=test_sessionmaker,
         client_factory=lambda token: fake,
         _weekly_builder=_fake_weekly,
@@ -476,6 +486,7 @@ async def test_both_weekly_and_monthly_fire_together(test_sessionmaker):
 # ─────────────────────────────────────────────────────────────────────────────
 # Hardening tests (Tests 3–5): send-failure retry + period independence
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_send_failure_no_marker_written(test_sessionmaker):
@@ -527,10 +538,11 @@ async def test_monthly_failure_does_not_prevent_weekly_marker(test_sessionmaker)
 
     class _MixedClient:
         """Succeeds on first call (weekly), raises on second (monthly)."""
+
         def __init__(self):
             self.calls: list[dict[str, Any]] = []
 
-        async def send_message(self, *, chat_id: int, text: str, reply_markup: Optional[dict] = None):
+        async def send_message(self, *, chat_id: int, text: str, reply_markup: dict | None = None):
             self.calls.append({"chat_id": chat_id, "text": text})
             if len(self.calls) == 1:
                 return 1  # weekly succeeds
@@ -604,6 +616,7 @@ async def test_both_succeed_markers_set_to_correct_values(test_sessionmaker):
 # ─────────────────────────────────────────────────────────────────────────────
 # PLUG-M4 — client lifecycle: lazy construction + aclose after every tick
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_client_is_closed_after_a_send(test_sessionmaker):

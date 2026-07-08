@@ -1,4 +1,5 @@
 """Tests for the pydantic-settings env loader."""
+
 from __future__ import annotations
 
 import pytest

@@ -1,8 +1,8 @@
 """Tests for backend distance formatting helpers."""
+
 from __future__ import annotations
 
 import pytest
-
 from plugtrack.services.formatting import format_distance, km_to_mi, mi_to_km
 
 

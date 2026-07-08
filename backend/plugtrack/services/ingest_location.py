@@ -7,12 +7,12 @@ existing nearby Location or create a new named one. Used at commit time only —
 never during the confirm-card preview. A geocoding failure returns None and the
 caller leaves the charge text-only.
 """
+
 from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,29 +30,29 @@ _FILLER = {"nt", "car", "park", "the", "uk"}
 _UK_POSTCODE_RE = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b", re.IGNORECASE)
 
 
-def _extract_uk_postcode(text: Optional[str]) -> Optional[str]:
+def _extract_uk_postcode(text: str | None) -> str | None:
     if not text:
         return None
     m = _UK_POSTCODE_RE.search(text)
     return m.group(1).upper() if m else None
 
 
-def _normalise_network(network: Optional[str]) -> Optional[str]:
+def _normalise_network(network: str | None) -> str | None:
     if not network:
         return None
     n = network.strip()
     low = n.lower()
-    if "supercharg" in low:          # "Supercharging" / "Tesla Supercharging"
+    if "supercharg" in low:  # "Supercharging" / "Tesla Supercharging"
         return "Tesla"
     # strip a trailing "Charging" word: "RAW Charging" -> "RAW"
     n = re.sub(r"\s+charging$", "", n, flags=re.IGNORECASE).strip()
     return n or None
 
 
-def _short_place(label: Optional[str], net: Optional[str]) -> Optional[str]:
+def _short_place(label: str | None, net: str | None) -> str | None:
     if not label:
         return None
-    seg = label.split(",")[0].strip()           # first comma segment
+    seg = label.split(",")[0].strip()  # first comma segment
     net_words = {w.lower() for w in (net or "").split()}
     out: list[str] = []
     for tok in seg.split():
@@ -63,7 +63,7 @@ def _short_place(label: Optional[str], net: Optional[str]) -> Optional[str]:
     return " ".join(out) or None
 
 
-def compose_location_name(network: Optional[str], label: Optional[str]) -> Optional[str]:
+def compose_location_name(network: str | None, label: str | None) -> str | None:
     """Deterministic '<Network> <Place>' fallback when no LLM short name exists."""
     net = _normalise_network(network)
     place = _short_place(label, net)
@@ -104,12 +104,19 @@ async def _geocoding_settings(session: AsyncSession) -> dict:
 
 
 async def clean_location_name(
-    network: Optional[str], label: Optional[str], address: Optional[str],
-    *, api_key: str, model: str, client=None,
-) -> Optional[str]:
+    network: str | None,
+    label: str | None,
+    address: str | None,
+    *,
+    api_key: str,
+    model: str,
+    client=None,
+) -> str | None:
     """One-off LLM cleaner for backfill: returns a single '<Network> <Place>' line."""
     import httpx
+
     from .screenshot_extraction import RESPONSES_URL, extract_output_text
+
     prompt = (
         "Return ONLY a concise '<Network> <Place>' label for this EV charging location, "
         "e.g. 'Tesla Lifton', 'Osprey Land's End', 'MFG Morrisons Yeovil'. Normalise the "
@@ -118,9 +125,11 @@ async def clean_location_name(
     )
     user = f"network={network!r} label={label!r} address={address!r}"
     payload = {
-        "model": model, "instructions": prompt,
+        "model": model,
+        "instructions": prompt,
         "input": [{"role": "user", "content": [{"type": "input_text", "text": user}]}],
-        "reasoning": {"effort": "none"}, "max_output_tokens": 40,
+        "reasoning": {"effort": "none"},
+        "max_output_tokens": 40,
     }
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     owns = client is None
@@ -142,20 +151,28 @@ async def clean_location_name(
 
 
 async def backfill_import_session_locations(
-    session: AsyncSession, *, user_id: int, provider: Optional[GeocodingProvider] = None,
+    session: AsyncSession,
+    *,
+    user_id: int,
+    provider: GeocodingProvider | None = None,
     name_cleaner=None,
 ) -> int:
     """Link/create Locations for source='import' sessions that have none. Idempotent."""
     from ..models import ChargingSession
+
     rows = (
-        await session.execute(
-            select(ChargingSession).where(
-                ChargingSession.user_id == user_id,
-                ChargingSession.source == "import",
-                ChargingSession.location_id.is_(None),
+        (
+            await session.execute(
+                select(ChargingSession).where(
+                    ChargingSession.user_id == user_id,
+                    ChargingSession.source == "import",
+                    ChargingSession.location_id.is_(None),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     linked = 0
     for cs in rows:
         if not (cs.user_label or cs.notes):
@@ -166,8 +183,14 @@ async def backfill_import_session_locations(
         if not name:
             name = compose_location_name(cs.charge_network, cs.user_label)
         loc_id = await resolve_ingested_location(
-            session, user_id=user_id, place_name=name, raw_label=cs.user_label,
-            address=cs.notes, network=cs.charge_network, provider=provider)
+            session,
+            user_id=user_id,
+            place_name=name,
+            raw_label=cs.user_label,
+            address=cs.notes,
+            network=cs.charge_network,
+            provider=provider,
+        )
         if loc_id is not None:
             cs.location_id = loc_id
             linked += 1
@@ -176,10 +199,16 @@ async def backfill_import_session_locations(
 
 
 async def resolve_ingested_location(
-    session: AsyncSession, *, user_id: int, place_name: Optional[str],
-    raw_label: Optional[str], address: Optional[str], network: Optional[str],
-    provider: Optional[GeocodingProvider] = None, radius_m: int = 250,
-) -> Optional[int]:
+    session: AsyncSession,
+    *,
+    user_id: int,
+    place_name: str | None,
+    raw_label: str | None,
+    address: str | None,
+    network: str | None,
+    provider: GeocodingProvider | None = None,
+    radius_m: int = 250,
+) -> int | None:
     if provider is None:
         provider = get_provider(await _geocoding_settings(session))
     # Try the full address first, then a UK postcode pulled from it (Nominatim
@@ -215,6 +244,6 @@ async def resolve_ingested_location(
         if not loc.address and address:
             loc.address = address
     loc.visit_count = (loc.visit_count or 0) + 1
-    loc.last_visited_at = datetime.now(timezone.utc)
+    loc.last_visited_at = datetime.now(UTC)
     await session.flush()
     return loc.id

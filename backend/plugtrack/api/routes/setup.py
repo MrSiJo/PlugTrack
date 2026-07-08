@@ -4,6 +4,7 @@ Refuses if any user already exists. Argon2id-hashes the password (via
 auth_service.bootstrap_user). Rate-limited to 5/minute per remote IP
 to slow brute-force scanning of an unset instance.
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -17,7 +18,6 @@ from ...services.auth_service import (
     bootstrap_user,
 )
 from ..rate_limit import limiter
-
 
 router = APIRouter(prefix="/api", tags=["setup"])
 

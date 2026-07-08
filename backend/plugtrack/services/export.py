@@ -18,6 +18,7 @@ building Content-Disposition filenames and writing headers.  Never reorder
 or remove a column without updating the constant and bumping the backup
 format version.
 """
+
 from __future__ import annotations
 
 import csv
@@ -82,6 +83,7 @@ _LOCATION_EXPORT_COLUMNS: list[str] = [
 # Sessions export
 # ---------------------------------------------------------------------------
 
+
 async def export_sessions_rows(session: AsyncSession, user_id: int) -> list[dict[str, Any]]:
     """Return all charging sessions for *user_id* as a list of dicts.
 
@@ -112,6 +114,7 @@ async def export_sessions_rows(session: AsyncSession, user_id: int) -> list[dict
 # Locations export
 # ---------------------------------------------------------------------------
 
+
 async def export_locations_rows(session: AsyncSession, user_id: int) -> list[dict[str, Any]]:
     """Return all locations for *user_id* as a list of dicts.
 
@@ -122,25 +125,23 @@ async def export_locations_rows(session: AsyncSession, user_id: int) -> list[dic
     ``centroid_lng``.  We export them under the friendlier names ``latitude``
     / ``longitude`` for consumer readability.
     """
-    stmt = (
-        select(Location)
-        .where(Location.user_id == user_id)
-        .order_by(Location.id.asc())
-    )
+    stmt = select(Location).where(Location.user_id == user_id).order_by(Location.id.asc())
     result = await session.execute(stmt)
 
     rows: list[dict[str, Any]] = []
     for (loc,) in result.all():
-        rows.append({
-            "id": loc.id,
-            "name": loc.name,
-            "address": loc.address,
-            "latitude": loc.centroid_lat,
-            "longitude": loc.centroid_lng,
-            "is_free": loc.is_free,
-            "default_cost_per_kwh_p": loc.default_cost_per_kwh_p,
-            "radius_m": loc.radius_m,
-        })
+        rows.append(
+            {
+                "id": loc.id,
+                "name": loc.name,
+                "address": loc.address,
+                "latitude": loc.centroid_lat,
+                "longitude": loc.centroid_lng,
+                "is_free": loc.is_free,
+                "default_cost_per_kwh_p": loc.default_cost_per_kwh_p,
+                "radius_m": loc.radius_m,
+            }
+        )
     return rows
 
 
@@ -184,9 +185,7 @@ def rows_to_csv(columns: list[str], rows: list[dict[str, Any]]) -> str:
         lineterminator="\n",
     )
     writer.writeheader()
-    writer.writerows(
-        {k: _csv_safe_cell(v) for k, v in row.items()} for row in rows
-    )
+    writer.writerows({k: _csv_safe_cell(v) for k, v in row.items()} for row in rows)
     return buf.getvalue()
 
 

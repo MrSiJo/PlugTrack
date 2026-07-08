@@ -3,19 +3,19 @@
 We test the job coroutine directly — no real APScheduler timing involved.
 The test monkeypatches backup service helpers so no real DB is touched.
 """
+
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
 
 import pytest
-
 from plugtrack.services import backup as bk
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_db(p: Path) -> None:
     """Create a minimal SQLite DB at *p* with a known row count."""
@@ -30,10 +30,12 @@ def _make_db(p: Path) -> None:
 # Test 1: job creates a backup and applies pruning
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_scheduled_backup_creates_file_and_prunes(tmp_path, monkeypatch):
     """Calling the job function must create a backup and prune older ones."""
     import time as _time
+
     from plugtrack.main import run_scheduled_backup
 
     src = tmp_path / "plugtrack.db"
@@ -64,6 +66,7 @@ async def test_scheduled_backup_creates_file_and_prunes(tmp_path, monkeypatch):
 # Test 2: job swallows exceptions — a backup failure must not propagate
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_scheduled_backup_swallows_create_backup_exception(tmp_path, monkeypatch):
     """If create_backup raises, the job must log and swallow — never re-raise."""
@@ -84,6 +87,7 @@ async def test_scheduled_backup_swallows_create_backup_exception(tmp_path, monke
 # Test 3: lifespan wires backup_scheduler into app.state when backup_enabled
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_backup_scheduler_present_in_app_state(app):
     """The lifespan must set app.state.backup_scheduler when backup_enabled=true."""
@@ -98,27 +102,26 @@ async def test_backup_scheduler_present_in_app_state(app):
 # Test 4: lifespan boots successfully when backup_interval_hours is "0"
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
-async def test_boot_with_zero_backup_interval_does_not_raise(
-    app, test_sessionmaker
-):
+async def test_boot_with_zero_backup_interval_does_not_raise(app, test_sessionmaker):
     """Lifespan must not raise when backup_interval_hours is set to "0".
 
     The clamp guard must convert the invalid "0" to 24, and the scheduler
     wiring try/except must ensure the app boots even if APScheduler raises.
     The key assertion is: the lifespan context enters without exception.
     """
-    from plugtrack.settings.seeds import seed_defaults
     from plugtrack.models.setting import Setting
+    from plugtrack.settings.seeds import seed_defaults
     from sqlalchemy import select as _select
 
     # Pre-seed the DB, then override backup_interval_hours to "0".
     async with test_sessionmaker() as session:
         await seed_defaults(session)
         await session.commit()
-        row = (await session.execute(
-            _select(Setting).where(Setting.key == "backup_interval_hours")
-        )).scalar_one_or_none()
+        row = (
+            await session.execute(_select(Setting).where(Setting.key == "backup_interval_hours"))
+        ).scalar_one_or_none()
         if row is not None:
             row.value = "0"
         else:

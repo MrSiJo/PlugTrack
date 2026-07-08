@@ -1,11 +1,10 @@
 """Exhaustive tests for the cost-precedence rule (spec §3.3 lines 143–162)."""
+
 from __future__ import annotations
 
 import pytest
-
 from plugtrack.models.location import Location
 from plugtrack.services.cost import compute_session_cost
-
 
 HOME_RATE = 7.5  # p/kWh — the seeded catalogue default
 

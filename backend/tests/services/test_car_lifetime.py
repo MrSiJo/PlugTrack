@@ -1,11 +1,10 @@
 """Tests for services.car_lifetime.compute_car_lifetime."""
+
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 import pytest
-
 from plugtrack.models import Car, ChargingSession, User
 from plugtrack.services.car_lifetime import compute_car_lifetime
 
@@ -22,9 +21,13 @@ async def _make_user(sm, username="alice") -> int:
 async def _make_car(sm, user_id: int, *, active=True) -> int:
     async with sm() as s:
         car = Car(
-            user_id=user_id, make="Cupra", model="Born",
-            battery_kwh=58.0, nominal_efficiency_mi_per_kwh=4.0,
-            provider="manual", active=active,
+            user_id=user_id,
+            make="Cupra",
+            model="Born",
+            battery_kwh=58.0,
+            nominal_efficiency_mi_per_kwh=4.0,
+            provider="manual",
+            active=active,
         )
         s.add(car)
         await s.commit()
@@ -33,20 +36,26 @@ async def _make_car(sm, user_id: int, *, active=True) -> int:
 
 
 async def _add_session(
-    sm, *, user_id, car_id, when, kwh, cost_pence=None,
-    ctype="ac", odometer_km=None
+    sm, *, user_id, car_id, when, kwh, cost_pence=None, ctype="ac", odometer_km=None
 ) -> None:
     async with sm() as s:
-        s.add(ChargingSession(
-            user_id=user_id, car_id=car_id,
-            date=when, start_soc=20, end_soc=80,
-            kwh_added=kwh, charging_type=ctype, charging_mode="manual",
-            cost_pence=cost_pence,
-            cost_basis="home_rate" if cost_pence is not None else "unknown",
-            source="manual",
-            odometer_at_session_km=odometer_km,
-            charge_end_at=dt.datetime.combine(when, dt.time(12, 0), tzinfo=dt.timezone.utc),
-        ))
+        s.add(
+            ChargingSession(
+                user_id=user_id,
+                car_id=car_id,
+                date=when,
+                start_soc=20,
+                end_soc=80,
+                kwh_added=kwh,
+                charging_type=ctype,
+                charging_mode="manual",
+                cost_pence=cost_pence,
+                cost_basis="home_rate" if cost_pence is not None else "unknown",
+                source="manual",
+                odometer_at_session_km=odometer_km,
+                charge_end_at=dt.datetime.combine(when, dt.time(12, 0), tzinfo=dt.UTC),
+            )
+        )
         await s.commit()
 
 
@@ -57,12 +66,33 @@ async def test_lifetime_basic_aggregates(test_sessionmaker):
     car_id = await _make_car(test_sessionmaker, uid)
 
     # 3 home sessions (AC), 2 costed
-    await _add_session(test_sessionmaker, user_id=uid, car_id=car_id,
-                       when=dt.date(2026, 1, 10), kwh=10.0, cost_pence=200, ctype="ac")
-    await _add_session(test_sessionmaker, user_id=uid, car_id=car_id,
-                       when=dt.date(2026, 3, 20), kwh=20.0, cost_pence=400, ctype="ac")
-    await _add_session(test_sessionmaker, user_id=uid, car_id=car_id,
-                       when=dt.date(2026, 6, 15), kwh=15.0, cost_pence=None, ctype="dc")
+    await _add_session(
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car_id,
+        when=dt.date(2026, 1, 10),
+        kwh=10.0,
+        cost_pence=200,
+        ctype="ac",
+    )
+    await _add_session(
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car_id,
+        when=dt.date(2026, 3, 20),
+        kwh=20.0,
+        cost_pence=400,
+        ctype="ac",
+    )
+    await _add_session(
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car_id,
+        when=dt.date(2026, 6, 15),
+        kwh=15.0,
+        cost_pence=None,
+        ctype="dc",
+    )
 
     async with test_sessionmaker() as s:
         result = await compute_car_lifetime(s, user_id=uid, car_id=car_id)
@@ -84,12 +114,26 @@ async def test_lifetime_mi_per_kwh(test_sessionmaker):
 
     KM_PER_MILE = 1.609344
     # Two sessions: odo goes 1000 → 1000 + 100*KPM km (100 miles driven), 25 kWh
-    await _add_session(test_sessionmaker, user_id=uid, car_id=car_id,
-                       when=dt.date(2026, 1, 1), kwh=1.0, cost_pence=10,
-                       ctype="ac", odometer_km=1000.0)
-    await _add_session(test_sessionmaker, user_id=uid, car_id=car_id,
-                       when=dt.date(2026, 3, 1), kwh=25.0, cost_pence=500,
-                       ctype="ac", odometer_km=1000.0 + 100 * KM_PER_MILE)
+    await _add_session(
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car_id,
+        when=dt.date(2026, 1, 1),
+        kwh=1.0,
+        cost_pence=10,
+        ctype="ac",
+        odometer_km=1000.0,
+    )
+    await _add_session(
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car_id,
+        when=dt.date(2026, 3, 1),
+        kwh=25.0,
+        cost_pence=500,
+        ctype="ac",
+        odometer_km=1000.0 + 100 * KM_PER_MILE,
+    )
 
     async with test_sessionmaker() as s:
         result = await compute_car_lifetime(s, user_id=uid, car_id=car_id)
@@ -105,10 +149,24 @@ async def test_lifetime_home_public_split(test_sessionmaker):
     uid = await _make_user(test_sessionmaker)
     car_id = await _make_car(test_sessionmaker, uid)
 
-    await _add_session(test_sessionmaker, user_id=uid, car_id=car_id,
-                       when=dt.date(2026, 1, 1), kwh=10.0, cost_pence=200, ctype="ac")
-    await _add_session(test_sessionmaker, user_id=uid, car_id=car_id,
-                       when=dt.date(2026, 2, 1), kwh=30.0, cost_pence=900, ctype="dc")
+    await _add_session(
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car_id,
+        when=dt.date(2026, 1, 1),
+        kwh=10.0,
+        cost_pence=200,
+        ctype="ac",
+    )
+    await _add_session(
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car_id,
+        when=dt.date(2026, 2, 1),
+        kwh=30.0,
+        cost_pence=900,
+        ctype="dc",
+    )
 
     async with test_sessionmaker() as s:
         result = await compute_car_lifetime(s, user_id=uid, car_id=car_id)
@@ -142,8 +200,15 @@ async def test_lifetime_archived_car(test_sessionmaker):
     uid = await _make_user(test_sessionmaker)
     car_id = await _make_car(test_sessionmaker, uid, active=False)
 
-    await _add_session(test_sessionmaker, user_id=uid, car_id=car_id,
-                       when=dt.date(2025, 6, 1), kwh=50.0, cost_pence=1000, ctype="ac")
+    await _add_session(
+        test_sessionmaker,
+        user_id=uid,
+        car_id=car_id,
+        when=dt.date(2025, 6, 1),
+        kwh=50.0,
+        cost_pence=1000,
+        ctype="ac",
+    )
 
     async with test_sessionmaker() as s:
         result = await compute_car_lifetime(s, user_id=uid, car_id=car_id)
@@ -160,10 +225,22 @@ async def test_lifetime_user_isolation(test_sessionmaker):
     car_a = await _make_car(test_sessionmaker, uid_a)
     car_b = await _make_car(test_sessionmaker, uid_b)
 
-    await _add_session(test_sessionmaker, user_id=uid_a, car_id=car_a,
-                       when=dt.date(2026, 1, 1), kwh=10.0, cost_pence=200)
-    await _add_session(test_sessionmaker, user_id=uid_b, car_id=car_b,
-                       when=dt.date(2026, 1, 2), kwh=50.0, cost_pence=1000)
+    await _add_session(
+        test_sessionmaker,
+        user_id=uid_a,
+        car_id=car_a,
+        when=dt.date(2026, 1, 1),
+        kwh=10.0,
+        cost_pence=200,
+    )
+    await _add_session(
+        test_sessionmaker,
+        user_id=uid_b,
+        car_id=car_b,
+        when=dt.date(2026, 1, 2),
+        kwh=50.0,
+        cost_pence=1000,
+    )
 
     async with test_sessionmaker() as s:
         result_a = await compute_car_lifetime(s, user_id=uid_a, car_id=car_a)
@@ -178,6 +255,7 @@ async def test_lifetime_user_isolation(test_sessionmaker):
 # ---------------------------------------------------------------------------
 # Task 2: estimated_usable_kwh + seasonal_range_span in compute_car_lifetime
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_lifetime_includes_estimated_usable_kwh_and_seasonal_range_span(test_sessionmaker):
@@ -195,14 +273,23 @@ async def test_lifetime_includes_estimated_usable_kwh_and_seasonal_range_span(te
         (dt.date(2026, 5, 20), 1500.0),
     ]:
         async with test_sessionmaker() as s:
-            s.add(ChargingSession(
-                user_id=uid, car_id=car_id,
-                date=when, start_soc=10, end_soc=80,
-                kwh_added=20.0, charging_type="dc", charging_mode="manual",
-                cost_pence=400, cost_basis="home_rate", source="manual",
-                odometer_at_session_km=odo,
-                charge_end_at=dt.datetime.combine(when, dt.time(12, 0), tzinfo=dt.timezone.utc),
-            ))
+            s.add(
+                ChargingSession(
+                    user_id=uid,
+                    car_id=car_id,
+                    date=when,
+                    start_soc=10,
+                    end_soc=80,
+                    kwh_added=20.0,
+                    charging_type="dc",
+                    charging_mode="manual",
+                    cost_pence=400,
+                    cost_basis="home_rate",
+                    source="manual",
+                    odometer_at_session_km=odo,
+                    charge_end_at=dt.datetime.combine(when, dt.time(12, 0), tzinfo=dt.UTC),
+                )
+            )
             await s.commit()
 
     async with test_sessionmaker() as s:
@@ -235,14 +322,22 @@ async def test_lifetime_estimated_usable_kwh_none_when_no_qualifying(test_sessio
 
     # Session with small SoC delta (< 40pp) — does NOT qualify for capacity inference
     async with test_sessionmaker() as s:
-        s.add(ChargingSession(
-            user_id=uid, car_id=car_id,
-            date=dt.date(2026, 1, 1),
-            start_soc=50, end_soc=80,   # 30pp delta < 40pp threshold → doesn't qualify
-            kwh_added=5.0, charging_type="dc", charging_mode="manual",
-            cost_pence=100, cost_basis="home_rate", source="manual",
-            charge_end_at=dt.datetime(2026, 1, 1, 12, 0, tzinfo=dt.timezone.utc),
-        ))
+        s.add(
+            ChargingSession(
+                user_id=uid,
+                car_id=car_id,
+                date=dt.date(2026, 1, 1),
+                start_soc=50,
+                end_soc=80,  # 30pp delta < 40pp threshold → doesn't qualify
+                kwh_added=5.0,
+                charging_type="dc",
+                charging_mode="manual",
+                cost_pence=100,
+                cost_basis="home_rate",
+                source="manual",
+                charge_end_at=dt.datetime(2026, 1, 1, 12, 0, tzinfo=dt.UTC),
+            )
+        )
         await s.commit()
 
     async with test_sessionmaker() as s:
@@ -260,14 +355,23 @@ async def test_lifetime_archived_car_includes_new_fields(test_sessionmaker):
 
     # One qualifying DC session
     async with test_sessionmaker() as s:
-        s.add(ChargingSession(
-            user_id=uid, car_id=car_id,
-            date=dt.date(2025, 6, 1), start_soc=10, end_soc=90,
-            kwh_added=30.0, charging_type="dc", charging_mode="manual",
-            cost_pence=600, cost_basis="home_rate", source="manual",
-            odometer_at_session_km=2000.0,
-            charge_end_at=dt.datetime(2025, 6, 1, 12, 0, tzinfo=dt.timezone.utc),
-        ))
+        s.add(
+            ChargingSession(
+                user_id=uid,
+                car_id=car_id,
+                date=dt.date(2025, 6, 1),
+                start_soc=10,
+                end_soc=90,
+                kwh_added=30.0,
+                charging_type="dc",
+                charging_mode="manual",
+                cost_pence=600,
+                cost_basis="home_rate",
+                source="manual",
+                odometer_at_session_km=2000.0,
+                charge_end_at=dt.datetime(2025, 6, 1, 12, 0, tzinfo=dt.UTC),
+            )
+        )
         await s.commit()
 
     async with test_sessionmaker() as s:
@@ -291,13 +395,22 @@ async def test_lifetime_new_fields_user_isolation(test_sessionmaker):
     # User A: 3 qualifying DC sessions → non-None estimated_usable_kwh
     for when in [dt.date(2026, 1, 1), dt.date(2026, 2, 1), dt.date(2026, 3, 1)]:
         async with test_sessionmaker() as s:
-            s.add(ChargingSession(
-                user_id=uid_a, car_id=car_a,
-                date=when, start_soc=10, end_soc=80,
-                kwh_added=20.0, charging_type="dc", charging_mode="manual",
-                cost_pence=400, cost_basis="home_rate", source="manual",
-                charge_end_at=dt.datetime.combine(when, dt.time(12, 0), tzinfo=dt.timezone.utc),
-            ))
+            s.add(
+                ChargingSession(
+                    user_id=uid_a,
+                    car_id=car_a,
+                    date=when,
+                    start_soc=10,
+                    end_soc=80,
+                    kwh_added=20.0,
+                    charging_type="dc",
+                    charging_mode="manual",
+                    cost_pence=400,
+                    cost_basis="home_rate",
+                    source="manual",
+                    charge_end_at=dt.datetime.combine(when, dt.time(12, 0), tzinfo=dt.UTC),
+                )
+            )
             await s.commit()
 
     # User B: no sessions

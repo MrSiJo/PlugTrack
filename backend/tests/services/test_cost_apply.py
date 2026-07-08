@@ -7,11 +7,12 @@ Verifies three paths:
      to 'override_per_kwh' via the normal precedence rule.
   3. first_compute=True (new session) derives via the cost-precedence rule.
 """
+
 from __future__ import annotations
 
-import pytest
 from datetime import date
 
+import pytest
 from plugtrack.models import ChargingSession, Setting
 from plugtrack.models.car import Car
 from plugtrack.models.user import User
@@ -22,6 +23,7 @@ from plugtrack.models.user import User
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 async def _seed_user_car(sm):
     async with sm() as s:
@@ -46,8 +48,8 @@ async def _seed_user_car(sm):
 
 async def _seed_home_rate(sm, rate: float):
     """Seed all default settings then update the home rate to the given value."""
-    from sqlalchemy import select as sa_select
     from plugtrack.settings.seeds import seed_defaults
+    from sqlalchemy import select as sa_select
 
     async with sm() as s:
         await seed_defaults(s)
@@ -85,6 +87,7 @@ def _make_session(user_id, car_id, **kwargs) -> ChargingSession:
 # Test 1: kWh edit on a home_rate session → re-scales at FROZEN tariff
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_kwh_edit_rescales_at_frozen_tariff(test_sessionmaker, seeded_user_car):
     """On a kWh-only edit of a rate-derived session, cost is re-scaled
@@ -98,11 +101,12 @@ async def test_kwh_edit_rescales_at_frozen_tariff(test_sessionmaker, seeded_user
     await _seed_home_rate(test_sessionmaker, rate=15.0)  # different from frozen 7.5
 
     cs = _make_session(
-        user_id, car_id,
-        kwh_added=20.0,       # edited: was 10 kWh, now 20 kWh
+        user_id,
+        car_id,
+        kwh_added=20.0,  # edited: was 10 kWh, now 20 kWh
         cost_basis="home_rate",
-        tariff_p_per_kwh=7.5, # frozen tariff (from when session was created)
-        cost_pence=75,        # old cost (10 * 7.5)
+        tariff_p_per_kwh=7.5,  # frozen tariff (from when session was created)
+        cost_pence=75,  # old cost (10 * 7.5)
     )
 
     async with test_sessionmaker() as session:
@@ -115,8 +119,8 @@ async def test_kwh_edit_rescales_at_frozen_tariff(test_sessionmaker, seeded_user
 
     # Should re-scale at frozen 7.5, NOT the current settings rate of 15.0
     assert cs.cost_pence == round(20.0 * 7.5)  # 150
-    assert cs.cost_basis == "home_rate"         # basis unchanged
-    assert cs.tariff_p_per_kwh == 7.5          # tariff unchanged
+    assert cs.cost_basis == "home_rate"  # basis unchanged
+    assert cs.tariff_p_per_kwh == 7.5  # tariff unchanged
 
 
 @pytest.mark.asyncio
@@ -128,7 +132,8 @@ async def test_location_rate_edit_rescales_at_frozen_tariff(test_sessionmaker, s
     await _seed_home_rate(test_sessionmaker, rate=7.5)
 
     cs = _make_session(
-        user_id, car_id,
+        user_id,
+        car_id,
         kwh_added=15.0,
         cost_basis="location_rate",
         tariff_p_per_kwh=12.5,  # frozen location rate
@@ -152,7 +157,8 @@ async def test_location_free_edit_rescales_at_frozen_tariff(test_sessionmaker, s
     await _seed_home_rate(test_sessionmaker, rate=7.5)
 
     cs = _make_session(
-        user_id, car_id,
+        user_id,
+        car_id,
         kwh_added=20.0,
         cost_basis="location_free",
         tariff_p_per_kwh=0.0,
@@ -171,6 +177,7 @@ async def test_location_free_edit_rescales_at_frozen_tariff(test_sessionmaker, s
 #         → flips basis to 'override_per_kwh' via precedence rule
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_override_changed_flips_to_override_per_kwh(test_sessionmaker, seeded_user_car):
     """When override_changed=True the frozen-tariff re-scale is bypassed
@@ -182,7 +189,8 @@ async def test_override_changed_flips_to_override_per_kwh(test_sessionmaker, see
     await _seed_home_rate(test_sessionmaker, rate=7.5)
 
     cs = _make_session(
-        user_id, car_id,
+        user_id,
+        car_id,
         kwh_added=10.0,
         cost_basis="home_rate",
         tariff_p_per_kwh=7.5,
@@ -212,7 +220,8 @@ async def test_total_override_changed_sets_override_total(test_sessionmaker, see
     await _seed_home_rate(test_sessionmaker, rate=7.5)
 
     cs = _make_session(
-        user_id, car_id,
+        user_id,
+        car_id,
         kwh_added=10.0,
         cost_basis="home_rate",
         tariff_p_per_kwh=7.5,
@@ -231,6 +240,7 @@ async def test_total_override_changed_sets_override_total(test_sessionmaker, see
 # Test 3: first_compute=True (new session) → derives via precedence
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_first_compute_uses_home_rate_from_settings(test_sessionmaker, seeded_user_car):
     """On first compute (new session), cost is derived from the settings
@@ -242,7 +252,8 @@ async def test_first_compute_uses_home_rate_from_settings(test_sessionmaker, see
     await _seed_home_rate(test_sessionmaker, rate=7.5)
 
     cs = _make_session(
-        user_id, car_id,
+        user_id,
+        car_id,
         kwh_added=20.0,
         cost_basis="unknown",
         tariff_p_per_kwh=None,
@@ -266,7 +277,8 @@ async def test_first_compute_with_per_kwh_override(test_sessionmaker, seeded_use
     await _seed_home_rate(test_sessionmaker, rate=7.5)
 
     cs = _make_session(
-        user_id, car_id,
+        user_id,
+        car_id,
         kwh_added=10.0,
         cost_basis="unknown",
         tariff_p_per_kwh=None,
@@ -287,6 +299,7 @@ async def test_first_compute_with_per_kwh_override(test_sessionmaker, seeded_use
 #         (not rate-derived, so frozen-tariff path is NOT taken)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_override_basis_session_rederives_on_kwh_edit(test_sessionmaker, seeded_user_car):
     """A session with override_per_kwh basis is NOT rate-derived,
@@ -300,7 +313,8 @@ async def test_override_basis_session_rederives_on_kwh_edit(test_sessionmaker, s
     await _seed_home_rate(test_sessionmaker, rate=7.5)
 
     cs = _make_session(
-        user_id, car_id,
+        user_id,
+        car_id,
         kwh_added=20.0,
         cost_basis="override_per_kwh",
         tariff_p_per_kwh=25.0,

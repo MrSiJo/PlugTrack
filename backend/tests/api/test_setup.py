@@ -1,4 +1,5 @@
 """Tests for POST /api/setup."""
+
 from __future__ import annotations
 
 import pytest

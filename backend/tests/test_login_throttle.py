@@ -1,4 +1,5 @@
 """Unit tests for the per-username login throttle."""
+
 from __future__ import annotations
 
 from plugtrack.api.login_throttle import LoginThrottle

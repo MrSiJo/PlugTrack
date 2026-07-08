@@ -17,11 +17,13 @@ proxy when no odometer span is available; for v1 we sum the car-level
 since odometers are not guaranteed to be present on every row. If a car
 has fewer than 2 odometer readings the contribution is 0.
 """
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import date as date_cls, datetime, timedelta, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime, timedelta
+from datetime import date as date_cls
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,7 +40,7 @@ class MileageYearSummary:
     period_end_date: date_cls
     opening_odometer_km: float
     current_odometer_km: float
-    annual_mileage_target_km: Optional[float]
+    annual_mileage_target_km: float | None
 
 
 @dataclass
@@ -48,13 +50,13 @@ class CarPanel:
     model: str
     # Snapshot from the most recent session's `end_soc` — there is no live
     # sync subsystem any more (v3.0 pivot), so this is "after last charge".
-    battery_level: Optional[int]
-    last_connected: Optional[datetime]
-    last_soc: Optional[int]
-    nominal_efficiency_mi_per_kwh: Optional[float] = None
+    battery_level: int | None
+    last_connected: datetime | None
+    last_soc: int | None
+    nominal_efficiency_mi_per_kwh: float | None = None
     # Active annual mileage tracking period — null when the user hasn't
     # enabled tracking on this car. See `services/mileage_tracking.py`.
-    mileage_year: Optional[MileageYearSummary] = None
+    mileage_year: MileageYearSummary | None = None
 
 
 @dataclass
@@ -64,11 +66,11 @@ class SessionRow:
     car_label: str
     date: date_cls
     kwh_added: float
-    cost_pence: Optional[int]
+    cost_pence: int | None
     cost_basis: str
-    location_id: Optional[int]
-    location_name: Optional[str]
-    charge_network: Optional[str]
+    location_id: int | None
+    location_name: str | None
+    charge_network: str | None
     source: str
 
 
@@ -83,7 +85,7 @@ class LifetimeTotals:
 @dataclass
 class LocationStat:
     id: int
-    name: Optional[str]
+    name: str | None
     # Number of charging sessions recorded at this location. NOT the
     # Location.visit_count clustering counter — that is only bumped by live
     # plug-in detection and stays 0 for manual / backfilled sessions.
@@ -96,8 +98,8 @@ class LocationStat:
 class CostPerMile:
     # Cost ÷ miles driven, in pence per mile. Null when there isn't enough
     # odometer coverage to bound the window's distance.
-    lifetime_pence: Optional[float] = None
-    rolling_30d_pence: Optional[float] = None
+    lifetime_pence: float | None = None
+    rolling_30d_pence: float | None = None
 
 
 @dataclass
@@ -119,7 +121,7 @@ class DashboardSummary:
 async def dashboard_summary(
     session: AsyncSession,
     user_id: int,
-    today: Optional[date_cls] = None,
+    today: date_cls | None = None,
 ) -> DashboardSummary:
     """Build a DashboardSummary for the given user.
 
@@ -130,7 +132,7 @@ async def dashboard_summary(
     the current UTC date and is injectable for deterministic tests.
     """
     if today is None:
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
     summary = DashboardSummary()
 
     # ---- Cars (active only) ----
@@ -171,18 +173,16 @@ async def dashboard_summary(
         last_cs = last_session_by_car.get(car.id)
         # The live sync subsystem is gone — battery falls back to the most
         # recent session's `end_soc`.
-        battery_level: Optional[int] = last_cs.end_soc if last_cs else None
-        last_connected: Optional[datetime] = (
+        battery_level: int | None = last_cs.end_soc if last_cs else None
+        last_connected: datetime | None = (
             last_cs.charge_end_at or last_cs.charge_start_at if last_cs else None
         )
 
         # Mileage tracking — active period only. `get_status` materialises
         # any anniversaries that have rolled over since the last visit;
         # the caller (dashboard route) commits the resulting writes.
-        mileage_status = await mileage_tracking.get_status(
-            session, user_id=user_id, car_id=car.id
-        )
-        mileage_year: Optional[MileageYearSummary] = None
+        mileage_status = await mileage_tracking.get_status(session, user_id=user_id, car_id=car.id)
+        mileage_year: MileageYearSummary | None = None
         if mileage_status.current_period is not None:
             cp = mileage_status.current_period
             mileage_year = MileageYearSummary(
@@ -276,7 +276,7 @@ async def dashboard_summary(
     # Numerators reuse the cost sums above; denominators come from
     # `miles_driven_km` (the single source of truth for windowed odometer
     # deltas).
-    def _ppm(cost_pence: int, miles_km: Optional[float]) -> Optional[float]:
+    def _ppm(cost_pence: int, miles_km: float | None) -> float | None:
         if not miles_km or miles_km <= 0:
             return None
         return float(cost_pence) / (miles_km / KM_PER_MILE)
@@ -291,12 +291,8 @@ async def dashboard_summary(
             )
         )
     ).scalar_one()
-    lifetime_miles_km = await miles_driven_km(
-        session, user_id=user_id, lo=None, hi=None
-    )
-    rolling_miles_km = await miles_driven_km(
-        session, user_id=user_id, lo=lo_30d, hi=today
-    )
+    lifetime_miles_km = await miles_driven_km(session, user_id=user_id, lo=None, hi=None)
+    rolling_miles_km = await miles_driven_km(session, user_id=user_id, lo=lo_30d, hi=today)
     summary.cost_per_mile = CostPerMile(
         lifetime_pence=_ppm(int(cost_sum or 0), lifetime_miles_km),
         rolling_30d_pence=_ppm(int(cost_30d or 0), rolling_miles_km),
@@ -326,9 +322,7 @@ async def dashboard_summary(
         .order_by(charge_count_col.desc(), Location.id.asc())
         .limit(5)
     )
-    for loc_id, name, n_charges, kwh, cost in (
-        await session.execute(loc_stmt)
-    ).all():
+    for loc_id, name, n_charges, kwh, cost in (await session.execute(loc_stmt)).all():
         summary.top_locations.append(
             LocationStat(
                 id=int(loc_id),

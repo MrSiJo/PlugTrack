@@ -11,20 +11,17 @@ Bug 2 — AC scenario rows (7 kW, 11 kW) wrongly capped by observed home granny 
   Those rows represent plugging into a 7/11 kW EVSE and must only be capped by
   car.max_ac_kw (or uncapped when that is None).
 """
+
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import pytest_asyncio
-
 from plugtrack.services.charge_planner import (
-    build_scenario_table,
     build_dc_capability,
-    DcSession,
+    build_scenario_table,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -94,7 +91,7 @@ async def granny_sessions_db(test_sessionmaker):
 
         for day_offset in range(5):
             # Wall-clock = 8 hours (plug-in to plug-out including idle)
-            wall_start = datetime(2026, 1, 10 + day_offset, 22, 0, tzinfo=timezone.utc)
+            wall_start = datetime(2026, 1, 10 + day_offset, 22, 0, tzinfo=UTC)
             wall_end = wall_start + timedelta(hours=8)  # 8-hour plug-in window
 
             cs = ChargingSession(
@@ -168,9 +165,7 @@ class TestBug1HomeActualUsesActualChargeSeconds:
             f"Bug 1: wall-clock hours used instead of actual_charge_seconds."
         )
 
-    async def test_fallback_to_wall_clock_when_actual_charge_seconds_null(
-        self, test_sessionmaker
-    ):
+    async def test_fallback_to_wall_clock_when_actual_charge_seconds_null(self, test_sessionmaker):
         """When actual_charge_seconds is NULL, fall back to wall-clock hours."""
         from plugtrack.models import Car, ChargingSession, Location, User
 
@@ -205,9 +200,7 @@ class TestBug1HomeActualUsesActualChargeSeconds:
 
             # 3 sessions: no actual_charge_seconds, wall-clock = 2 h → ~7 kW
             for day_offset in range(3):
-                wall_start = datetime(
-                    2026, 3, 1 + day_offset, 22, 0, tzinfo=timezone.utc
-                )
+                wall_start = datetime(2026, 3, 1 + day_offset, 22, 0, tzinfo=UTC)
                 wall_end = wall_start + timedelta(hours=2)  # 2-hour wall-clock
                 cs = ChargingSession(
                     user_id=user.id,
@@ -261,7 +254,7 @@ class TestBug2ACRowsCappedByCarOnboardNotHomeGranny:
     def _ac_dict_with_granny_observed(
         self,
         observed_kw: float,
-        max_ac_kw: Optional[float],
+        max_ac_kw: float | None,
     ) -> dict:
         """Build the ac dict as resolve_plan_inputs would produce it.
 
@@ -277,7 +270,7 @@ class TestBug2ACRowsCappedByCarOnboardNotHomeGranny:
     def _ac_dict_fixed(
         self,
         home_actual_kw: float,
-        max_ac_kw: Optional[float],
+        max_ac_kw: float | None,
     ) -> dict:
         """Build the ac dict as it should look AFTER the fix.
 
@@ -297,9 +290,13 @@ class TestBug2ACRowsCappedByCarOnboardNotHomeGranny:
         """
         ac = self._ac_dict_fixed(home_actual_kw=2.3, max_ac_kw=None)
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
             loss_factor=1.0,
-            ac=ac, dc=_empty_dc(), custom_kw=None,
+            ac=ac,
+            dc=_empty_dc(),
+            custom_kw=None,
         )
         row_7 = next(r for r in table if r.label == "7 kW")
         # Without the fix (ac_ceiling_kw=2.3): power_kw = min(7, 2.3) = 2.3 kW
@@ -313,9 +310,13 @@ class TestBug2ACRowsCappedByCarOnboardNotHomeGranny:
         """With max_ac_kw=None and observed granny ~2.3 kW, '11 kW' row power must be ~11 kW."""
         ac = self._ac_dict_fixed(home_actual_kw=2.3, max_ac_kw=None)
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
             loss_factor=1.0,
-            ac=ac, dc=_empty_dc(), custom_kw=None,
+            ac=ac,
+            dc=_empty_dc(),
+            custom_kw=None,
         )
         row_11 = next(r for r in table if r.label == "11 kW")
         assert row_11.power_kw == pytest.approx(11.0, abs=0.1), (
@@ -327,9 +328,13 @@ class TestBug2ACRowsCappedByCarOnboardNotHomeGranny:
         """'Your home (actual)' row must show the observed granny power (~2.3 kW)."""
         ac = self._ac_dict_fixed(home_actual_kw=2.3, max_ac_kw=None)
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
             loss_factor=1.0,
-            ac=ac, dc=_empty_dc(), custom_kw=None,
+            ac=ac,
+            dc=_empty_dc(),
+            custom_kw=None,
         )
         home_row = next(r for r in table if r.label == "Your home (actual)")
         assert home_row.power_kw == pytest.approx(2.3, abs=0.1), (
@@ -340,9 +345,13 @@ class TestBug2ACRowsCappedByCarOnboardNotHomeGranny:
         """When car.max_ac_kw=7.4, '11 kW' row must cap at 7.4 kW."""
         ac = self._ac_dict_fixed(home_actual_kw=2.3, max_ac_kw=7.4)
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
             loss_factor=1.0,
-            ac=ac, dc=_empty_dc(), custom_kw=None,
+            ac=ac,
+            dc=_empty_dc(),
+            custom_kw=None,
         )
         row_11 = next(r for r in table if r.label == "11 kW")
         assert row_11.power_kw == pytest.approx(7.4, abs=0.1), (
@@ -353,9 +362,13 @@ class TestBug2ACRowsCappedByCarOnboardNotHomeGranny:
         """When car.max_ac_kw=11.0, '7 kW' row must remain at 7.0 kW (not capped)."""
         ac = self._ac_dict_fixed(home_actual_kw=2.3, max_ac_kw=11.0)
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
             loss_factor=1.0,
-            ac=ac, dc=_empty_dc(), custom_kw=None,
+            ac=ac,
+            dc=_empty_dc(),
+            custom_kw=None,
         )
         row_7 = next(r for r in table if r.label == "7 kW")
         assert row_7.power_kw == pytest.approx(7.0, abs=0.1), (
@@ -368,9 +381,13 @@ class TestBug2ACRowsCappedByCarOnboardNotHomeGranny:
         # (data artefact). Should cap at car.max_ac_kw.
         ac = self._ac_dict_fixed(home_actual_kw=2.3, max_ac_kw=2.0)
         table = build_scenario_table(
-            start_soc=20, target_soc=80, battery_kwh=77.0,
+            start_soc=20,
+            target_soc=80,
+            battery_kwh=77.0,
             loss_factor=1.0,
-            ac=ac, dc=_empty_dc(), custom_kw=None,
+            ac=ac,
+            dc=_empty_dc(),
+            custom_kw=None,
         )
         home_row = next(r for r in table if r.label == "Your home (actual)")
         assert home_row.power_kw <= 2.0 + 0.1, (
@@ -428,7 +445,7 @@ async def granny_no_max_ac_db(test_sessionmaker):
 
         # 3 sessions: 8 kWh / 3.5 hours ≈ 2.29 kW wall-clock effective
         for day_offset in range(3):
-            wall_start = datetime(2026, 2, 1 + day_offset, 22, 0, tzinfo=timezone.utc)
+            wall_start = datetime(2026, 2, 1 + day_offset, 22, 0, tzinfo=UTC)
             wall_end = wall_start + timedelta(hours=3, minutes=30)
             cs = ChargingSession(
                 user_id=user.id,

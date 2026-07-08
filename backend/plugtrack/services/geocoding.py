@@ -20,17 +20,17 @@ All providers are **async**; we use `httpx.AsyncClient` so the worker's
 event loop is never blocked on network I/O. Failures return None — the
 caller logs and leaves the address NULL.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 from urllib.parse import quote
 
 import httpx
-
 
 logger = logging.getLogger(__name__)
 
@@ -60,11 +60,9 @@ class GeocodeResult:
 class GeocodingProvider(Protocol):
     """Reverse-geocode an (lat, lng) pair to a human-readable address."""
 
-    async def reverse(
-        self, lat: float, lng: float
-    ) -> Optional[GeocodeResult]: ...
+    async def reverse(self, lat: float, lng: float) -> GeocodeResult | None: ...
 
-    async def forward(self, query: str) -> Optional[GeocodeResult]: ...
+    async def forward(self, query: str) -> GeocodeResult | None: ...
 
 
 class NoOpProvider:
@@ -77,12 +75,10 @@ class NoOpProvider:
 
     name = "noop"
 
-    async def reverse(
-        self, lat: float, lng: float
-    ) -> Optional[GeocodeResult]:  # noqa: ARG002
+    async def reverse(self, lat: float, lng: float) -> GeocodeResult | None:  # noqa: ARG002
         return None
 
-    async def forward(self, query: str) -> Optional[GeocodeResult]:  # noqa: ARG002
+    async def forward(self, query: str) -> GeocodeResult | None:  # noqa: ARG002
         return None
 
 
@@ -98,8 +94,8 @@ class _RateLimiter:
         self,
         min_interval: float,
         *,
-        clock: Optional[callable] = None,
-        sleeper: Optional[callable] = None,
+        clock: callable | None = None,
+        sleeper: callable | None = None,
     ) -> None:
         self._lock = asyncio.Lock()
         self._lock_loop: asyncio.AbstractEventLoop | None = None
@@ -186,8 +182,8 @@ class NominatimProvider:
     def __init__(
         self,
         *,
-        client: Optional[httpx.AsyncClient] = None,
-        rate_limiter: Optional[_RateLimiter] = None,
+        client: httpx.AsyncClient | None = None,
+        rate_limiter: _RateLimiter | None = None,
     ) -> None:
         self._client = client
         # Default to the module-level shared limiter so every call site
@@ -195,15 +191,16 @@ class NominatimProvider:
         # collectively respects Nominatim's 1 req/s ToS (PLUG-H3).
         self._rate_limiter = rate_limiter or _SHARED_NOMINATIM_RATE_LIMITER
 
-    async def reverse(
-        self, lat: float, lng: float
-    ) -> Optional[GeocodeResult]:
+    async def reverse(self, lat: float, lng: float) -> GeocodeResult | None:
         await self._rate_limiter.acquire()
         params = {"format": "json", "lat": str(lat), "lon": str(lng)}
         headers = {"User-Agent": _USER_AGENT}
         response = await _get_response(
-            self.BASE_URL, params=params, headers=headers,
-            client=self._client, log_label="nominatim",
+            self.BASE_URL,
+            params=params,
+            headers=headers,
+            client=self._client,
+            log_label="nominatim",
         )
         if response is None:
             return None
@@ -211,7 +208,9 @@ class NominatimProvider:
         if response.status_code != 200:
             logger.warning(
                 "nominatim returned status %s for (%s, %s)",
-                response.status_code, lat, lng,
+                response.status_code,
+                lat,
+                lng,
             )
             return None
 
@@ -224,24 +223,27 @@ class NominatimProvider:
         address = payload.get("display_name") if isinstance(payload, dict) else None
         if not address:
             return None
-        return GeocodeResult(
-            address=str(address), provider=self.name, lat=lat, lng=lng
-        )
+        return GeocodeResult(address=str(address), provider=self.name, lat=lat, lng=lng)
 
-    async def forward(self, query: str) -> Optional[GeocodeResult]:
+    async def forward(self, query: str) -> GeocodeResult | None:
         if not query or not query.strip():
             return None
         await self._rate_limiter.acquire()
         params = {"format": "json", "q": query, "limit": "1"}
         headers = {"User-Agent": _USER_AGENT}
         response = await _get_response(
-            self.SEARCH_URL, params=params, headers=headers,
-            client=self._client, log_label="nominatim search",
+            self.SEARCH_URL,
+            params=params,
+            headers=headers,
+            client=self._client,
+            log_label="nominatim search",
         )
         if response is None:
             return None
         if response.status_code != 200:
-            logger.warning("nominatim search returned status %s for %r", response.status_code, query)
+            logger.warning(
+                "nominatim search returned status %s for %r", response.status_code, query
+            )
             return None
         try:
             payload = response.json()
@@ -270,20 +272,21 @@ class MapboxProvider:
         self,
         api_key: str,
         *,
-        client: Optional[httpx.AsyncClient] = None,
+        client: httpx.AsyncClient | None = None,
     ) -> None:
         if not api_key:
             raise ValueError("MapboxProvider requires geocoding_api_key")
         self._api_key = api_key
         self._client = client
 
-    async def reverse(
-        self, lat: float, lng: float
-    ) -> Optional[GeocodeResult]:
+    async def reverse(self, lat: float, lng: float) -> GeocodeResult | None:
         url = f"{self.BASE_URL}/{lng},{lat}.json"
         params = {"access_token": self._api_key}
         response = await _get_response(
-            url, params=params, client=self._client, log_label="mapbox",
+            url,
+            params=params,
+            client=self._client,
+            log_label="mapbox",
         )
         if response is None:
             return None
@@ -291,7 +294,9 @@ class MapboxProvider:
         if response.status_code != 200:
             logger.warning(
                 "mapbox returned status %s for (%s, %s)",
-                response.status_code, lat, lng,
+                response.status_code,
+                lat,
+                lng,
             )
             return None
 
@@ -312,17 +317,18 @@ class MapboxProvider:
         address = first.get("place_name")
         if not address:
             return None
-        return GeocodeResult(
-            address=str(address), provider=self.name, lat=lat, lng=lng
-        )
+        return GeocodeResult(address=str(address), provider=self.name, lat=lat, lng=lng)
 
-    async def forward(self, query: str) -> Optional[GeocodeResult]:
+    async def forward(self, query: str) -> GeocodeResult | None:
         if not query or not query.strip():
             return None
         url = f"{self.BASE_URL}/{quote(query)}.json"
         params = {"access_token": self._api_key, "limit": "1"}
         response = await _get_response(
-            url, params=params, client=self._client, log_label="mapbox search",
+            url,
+            params=params,
+            client=self._client,
+            log_label="mapbox search",
         )
         if response is None:
             return None
@@ -335,8 +341,12 @@ class MapboxProvider:
         if not feats:
             return None
         lng, lat = feats[0]["center"]
-        return GeocodeResult(address=str(feats[0].get("place_name") or query),
-                             provider=self.name, lat=float(lat), lng=float(lng))
+        return GeocodeResult(
+            address=str(feats[0].get("place_name") or query),
+            provider=self.name,
+            lat=float(lat),
+            lng=float(lng),
+        )
 
 
 class OpenCageProvider:
@@ -349,19 +359,20 @@ class OpenCageProvider:
         self,
         api_key: str,
         *,
-        client: Optional[httpx.AsyncClient] = None,
+        client: httpx.AsyncClient | None = None,
     ) -> None:
         if not api_key:
             raise ValueError("OpenCageProvider requires geocoding_api_key")
         self._api_key = api_key
         self._client = client
 
-    async def reverse(
-        self, lat: float, lng: float
-    ) -> Optional[GeocodeResult]:
+    async def reverse(self, lat: float, lng: float) -> GeocodeResult | None:
         params = {"q": f"{lat},{lng}", "key": self._api_key}
         response = await _get_response(
-            self.BASE_URL, params=params, client=self._client, log_label="opencage",
+            self.BASE_URL,
+            params=params,
+            client=self._client,
+            log_label="opencage",
         )
         if response is None:
             return None
@@ -369,7 +380,9 @@ class OpenCageProvider:
         if response.status_code != 200:
             logger.warning(
                 "opencage returned status %s for (%s, %s)",
-                response.status_code, lat, lng,
+                response.status_code,
+                lat,
+                lng,
             )
             return None
 
@@ -390,16 +403,17 @@ class OpenCageProvider:
         address = first.get("formatted")
         if not address:
             return None
-        return GeocodeResult(
-            address=str(address), provider=self.name, lat=lat, lng=lng
-        )
+        return GeocodeResult(address=str(address), provider=self.name, lat=lat, lng=lng)
 
-    async def forward(self, query: str) -> Optional[GeocodeResult]:
+    async def forward(self, query: str) -> GeocodeResult | None:
         if not query or not query.strip():
             return None
         params = {"q": query, "key": self._api_key, "limit": "1"}
         response = await _get_response(
-            self.BASE_URL, params=params, client=self._client, log_label="opencage search",
+            self.BASE_URL,
+            params=params,
+            client=self._client,
+            log_label="opencage search",
         )
         if response is None:
             return None
@@ -417,8 +431,9 @@ class OpenCageProvider:
             lng = float(geo["lng"])
         except (KeyError, TypeError, ValueError):
             return None
-        return GeocodeResult(address=str(results[0].get("formatted") or query),
-                             provider=self.name, lat=lat, lng=lng)
+        return GeocodeResult(
+            address=str(results[0].get("formatted") or query), provider=self.name, lat=lat, lng=lng
+        )
 
 
 def _bool_setting(raw, *, default: bool) -> bool:

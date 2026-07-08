@@ -4,6 +4,7 @@ Reads environment variables (and `.env` if present) into a typed Settings
 object. APP_SECRET_KEY is validated to be present, sufficiently long, and
 not a placeholder — startup fails loudly if any of those checks fail.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -11,7 +12,6 @@ from pathlib import Path
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 # In the dev tree this points at <repo>/data; in the container the
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"APP_SECRET_KEY appears to be a placeholder ('{fragment}'); "
                     "generate a real value, e.g. "
-                    "python -c \"import secrets; print(secrets.token_urlsafe(48))\" "
+                    'python -c "import secrets; print(secrets.token_urlsafe(48))" '
                     "(see the compose.yaml header)"
                 )
         return v

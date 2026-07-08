@@ -3,16 +3,16 @@
 Uses the authed_client fixture (from tests/api/conftest.py) which gives
 a live app with a seeded settings table and a signed session cookie.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
+from plugtrack.models import Car, ChargingSession, Location, User
 from sqlalchemy import select
 
-from plugtrack.models import Car, ChargingSession, Location, User
 from tests.api.conftest import csrf_headers
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -47,9 +47,7 @@ async def _create_car(
 
 async def _get_user_id(test_sessionmaker) -> int:
     async with test_sessionmaker() as session:
-        row = (
-            await session.execute(select(User).where(User.username == "admin"))
-        ).scalar_one()
+        row = (await session.execute(select(User).where(User.username == "admin"))).scalar_one()
         return row.id
 
 
@@ -87,7 +85,7 @@ async def _make_ac_session(
     days_ago: int = 0,
 ) -> None:
     """Insert a home AC charging session directly into the DB."""
-    now = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    now = datetime.now(UTC) - timedelta(days=days_ago)
     start = now - timedelta(hours=duration_hours)
     async with test_sessionmaker() as session:
         cs = ChargingSession(
@@ -125,7 +123,7 @@ async def _make_dc_session(
     days_ago: int = 1,
 ) -> None:
     """Insert a DC charging session directly into the DB."""
-    now = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    now = datetime.now(UTC) - timedelta(days=days_ago)
     start_dt = now - timedelta(seconds=wall_seconds or 1800)
     async with test_sessionmaker() as session:
         cs = ChargingSession(
@@ -164,7 +162,9 @@ def _assert_valid_row(row: dict) -> None:
         assert f in row, f"Missing field {f!r} in row {row}"
     assert isinstance(row["power_kw"], (int, float)) and row["power_kw"] > 0
     assert isinstance(row["minutes"], int) and row["minutes"] > 0
-    assert row["source_tag"], f"source_tag must be non-empty, got {row['source_tag']!r} in row {row}"
+    assert row["source_tag"], (
+        f"source_tag must be non-empty, got {row['source_tag']!r} in row {row}"
+    )
     assert row["source_tag"] in VALID_SOURCE_TAGS, f"Unexpected source_tag: {row['source_tag']!r}"
 
 
@@ -188,9 +188,7 @@ async def test_charge_plan_requires_auth(seeded_client):
 async def test_charge_plan_returns_scenario_table(authed_client):
     """Happy-path: returns new scenario table contract with 'rows' list."""
     car_id = await _create_car(authed_client, battery_kwh=77.0)
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
-    )
+    r = await authed_client.get(f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80")
     assert r.status_code == 200, r.text
     body = r.json()
 
@@ -209,7 +207,9 @@ async def test_charge_plan_returns_scenario_table(authed_client):
     rows = body["rows"]
     assert isinstance(rows, list)
     # Default (no custom_kw): 3 AC + 3 DC = at least 6 rows.
-    assert len(rows) >= 6, f"Expected at least 6 rows, got {len(rows)}: {[r['label'] for r in rows]}"
+    assert len(rows) >= 6, (
+        f"Expected at least 6 rows, got {len(rows)}: {[r['label'] for r in rows]}"
+    )
 
     # All rows must have the expected shape.
     for row in rows:
@@ -279,9 +279,7 @@ async def test_home_actual_row_reflects_ac_session_median(authed_client, test_se
             days_ago=i,
         )
 
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
-    )
+    r = await authed_client.get(f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80")
     assert r.status_code == 200, r.text
     body = r.json()
     rows = body["rows"]
@@ -317,9 +315,7 @@ async def test_dc_sessions_inform_capability(authed_client, test_sessionmaker):
         days_ago=1,
     )
 
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
-    )
+    r = await authed_client.get(f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80")
     assert r.status_code == 200, r.text
     body = r.json()
     rows = body["rows"]
@@ -355,9 +351,7 @@ async def test_dc_sessions_with_curves_use_curve_tag(authed_client, test_session
         days_ago=1,
     )
 
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
-    )
+    r = await authed_client.get(f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80")
     assert r.status_code == 200, r.text
     body = r.json()
     rows = body["rows"]
@@ -376,9 +370,7 @@ async def test_dc_sessions_with_curves_use_curve_tag(authed_client, test_session
 async def test_loss_factor_in_response(authed_client):
     """loss_factor is returned in the response envelope."""
     car_id = await _create_car(authed_client, battery_kwh=77.0)
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
-    )
+    r = await authed_client.get(f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80")
     body = r.json()
     # Default charge_loss_factor is 0.90.
     assert abs(body["loss_factor"] - 0.90) < 0.001
@@ -391,9 +383,7 @@ async def test_loss_factor_in_response(authed_client):
 
 @pytest.mark.asyncio
 async def test_charge_plan_404_unknown_car(authed_client):
-    r = await authed_client.get(
-        "/api/charge-plan?car_id=99999&start_soc=20&target_soc=80"
-    )
+    r = await authed_client.get("/api/charge-plan?car_id=99999&start_soc=20&target_soc=80")
     assert r.status_code == 404
 
 
@@ -401,15 +391,11 @@ async def test_charge_plan_404_unknown_car(authed_client):
 async def test_charge_plan_400_target_not_greater_than_start(authed_client):
     car_id = await _create_car(authed_client)
     # target == start
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=50&target_soc=50"
-    )
+    r = await authed_client.get(f"/api/charge-plan?car_id={car_id}&start_soc=50&target_soc=50")
     assert r.status_code == 400
 
     # target < start
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=80&target_soc=20"
-    )
+    r = await authed_client.get(f"/api/charge-plan?car_id={car_id}&start_soc=80&target_soc=20")
     assert r.status_code == 400
 
 
@@ -417,14 +403,10 @@ async def test_charge_plan_400_target_not_greater_than_start(authed_client):
 async def test_charge_plan_soc_validation_422(authed_client):
     """FastAPI should reject SoC values outside 0-100 with 422."""
     car_id = await _create_car(authed_client)
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=-1&target_soc=80"
-    )
+    r = await authed_client.get(f"/api/charge-plan?car_id={car_id}&start_soc=-1&target_soc=80")
     assert r.status_code == 422
 
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=101"
-    )
+    r = await authed_client.get(f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=101")
     assert r.status_code == 422
 
 
@@ -438,6 +420,7 @@ async def test_charge_plan_car_not_owned_by_other_user(authed_client, test_sessi
     """A car owned by a different user should return 404."""
     async with test_sessionmaker() as session:
         from plugtrack.models import User as UserModel
+
         other = UserModel(username="other_user", password_hash="x")
         session.add(other)
         await session.commit()
@@ -510,9 +493,7 @@ async def test_charge_plan_is_free_home_location(authed_client, test_sessionmake
     user_id = await _get_user_id(test_sessionmaker)
     await _make_home_location(test_sessionmaker, user_id, is_free=True)
 
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
-    )
+    r = await authed_client.get(f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["is_free"] is True
@@ -523,13 +504,9 @@ async def test_charge_plan_home_location_custom_rate(authed_client, test_session
     """Home location with default_cost_per_kwh_p reflects that rate in response."""
     car_id = await _create_car(authed_client, battery_kwh=77.0)
     user_id = await _get_user_id(test_sessionmaker)
-    await _make_home_location(
-        test_sessionmaker, user_id, default_cost_per_kwh_p=28.5
-    )
+    await _make_home_location(test_sessionmaker, user_id, default_cost_per_kwh_p=28.5)
 
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
-    )
+    r = await authed_client.get(f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["is_free"] is False
@@ -540,9 +517,7 @@ async def test_charge_plan_home_location_custom_rate(authed_client, test_session
 async def test_charge_plan_default_home_rate_fallback(authed_client):
     """No home location → uses 'default_home_rate_p_per_kwh' setting (7.5 p)."""
     car_id = await _create_car(authed_client, battery_kwh=77.0)
-    r = await authed_client.get(
-        f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80"
-    )
+    r = await authed_client.get(f"/api/charge-plan?car_id={car_id}&start_soc=20&target_soc=80")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["is_free"] is False
@@ -602,8 +577,7 @@ async def test_blended_default_dc_rate_when_omitted(authed_client):
     """dc_rate_p defaults to the public fallback (45 p) when not supplied."""
     car_id = await _create_car(authed_client, battery_kwh=77.0, max_dc_kw=150.0)
     r = await authed_client.get(
-        f"/api/charge-plan/blended?car_id={car_id}"
-        "&start_soc=20&dc_stop_soc=60&home_target_soc=80"
+        f"/api/charge-plan/blended?car_id={car_id}&start_soc=20&dc_stop_soc=60&home_target_soc=80"
     )
     assert r.status_code == 200, r.text
     assert r.json()["dc_rate_p"] == 45.0
@@ -614,8 +588,7 @@ async def test_blended_pure_dc_when_stop_equals_target(authed_client):
     """dc_stop_soc == home_target_soc → home phase is empty."""
     car_id = await _create_car(authed_client, battery_kwh=77.0, max_dc_kw=150.0)
     r = await authed_client.get(
-        f"/api/charge-plan/blended?car_id={car_id}"
-        "&start_soc=20&dc_stop_soc=80&home_target_soc=80"
+        f"/api/charge-plan/blended?car_id={car_id}&start_soc=20&dc_stop_soc=80&home_target_soc=80"
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -629,14 +602,12 @@ async def test_blended_400_bad_ordering(authed_client):
     car_id = await _create_car(authed_client, battery_kwh=77.0)
     # dc_stop above target.
     r = await authed_client.get(
-        f"/api/charge-plan/blended?car_id={car_id}"
-        "&start_soc=20&dc_stop_soc=90&home_target_soc=80"
+        f"/api/charge-plan/blended?car_id={car_id}&start_soc=20&dc_stop_soc=90&home_target_soc=80"
     )
     assert r.status_code == 400
     # target not above start.
     r = await authed_client.get(
-        f"/api/charge-plan/blended?car_id={car_id}"
-        "&start_soc=50&dc_stop_soc=50&home_target_soc=50"
+        f"/api/charge-plan/blended?car_id={car_id}&start_soc=50&dc_stop_soc=50&home_target_soc=50"
     )
     assert r.status_code == 400
 
@@ -646,6 +617,7 @@ async def test_blended_404_car_not_owned(authed_client, test_sessionmaker):
     """A car owned by another user returns 404 (per-user isolation)."""
     async with test_sessionmaker() as session:
         from plugtrack.models import User as UserModel
+
         other = UserModel(username="other_blended", password_hash="x")
         session.add(other)
         await session.commit()

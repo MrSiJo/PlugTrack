@@ -5,6 +5,7 @@ GET /api/dashboard
     returns DashboardSummary (cars panels, recent sessions, lifetime
     totals, top locations) — see services/dashboard_service.py.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -16,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...db import get_db
 from ...services.dashboard_service import dashboard_summary
 from ...services.dashboard_trend import compute_spend_trend
-
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -49,16 +49,11 @@ async def get_spend_trend(
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     if days < 1 or days > 365:
-        raise HTTPException(
-            status_code=400, detail="days must be between 1 and 365"
-        )
+        raise HTTPException(status_code=400, detail="days must be between 1 and 365")
     user_id = _user_id(request)
     trend = await compute_spend_trend(session, user_id=user_id, days=days)
     return JSONResponse(
-        content=[
-            {"date": d.date.isoformat(), "cost_pence": d.cost_pence}
-            for d in trend
-        ]
+        content=[{"date": d.date.isoformat(), "cost_pence": d.cost_pence} for d in trend]
     )
 
 

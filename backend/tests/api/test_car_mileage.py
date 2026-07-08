@@ -1,10 +1,10 @@
 """API tests for /api/cars/{id}/mileage."""
+
 from __future__ import annotations
 
 import pytest
 
 from tests.api.conftest import csrf_headers
-
 
 KM_PER_MILE = 1.609344
 

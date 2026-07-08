@@ -4,9 +4,10 @@
 Only the methods the ingest loop needs: long-poll getUpdates, getFile +
 file download, sendMessage (with inline keyboard), and answerCallbackQuery.
 """
+
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -14,7 +15,7 @@ API = "https://api.telegram.org"
 
 
 class TelegramClient:
-    def __init__(self, token: str, http: Optional[httpx.AsyncClient] = None) -> None:
+    def __init__(self, token: str, http: httpx.AsyncClient | None = None) -> None:
         self._token = token
         self._http = http or httpx.AsyncClient(timeout=70)
         self._owns = http is None
@@ -27,7 +28,11 @@ class TelegramClient:
         return f"{API}/bot{self._token}/{method}"
 
     async def get_updates(self, *, offset: int, timeout: int = 50) -> list[dict[str, Any]]:
-        params = {"offset": offset, "timeout": timeout, "allowed_updates": '["message","callback_query"]'}
+        params = {
+            "offset": offset,
+            "timeout": timeout,
+            "allowed_updates": '["message","callback_query"]',
+        }
         resp = await self._http.get(self._url("getUpdates"), params=params)
         resp.raise_for_status()
         return resp.json().get("result", [])
@@ -43,8 +48,8 @@ class TelegramClient:
         return resp.content
 
     async def send_message(
-        self, *, chat_id: int, text: str, reply_markup: Optional[dict[str, Any]] = None
-    ) -> Optional[int]:
+        self, *, chat_id: int, text: str, reply_markup: dict[str, Any] | None = None
+    ) -> int | None:
         body: dict[str, Any] = {"chat_id": chat_id, "text": text}
         if reply_markup is not None:
             body["reply_markup"] = reply_markup
@@ -53,8 +58,12 @@ class TelegramClient:
         return (resp.json().get("result") or {}).get("message_id")
 
     async def edit_message_text(
-        self, *, chat_id: int, message_id: int, text: str,
-        reply_markup: Optional[dict[str, Any]] = None,
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        reply_markup: dict[str, Any] | None = None,
     ) -> None:
         body: dict[str, Any] = {"chat_id": chat_id, "message_id": message_id, "text": text}
         if reply_markup is not None:

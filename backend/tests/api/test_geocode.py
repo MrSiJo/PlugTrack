@@ -1,8 +1,8 @@
 """Tests for GET /api/geocode (forward geocoding)."""
+
 from __future__ import annotations
 
 import pytest
-
 from plugtrack.services.geocoding import GeocodeResult
 
 

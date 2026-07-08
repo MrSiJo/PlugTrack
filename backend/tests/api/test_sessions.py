@@ -1,4 +1,5 @@
 """Tests for /api/sessions and /api/locations/{id}/label."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -154,7 +155,8 @@ async def test_update_session_recomputes_kwh_calculated_on_soc_change(authed_cli
         json={
             "car_id": car_id,
             "date": date.today().isoformat(),
-            "start_soc": 60, "end_soc": 80,
+            "start_soc": 60,
+            "end_soc": 80,
             "kwh_added": 18.0,
         },
         headers=csrf_headers(authed_client),
@@ -183,7 +185,8 @@ async def test_update_session_kwh_added_alone_leaves_kwh_calculated(authed_clien
         json={
             "car_id": car_id,
             "date": date.today().isoformat(),
-            "start_soc": 60, "end_soc": 86,
+            "start_soc": 60,
+            "end_soc": 86,
             "kwh_added": 18.0,
         },
         headers=csrf_headers(authed_client),
@@ -274,9 +277,7 @@ async def test_delete_session(authed_client):
     )
     sid = create.json()["id"]
 
-    r = await authed_client.delete(
-        f"/api/sessions/{sid}", headers=csrf_headers(authed_client)
-    )
+    r = await authed_client.delete(f"/api/sessions/{sid}", headers=csrf_headers(authed_client))
     assert r.status_code == 204
 
     r = await authed_client.get(f"/api/sessions/{sid}")
@@ -306,9 +307,8 @@ async def _create_location_for(test_sessionmaker, user_id: int) -> int:
 
 
 async def _bootstrap_user_id(test_sessionmaker) -> int:
-    from sqlalchemy import select
-
     from plugtrack.models import User
+    from sqlalchemy import select
 
     async with test_sessionmaker() as session:
         result = await session.execute(select(User).where(User.username == "admin"))
@@ -493,8 +493,8 @@ async def test_update_session_accepts_charge_context(authed_client):
 async def test_power_curve_approximate_flag(authed_client, test_sessionmaker):
     """`power_curve_approximate` is True for a vision-extracted (non-synthesis)
     curve, False for a measured synthesis curve, and False when there is no curve."""
-    from sqlalchemy import select
     from plugtrack.models import ChargingSession
+    from sqlalchemy import select
 
     car_id = await _create_car(authed_client)
 
@@ -512,8 +512,9 @@ async def test_power_curve_approximate_flag(authed_client, test_sessionmaker):
         )
         sid = create.json()["id"]
         async with test_sessionmaker() as s:
-            cs = (await s.execute(
-                select(ChargingSession).where(ChargingSession.id == sid))).scalar_one()
+            cs = (
+                await s.execute(select(ChargingSession).where(ChargingSession.id == sid))
+            ).scalar_one()
             cs.source = source
             cs.power_curve = power_curve
             await s.commit()
@@ -617,7 +618,6 @@ async def test_create_update_default_savings_fields_to_none(authed_client):
 @pytest.mark.asyncio
 async def test_override_columns_survive_unrelated_updates(authed_client):
     """Updating non-cost fields must not clobber the override columns."""
-    from sqlalchemy import select
 
     car_id = await _create_car(authed_client)
     create = await authed_client.post(
@@ -654,15 +654,12 @@ async def test_override_columns_survive_unrelated_updates(authed_client):
 
 async def _set_global_home_rate(test_sessionmaker, value: str) -> None:
     """Mutate the seeded default_home_rate_p_per_kwh setting directly."""
-    from sqlalchemy import select
-
     from plugtrack.models import Setting
+    from sqlalchemy import select
 
     async with test_sessionmaker() as s:
         row = (
-            await s.execute(
-                select(Setting).where(Setting.key == "default_home_rate_p_per_kwh")
-            )
+            await s.execute(select(Setting).where(Setting.key == "default_home_rate_p_per_kwh"))
         ).scalar_one()
         row.value = value
         await s.commit()
@@ -820,12 +817,20 @@ async def test_moving_charge_to_another_location_keeps_frozen_cost(
     # Two labelled locations with different per-kWh rates.
     async with test_sessionmaker() as s:
         loc_a = Location(
-            user_id=user_id, name="A", centroid_lat=50.85, centroid_lng=-0.13,
-            radius_m=100, default_cost_per_kwh_p=20.0,
+            user_id=user_id,
+            name="A",
+            centroid_lat=50.85,
+            centroid_lng=-0.13,
+            radius_m=100,
+            default_cost_per_kwh_p=20.0,
         )
         loc_b = Location(
-            user_id=user_id, name="B", centroid_lat=51.5, centroid_lng=-0.1,
-            radius_m=100, default_cost_per_kwh_p=60.0,
+            user_id=user_id,
+            name="B",
+            centroid_lat=51.5,
+            centroid_lng=-0.1,
+            radius_m=100,
+            default_cost_per_kwh_p=60.0,
         )
         s.add_all([loc_a, loc_b])
         await s.commit()

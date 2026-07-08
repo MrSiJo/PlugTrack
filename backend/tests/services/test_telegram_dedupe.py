@@ -1,19 +1,28 @@
 import hashlib
 
 import pytest
-from sqlalchemy import select
-
 from plugtrack.models import ScreenshotImport
 from plugtrack.services.screenshot_extraction import Extraction, Usage
 from plugtrack.services.telegram_ingest import IngestContext, _stage_and_card
+from sqlalchemy import select
 
 
 def _ex(**kw):
     base = dict(
-        source="mycupra", has_cost=False, energy_kwh=None, cost_total_pence=None,
-        cost_per_kwh_pence=None, start_at="2026-06-15T19:27:00", end_at=None,
-        soc_start=67, soc_end=80, location_name=None, location_address=None,
-        network=None, peak_kw=2.0, confidence=0.95,
+        source="mycupra",
+        has_cost=False,
+        energy_kwh=None,
+        cost_total_pence=None,
+        cost_per_kwh_pence=None,
+        start_at="2026-06-15T19:27:00",
+        end_at=None,
+        soc_start=67,
+        soc_end=80,
+        location_name=None,
+        location_address=None,
+        network=None,
+        peak_kw=2.0,
+        confidence=0.95,
     )
     base.update(kw)
     return Extraction(**base)
@@ -29,16 +38,25 @@ class FakeTg:
 
 def _ctx(tg, sm, user_id, car_id):
     return IngestContext(
-        telegram=tg, sessionmaker=sm, extractor=None,
-        resolve_target=lambda: (user_id, car_id), allowed_user_ids={111},
+        telegram=tg,
+        sessionmaker=sm,
+        extractor=None,
+        resolve_target=lambda: (user_id, car_id),
+        allowed_user_ids={111},
         public_base_url="http://host:9279",
     )
 
 
 async def _stage(ctx, sha, user_id):
     await _stage_and_card(
-        ctx, user_id=user_id, chat_id=9, extraction=_ex(), usage=Usage(1, 1, 0),
-        telegram_file_id="f", message_id=1, sha=sha,
+        ctx,
+        user_id=user_id,
+        chat_id=9,
+        extraction=_ex(),
+        usage=Usage(1, 1, 0),
+        telegram_file_id="f",
+        message_id=1,
+        sha=sha,
     )
 
 

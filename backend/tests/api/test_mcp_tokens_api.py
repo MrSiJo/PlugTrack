@@ -3,12 +3,12 @@
 TDD: these tests are written against the yet-to-exist route module.
 Run `pytest tests/api/test_mcp_tokens_api.py -v` to see RED first.
 """
+
 from __future__ import annotations
 
 import pytest
 
 from tests.api.conftest import csrf_headers
-
 
 # ---------------------------------------------------------------------------
 # Unauthenticated (no cookie) — 401 on every method.

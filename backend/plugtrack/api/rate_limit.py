@@ -16,6 +16,7 @@ To activate this on the app, set `app.state.limiter = limiter` and
 register `slowapi._rate_limit_exceeded_handler` for `RateLimitExceeded`.
 Routes opt in via `@limiter.limit("N/period")`.
 """
+
 from __future__ import annotations
 
 import ipaddress

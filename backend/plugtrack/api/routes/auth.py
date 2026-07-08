@@ -1,4 +1,5 @@
 """Auth routes — login (signs cookie) and logout (clears it)."""
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,7 +10,6 @@ from ...services.auth_service import authenticate
 from ..auth_middleware import SESSION_COOKIE_NAME, make_serializer
 from ..login_throttle import login_throttle
 from ..rate_limit import limiter
-
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 

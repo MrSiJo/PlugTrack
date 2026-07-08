@@ -6,11 +6,11 @@ query filters by `user_id = request.state.user_id`. Hard delete is used
 on DELETE — sessions/plug-ins cascade in Phase 4 onward; this fits the
 single-user app shape better than soft-deleting.
 """
+
 from __future__ import annotations
 
 import re
 from datetime import date as date_cls
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, field_validator
@@ -22,7 +22,6 @@ from ...models import Car, CarMileageYear, ChargingSession
 from ...services import mileage_tracking
 from ...services.car_lifetime import compute_car_lifetime
 
-
 router = APIRouter(prefix="/api/cars", tags=["cars"])
 
 # VINs are alphanumeric — reject anything else before it is ever stored.
@@ -31,7 +30,7 @@ router = APIRouter(prefix="/api/cars", tags=["cars"])
 _VIN_RE = re.compile("^[A-Za-z0-9·]+$")
 
 
-def _validate_vin(value: Optional[str]) -> Optional[str]:
+def _validate_vin(value: str | None) -> str | None:
     if value is None:
         return None
     if not _VIN_RE.match(value):
@@ -43,46 +42,46 @@ class CarPayload(BaseModel):
     id: int
     make: str
     model: str
-    name: Optional[str] = None
+    name: str | None = None
     display_name: str
-    vin: Optional[str] = None
+    vin: str | None = None
     battery_kwh: float
     nominal_efficiency_mi_per_kwh: float
-    max_ac_kw: Optional[float] = None
-    max_dc_kw: Optional[float] = None
+    max_ac_kw: float | None = None
+    max_dc_kw: float | None = None
     provider: str
-    provider_vehicle_id: Optional[str] = None
+    provider_vehicle_id: str | None = None
     active: bool
 
 
 class CarCreateRequest(BaseModel):
     make: str = Field(min_length=1, max_length=64)
     model: str = Field(min_length=1, max_length=64)
-    name: Optional[str] = Field(default=None, max_length=64)
-    vin: Optional[str] = Field(default=None, max_length=32)
+    name: str | None = Field(default=None, max_length=64)
+    vin: str | None = Field(default=None, max_length=32)
     battery_kwh: float = Field(gt=0, lt=1000)
     nominal_efficiency_mi_per_kwh: float = Field(gt=0, lt=20)
-    max_ac_kw: Optional[float] = Field(default=None, gt=0, lt=1000)
-    max_dc_kw: Optional[float] = Field(default=None, gt=0, lt=1000)
+    max_ac_kw: float | None = Field(default=None, gt=0, lt=1000)
+    max_dc_kw: float | None = Field(default=None, gt=0, lt=1000)
     provider: str = Field(default="cupra_connect", max_length=32)
-    provider_vehicle_id: Optional[str] = Field(default=None, max_length=64)
+    provider_vehicle_id: str | None = Field(default=None, max_length=64)
     active: bool = True
 
     _check_vin = field_validator("vin")(_validate_vin)
 
 
 class CarUpdateRequest(BaseModel):
-    make: Optional[str] = Field(default=None, min_length=1, max_length=64)
-    model: Optional[str] = Field(default=None, min_length=1, max_length=64)
-    name: Optional[str] = Field(default=None, max_length=64)
-    vin: Optional[str] = Field(default=None, max_length=32)
-    battery_kwh: Optional[float] = Field(default=None, gt=0, lt=1000)
-    nominal_efficiency_mi_per_kwh: Optional[float] = Field(default=None, gt=0, lt=20)
-    max_ac_kw: Optional[float] = Field(default=None, gt=0, lt=1000)
-    max_dc_kw: Optional[float] = Field(default=None, gt=0, lt=1000)
-    provider: Optional[str] = Field(default=None, max_length=32)
-    provider_vehicle_id: Optional[str] = Field(default=None, max_length=64)
-    active: Optional[bool] = None
+    make: str | None = Field(default=None, min_length=1, max_length=64)
+    model: str | None = Field(default=None, min_length=1, max_length=64)
+    name: str | None = Field(default=None, max_length=64)
+    vin: str | None = Field(default=None, max_length=32)
+    battery_kwh: float | None = Field(default=None, gt=0, lt=1000)
+    nominal_efficiency_mi_per_kwh: float | None = Field(default=None, gt=0, lt=20)
+    max_ac_kw: float | None = Field(default=None, gt=0, lt=1000)
+    max_dc_kw: float | None = Field(default=None, gt=0, lt=1000)
+    provider: str | None = Field(default=None, max_length=32)
+    provider_vehicle_id: str | None = Field(default=None, max_length=64)
+    active: bool | None = None
 
     _check_vin = field_validator("vin")(_validate_vin)
 
@@ -134,9 +133,7 @@ async def list_cars(
     session: AsyncSession = Depends(get_db),
 ) -> list[CarPayload]:
     user_id = _user_id(request)
-    result = await session.execute(
-        select(Car).where(Car.user_id == user_id).order_by(Car.id)
-    )
+    result = await session.execute(select(Car).where(Car.user_id == user_id).order_by(Car.id))
     return [_to_payload(c) for c in result.scalars().all()]
 
 
@@ -168,9 +165,7 @@ async def create_car(
 
 
 async def _get_owned(session: AsyncSession, car_id: int, user_id: int) -> Car:
-    result = await session.execute(
-        select(Car).where(Car.id == car_id, Car.user_id == user_id)
-    )
+    result = await session.execute(select(Car).where(Car.id == car_id, Car.user_id == user_id))
     car = result.scalar_one_or_none()
     if car is None:
         raise HTTPException(status_code=404, detail="car not found")
@@ -297,8 +292,8 @@ class MileagePeriodPayload(BaseModel):
     period_start_date: date_cls
     period_end_date: date_cls
     opening_odometer_km: float
-    closing_odometer_km: Optional[float] = None
-    annual_mileage_target_km: Optional[float] = None
+    closing_odometer_km: float | None = None
+    annual_mileage_target_km: float | None = None
 
 
 class CurrentMileagePeriodPayload(BaseModel):
@@ -306,21 +301,19 @@ class CurrentMileagePeriodPayload(BaseModel):
     period_end_date: date_cls
     opening_odometer_km: float
     current_odometer_km: float
-    annual_mileage_target_km: Optional[float] = None
+    annual_mileage_target_km: float | None = None
 
 
 class MileageStatusPayload(BaseModel):
     enabled: bool
-    current_period: Optional[CurrentMileagePeriodPayload] = None
+    current_period: CurrentMileagePeriodPayload | None = None
     history: list[MileagePeriodPayload]
 
 
 class MileageConfigRequest(BaseModel):
     start_date: date_cls
     opening_miles: float = Field(ge=0, lt=1_000_000)
-    annual_mileage_target_miles: Optional[float] = Field(
-        default=None, gt=0, lt=1_000_000
-    )
+    annual_mileage_target_miles: float | None = Field(default=None, gt=0, lt=1_000_000)
 
 
 def _serialise_status(
@@ -361,9 +354,7 @@ async def get_mileage(
 ) -> MileageStatusPayload:
     user_id = _user_id(request)
     await _get_owned(session, car_id, user_id)
-    status = await mileage_tracking.get_status(
-        session, user_id=user_id, car_id=car_id
-    )
+    status = await mileage_tracking.get_status(session, user_id=user_id, car_id=car_id)
     # `get_status` may have materialised a rollover, which writes new rows.
     await session.commit()
     return _serialise_status(status)
@@ -398,8 +389,6 @@ async def delete_mileage(
 ) -> Response:
     user_id = _user_id(request)
     await _get_owned(session, car_id, user_id)
-    await mileage_tracking.clear_tracking(
-        session, user_id=user_id, car_id=car_id
-    )
+    await mileage_tracking.clear_tracking(session, user_id=user_id, car_id=car_id)
     await session.commit()
     return Response(status_code=204)

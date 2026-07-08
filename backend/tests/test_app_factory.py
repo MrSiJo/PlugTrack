@@ -1,13 +1,13 @@
 """Tests for the FastAPI app factory + lifespan."""
+
 from __future__ import annotations
 
 import os
 
 import pytest
-from sqlalchemy import func, select
-
 from plugtrack.models import Setting
 from plugtrack.settings.catalogue import CATALOGUE
+from sqlalchemy import func, select
 
 
 @pytest.mark.asyncio

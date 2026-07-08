@@ -20,14 +20,15 @@ GET  /api/maintenance/export/sessions?format=csv|json
     StreamingResponse of the caller's sessions.  User isolation enforced by
     passing request.state.user_id into export_sessions_rows.
 """
+
 from __future__ import annotations
 
 import asyncio
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,6 +74,7 @@ async def _get_retention(db: AsyncSession) -> int:
 # POST /api/maintenance/backup
 # ---------------------------------------------------------------------------
 
+
 @router.post("/backup")
 async def run_backup(
     request: Request,
@@ -85,7 +87,7 @@ async def run_backup(
     """
     _user_id(request)
 
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
     meta = await asyncio.to_thread(create_backup, ts)
 
     retention = await _get_retention(db)
@@ -93,10 +95,12 @@ async def run_backup(
 
     # created_at from mtime of the backup we just created.
     from pathlib import Path
+
     dest = Path(meta["path"])
     import os
+
     mtime = os.path.getmtime(dest)
-    created_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+    created_at = datetime.fromtimestamp(mtime, tz=UTC).isoformat()
 
     return {
         "name": meta["name"],
@@ -109,6 +113,7 @@ async def run_backup(
 # GET /api/maintenance/backups
 # ---------------------------------------------------------------------------
 
+
 @router.get("/backups")
 async def get_backups(request: Request) -> list[dict]:
     """List all backup files, newest first."""
@@ -119,6 +124,7 @@ async def get_backups(request: Request) -> list[dict]:
 # ---------------------------------------------------------------------------
 # GET /api/maintenance/backups/{name}/download
 # ---------------------------------------------------------------------------
+
 
 @router.get("/backups/{name}/download")
 async def download_backup(name: str, request: Request) -> FileResponse:
@@ -155,6 +161,7 @@ async def download_backup(name: str, request: Request) -> FileResponse:
 # GET /api/maintenance/export/sessions
 # ---------------------------------------------------------------------------
 
+
 @router.get("/export/sessions")
 async def export_sessions(
     request: Request,
@@ -177,7 +184,7 @@ async def export_sessions(
         )
 
     rows = await export_sessions_rows(db, uid)
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
 
     if format == "csv":
         content = rows_to_csv(SESSION_EXPORT_COLUMNS, rows)
@@ -185,9 +192,7 @@ async def export_sessions(
             content=content,
             media_type="text/csv",
             headers={
-                "Content-Disposition": (
-                    f'attachment; filename="plugtrack-sessions-{today}.csv"'
-                )
+                "Content-Disposition": (f'attachment; filename="plugtrack-sessions-{today}.csv"')
             },
         )
     else:
@@ -196,8 +201,6 @@ async def export_sessions(
             content=content,
             media_type="application/json",
             headers={
-                "Content-Disposition": (
-                    f'attachment; filename="plugtrack-sessions-{today}.json"'
-                )
+                "Content-Disposition": (f'attachment; filename="plugtrack-sessions-{today}.json"')
             },
         )

@@ -12,23 +12,21 @@ applied, so a captured cookie stayed valid until the secret rotated.
 
 Adding a path here weakens auth — requires explicit user sign-off.
 """
+
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-
 SESSION_COOKIE_NAME = "plugtrack_session"
 SESSION_SALT = "session"
 
 # Adding a path here weakens auth — requires explicit user sign-off.
-EXEMPT_PATHS: frozenset[str] = frozenset(
-    {"/api/health", "/api/setup", "/api/auth/login", "/mcp"}
-)
+EXEMPT_PATHS: frozenset[str] = frozenset({"/api/health", "/api/setup", "/api/auth/login", "/mcp"})
 
 # Paths in EXEMPT_PREFIX carry their own auth (e.g. the MCP bearer-token
 # middleware) and must also bypass CSRF because they are not cookie-based.
@@ -63,7 +61,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             max_age_seconds = get_settings().session_max_age_seconds
         self._max_age_seconds = max_age_seconds
 
-    def _read_user_id(self, request: Request) -> Optional[int]:
+    def _read_user_id(self, request: Request) -> int | None:
         raw = request.cookies.get(self.cookie_name)
         if not raw:
             return None
@@ -82,12 +80,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        is_exempt = (
-            path in self.exempt_paths
-            or any(
-                path == prefix or path.startswith(prefix + "/")
-                for prefix in _EXEMPT_PREFIXES
-            )
+        is_exempt = path in self.exempt_paths or any(
+            path == prefix or path.startswith(prefix + "/") for prefix in _EXEMPT_PREFIXES
         )
 
         user_id = self._read_user_id(request)

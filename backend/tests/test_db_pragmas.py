@@ -7,6 +7,7 @@ per-connection, so it's issued from a connect-event listener
 `foreign_keys=ON` is deliberately not enabled — see the docstring on
 `set_sqlite_pragmas` for the two production blockers found.
 """
+
 from __future__ import annotations
 
 import pytest

@@ -1,12 +1,11 @@
 # backend/tests/services/test_telegram_runner.py
-import asyncio
 import pytest
-
 from plugtrack.services.telegram_ingest import dispatch_update
 
 
 class Spy:
-    def __init__(self): self.calls = []
+    def __init__(self):
+        self.calls = []
 
 
 @pytest.mark.asyncio
@@ -25,7 +24,9 @@ async def test_dispatch_routes_photo(monkeypatch):
     update = {
         "update_id": 1,
         "message": {
-            "message_id": 3, "chat": {"id": 9}, "from": {"id": 111},
+            "message_id": 3,
+            "chat": {"id": 9},
+            "from": {"id": 111},
             "photo": [{"file_id": "small"}, {"file_id": "big"}],
         },
     }
@@ -38,14 +39,18 @@ async def test_dispatch_routes_photo(monkeypatch):
 @pytest.mark.asyncio
 async def test_dispatch_routes_callback(monkeypatch):
     calls = []
+
     async def fake_cb(ctx, **kw):  # noqa: ANN001
         calls.append(kw)
+
     monkeypatch.setattr("plugtrack.services.telegram_ingest.handle_callback", fake_cb)
     update = {
         "update_id": 2,
         "callback_query": {
-            "id": "cb9", "data": "save",
-            "from": {"id": 111}, "message": {"chat": {"id": 9}},
+            "id": "cb9",
+            "data": "save",
+            "from": {"id": 111},
+            "message": {"chat": {"id": 9}},
         },
     }
     await dispatch_update(ctx=None, update=update)
@@ -55,12 +60,17 @@ async def test_dispatch_routes_callback(monkeypatch):
 @pytest.mark.asyncio
 async def test_dispatch_routes_text(monkeypatch):
     calls = []
+
     async def fake_text(ctx, **kw):
         calls.append(kw)
+
     monkeypatch.setattr("plugtrack.services.telegram_ingest.handle_text", fake_text)
-    update = {"update_id": 7, "message": {"message_id": 3, "chat": {"id": 9},
-              "from": {"id": 111}, "text": "/test"}}
+    update = {
+        "update_id": 7,
+        "message": {"message_id": 3, "chat": {"id": 9}, "from": {"id": 111}, "text": "/test"},
+    }
     from plugtrack.services.telegram_ingest import dispatch_update
+
     await dispatch_update(ctx=None, update=update)
     assert calls and calls[0]["text"] == "/test"
 
@@ -68,12 +78,22 @@ async def test_dispatch_routes_text(monkeypatch):
 @pytest.mark.asyncio
 async def test_dispatch_passes_caption(monkeypatch):
     calls = []
+
     async def fake_photo(ctx, **kw):
         calls.append(kw)
+
     monkeypatch.setattr("plugtrack.services.telegram_ingest.handle_photo", fake_photo)
-    update = {"update_id": 9, "message": {"message_id": 2, "chat": {"id": 9},
-              "from": {"id": 111}, "photo": [{"file_id": "s"}, {"file_id": "big"}],
-              "caption": "home"}}
+    update = {
+        "update_id": 9,
+        "message": {
+            "message_id": 2,
+            "chat": {"id": 9},
+            "from": {"id": 111},
+            "photo": [{"file_id": "s"}, {"file_id": "big"}],
+            "caption": "home",
+        },
+    }
     from plugtrack.services.telegram_ingest import dispatch_update
+
     await dispatch_update(ctx=None, update=update)
     assert calls and calls[0].get("caption") == "home"

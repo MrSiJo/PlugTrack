@@ -1,4 +1,5 @@
 """Smoke tests proving the skeleton tables exist and FKs hold."""
+
 from __future__ import annotations
 
 import pytest
@@ -31,8 +32,9 @@ async def test_car_belongs_to_user(test_sessionmaker):
 
 @pytest.mark.asyncio
 async def test_charging_session_belongs_to_car(test_sessionmaker):
-    from plugtrack.models import Car, ChargingSession, User
     from datetime import date
+
+    from plugtrack.models import Car, ChargingSession, User
 
     async with test_sessionmaker() as session:
         user = User(username="alice", password_hash="x")

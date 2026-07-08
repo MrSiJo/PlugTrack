@@ -5,6 +5,7 @@ Collaborators are injected via IngestContext so the handlers unit-test
 without a live bot or OpenAI. The long-poll runner (Task B7) builds a real
 IngestContext and dispatches updates to these functions.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -13,8 +14,9 @@ import hashlib
 import logging
 import re
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any
 
 from sqlalchemy import select
 
@@ -31,21 +33,21 @@ STAGING_WINDOW_MIN = 720  # 12h, so a late MyCupra/Tesla shot still attaches
 
 @dataclass
 class IngestContext:
-    telegram: Any                                  # TelegramClient-shaped
-    sessionmaker: Any                              # async_sessionmaker
-    extractor: Callable[[bytes], Awaitable[Any]]   # -> ExtractionResult
-    resolve_target: Callable[[], tuple[int, Optional[int]]]  # -> (user_id, car_id|None)
+    telegram: Any  # TelegramClient-shaped
+    sessionmaker: Any  # async_sessionmaker
+    extractor: Callable[[bytes], Awaitable[Any]]  # -> ExtractionResult
+    resolve_target: Callable[[], tuple[int, int | None]]  # -> (user_id, car_id|None)
     allowed_user_ids: set[int]
-    public_base_url: Optional[str] = None
-    input_price_p: Optional[float] = None
-    output_price_p: Optional[float] = None
-    health_check: Optional[Callable[[int], Awaitable[Any]]] = None
-    extractor_text: Optional[Callable[[str], Awaitable[Any]]] = None
-    usage_answerer: Optional[Callable[[str], Awaitable[Any]]] = None
+    public_base_url: str | None = None
+    input_price_p: float | None = None
+    output_price_p: float | None = None
+    health_check: Callable[[int], Awaitable[Any]] | None = None
+    extractor_text: Callable[[str], Awaitable[Any]] | None = None
+    usage_answerer: Callable[[str], Awaitable[Any]] | None = None
     # Agentic bot fields (Task 4)
-    agent_runner: Optional[Callable[..., Awaitable[Any]]] = None  # run_agent_turn-shaped
+    agent_runner: Callable[..., Awaitable[Any]] | None = None  # run_agent_turn-shaped
     ai_enabled: bool = False
-    openai_key: Optional[str] = None
+    openai_key: str | None = None
     openai_model: str = "gpt-5-mini"
     # chat_id -> message_id of the current batch's confirm card, so we EDIT it
     # in place as more screenshots merge in (instead of spamming new cards).
@@ -80,9 +82,9 @@ class BotConfig:
     model: str
     allowed: set[int]
     user_id: int
-    public_base_url: Optional[str] = None
-    input_price_p: Optional[float] = None
-    output_price_p: Optional[float] = None
+    public_base_url: str | None = None
+    input_price_p: float | None = None
+    output_price_p: float | None = None
     ai_enabled: bool = False
 
 
@@ -91,15 +93,15 @@ class ConfigProblem:
     reasons: list[str] = field(default_factory=list)
 
 
-def _truthy(v: Optional[str]) -> bool:
+def _truthy(v: str | None) -> bool:
     return (v or "").strip().lower() in {"true", "1", "yes", "on"}
 
 
-def _parse_ids(v: Optional[str]) -> set[int]:
+def _parse_ids(v: str | None) -> set[int]:
     return {int(x) for x in (v or "").replace(" ", "").split(",") if x}
 
 
-def _to_float(v: Optional[str]) -> Optional[float]:
+def _to_float(v: str | None) -> float | None:
     try:
         return float(v) if v not in (None, "") else None
     except (TypeError, ValueError):
@@ -117,7 +119,7 @@ _CAPTION_ODO_RE = re.compile(
 )
 
 
-def _parse_caption(caption: Optional[str]) -> tuple[Optional[str], Optional[float], Optional[str]]:
+def _parse_caption(caption: str | None) -> tuple[str | None, float | None, str | None]:
     """(location_word, odometer, odometer_unit) from a photo caption.
 
     Examples: "Home 11001mi" -> ("Home", 11001.0, "mi");
@@ -126,8 +128,8 @@ def _parse_caption(caption: Optional[str]) -> tuple[Optional[str], Optional[floa
     text = (caption or "").strip()
     if not text:
         return (None, None, None)
-    odo: Optional[float] = None
-    unit: Optional[str] = None
+    odo: float | None = None
+    unit: str | None = None
     m = _CAPTION_ODO_RE.search(text)
     if m:
         odo = float(m.group("num").replace(",", ""))
@@ -136,7 +138,7 @@ def _parse_caption(caption: Optional[str]) -> tuple[Optional[str], Optional[floa
             unit = "km"
         elif u:
             unit = "mi"
-        text = (text[: m.start()] + text[m.end():]).strip()
+        text = (text[: m.start()] + text[m.end() :]).strip()
     return (text or None, odo, unit)
 
 
@@ -161,12 +163,10 @@ _EDIT_VERB_RE = re.compile(
     r"\b(?:update|edit|correct|change|amend|fix|adjust|set)\b", re.IGNORECASE
 )
 # Explicit session reference: "session 34", "charge 3", or a word-bounded "#42".
-_SESSION_REF_RE = re.compile(
-    r"\b(?:session|charge)\s+#?(\d+)\b|(?<![\w.])#(\d+)\b", re.IGNORECASE
-)
+_SESSION_REF_RE = re.compile(r"\b(?:session|charge)\s+#?(\d+)\b|(?<![\w.])#(\d+)\b", re.IGNORECASE)
 
 
-def _looks_like_edit_command(text: Optional[str]) -> bool:
+def _looks_like_edit_command(text: str | None) -> bool:
     """True when text is an explicit edit command for an existing session.
 
     Requires an edit verb AND a session reference. Used by handle_text to route
@@ -182,7 +182,7 @@ def _looks_like_edit_command(text: Optional[str]) -> bool:
     return bool(_SESSION_REF_RE.search(t)) or _parse_update_target(t) is not None
 
 
-def _parse_update_target(caption: Optional[str]) -> Optional[int]:
+def _parse_update_target(caption: str | None) -> int | None:
     """Return session id if the caption expresses an update intent, else None.
 
     Matches: "update 42", "update session 7", "update charge 99",
@@ -205,7 +205,7 @@ def _parse_update_target(caption: Optional[str]) -> Optional[int]:
     return None
 
 
-def _parse_pending_screenshot_edit(text: str) -> Optional[int]:
+def _parse_pending_screenshot_edit(text: str) -> int | None:
     """Return session id if text expresses intent to send a screenshot to update a session.
 
     Requires ALL of:
@@ -238,10 +238,13 @@ def _parse_pending_screenshot_edit(text: str) -> Optional[int]:
     # All forms require both a photo word AND an update/edit/send verb
     if not has_photo_word:
         return None
-    has_verb = bool(re.search(
-        r"\b(?:update|edit|send|attach|i['']?ll\s+send|i\s+will\s+send)\b",
-        text, re.IGNORECASE,
-    ))
+    has_verb = bool(
+        re.search(
+            r"\b(?:update|edit|send|attach|i['']?ll\s+send|i\s+will\s+send)\b",
+            text,
+            re.IGNORECASE,
+        )
+    )
     if not has_verb:
         return None
 
@@ -261,6 +264,7 @@ def _parse_pending_screenshot_edit(text: str) -> Optional[int]:
 # Car resolution — per-message, multi-car aware
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class CarResolution:
     """Result of resolve_car_for_message.
@@ -271,8 +275,9 @@ class CarResolution:
       "prompt"  — 2+ active cars and no unique caption match; active_cars lists them for the user.
       "none"    — zero active cars and no unique caption match; nothing can be done.
     """
-    kind: str                                    # "auto" | "matched" | "prompt" | "none"
-    car_id: Optional[int] = None                 # set for "auto" and "matched"
+
+    kind: str  # "auto" | "matched" | "prompt" | "none"
+    car_id: int | None = None  # set for "auto" and "matched"
     active_cars: list[Any] = field(default_factory=list)  # set for "prompt" (list[Car])
 
 
@@ -291,17 +296,14 @@ def _car_matches_caption(car, caption_lower: str) -> bool:
     if car.name:
         candidates.append(car.name.lower())
     candidates.append(f"{car.make} {car.model}".lower())
-    return any(
-        bool(re.search(r"\b" + re.escape(c) + r"\b", caption_lower))
-        for c in candidates
-    )
+    return any(bool(re.search(r"\b" + re.escape(c) + r"\b", caption_lower)) for c in candidates)
 
 
 async def resolve_car_for_message(
     session,
     *,
     user_id: int,
-    caption: Optional[str],
+    caption: str | None,
 ) -> CarResolution:
     """Determine which car a Telegram-ingested charge belongs to.
 
@@ -317,14 +319,13 @@ async def resolve_car_for_message(
     or its ``"make model"`` string appears anywhere in the caption text.
     """
     from sqlalchemy import select as _select
+
     from ..models import Car as _Car
 
-    rows = (
-        await session.execute(_select(_Car).where(_Car.user_id == user_id))
-    ).scalars().all()
+    rows = (await session.execute(_select(_Car).where(_Car.user_id == user_id))).scalars().all()
 
     active = [c for c in rows if c.active is True]
-    archived = [c for c in rows if not (c.active is True)]
+    archived = [c for c in rows if c.active is not True]
 
     # Rule 1: single active car → auto (caption irrelevant)
     if len(active) == 1:
@@ -364,10 +365,12 @@ def _build_proposal_message(result: dict, target: int) -> tuple[str, dict]:
 
 def _kb() -> dict[str, Any]:
     return {
-        "inline_keyboard": [[
-            {"text": "✓ Save", "callback_data": "save"},
-            {"text": "🗑️ Discard", "callback_data": "discard"},
-        ]]
+        "inline_keyboard": [
+            [
+                {"text": "✓ Save", "callback_data": "save"},
+                {"text": "🗑️ Discard", "callback_data": "discard"},
+            ]
+        ]
     }
 
 
@@ -399,7 +402,9 @@ def _hms(seconds: int) -> str:
     return f"{h}h{mm:02d}m" if h else f"{mm}m"
 
 
-def _summarise(merged: list[MergedSession], projected: Optional[list[dict]] = None, *, unit: str = "mi") -> str:
+def _summarise(
+    merged: list[MergedSession], projected: list[dict] | None = None, *, unit: str = "mi"
+) -> str:
     """Render the confirm card as an itemised, human-readable block per charge.
 
     When `projected` is supplied (per-session dicts with kwh_added/cost_pence/
@@ -407,6 +412,7 @@ def _summarise(merged: list[MergedSession], projected: Optional[list[dict]] = No
     produce — including the home/location rate — instead of the raw extracted
     values (which carry no cost for home charges). Each line is omitted entirely
     when its datum is missing (never a `?` placeholder)."""
+
     def _odo(km: float) -> str:
         return f"{km / KM_PER_MILE:,.0f} mi" if unit == "mi" else f"{km:,.0f} km"
 
@@ -415,7 +421,7 @@ def _summarise(merged: list[MergedSession], projected: Optional[list[dict]] = No
     for i, m in enumerate(merged):
         proj = projected[i] if (projected and i < len(projected)) else None
         kwh = (proj.get("kwh_added") if proj else None) or m.energy_kwh
-        cost_pence = (proj.get("cost_pence") if proj else None)
+        cost_pence = proj.get("cost_pence") if proj else None
         if cost_pence is None:
             cost_pence = m.cost_total_pence
         basis = proj.get("cost_basis") if proj else None
@@ -475,7 +481,7 @@ def _summarise(merged: list[MergedSession], projected: Optional[list[dict]] = No
     return "\n\n".join(blocks)
 
 
-def _committed_dupe_text(ctx: IngestContext, existing: "ScreenshotImport") -> str:
+def _committed_dupe_text(ctx: IngestContext, existing: ScreenshotImport) -> str:
     sid = existing.created_session_id
     when = existing.created_at.strftime("%d %b") if existing.created_at else ""
     msg = "⚠️ Looks like I've already saved this screenshot"
@@ -491,13 +497,17 @@ def _committed_dupe_text(ctx: IngestContext, existing: "ScreenshotImport") -> st
 
 async def _staged_rows(s, user_id):
     return (
-        await s.execute(
-            select(ScreenshotImport).where(
-                ScreenshotImport.user_id == user_id,
-                ScreenshotImport.status == "staged",
+        (
+            await s.execute(
+                select(ScreenshotImport).where(
+                    ScreenshotImport.user_id == user_id,
+                    ScreenshotImport.status == "staged",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
 
 async def _send_or_edit_card(ctx: IngestContext, *, chat_id: int, text: str) -> None:
@@ -518,8 +528,17 @@ async def _send_or_edit_card(ctx: IngestContext, *, chat_id: int, text: str) -> 
 
 
 async def _stage_and_card(
-    ctx: IngestContext, *, user_id, car_id: Optional[int] = None, chat_id, extraction, usage,
-    telegram_file_id, message_id, sha, send_card: bool = True,
+    ctx: IngestContext,
+    *,
+    user_id,
+    car_id: int | None = None,
+    chat_id,
+    extraction,
+    usage,
+    telegram_file_id,
+    message_id,
+    sha,
+    send_card: bool = True,
 ) -> None:
     """Single dedupe authority. By (user_id, sha) — which is UNIQUE:
       - committed  -> warn, don't touch the saved row (commit guard also blocks dupes).
@@ -544,7 +563,8 @@ async def _stage_and_card(
 
         if existing is not None and existing.status == "committed":
             await ctx.telegram.send_message(
-                chat_id=chat_id, text=_committed_dupe_text(ctx, existing))
+                chat_id=chat_id, text=_committed_dupe_text(ctx, existing)
+            )
             return
 
         if existing is not None and existing.status == "staged":
@@ -562,12 +582,20 @@ async def _stage_and_card(
                 existing.telegram_message_id = message_id
             await s.commit()
         else:  # new
-            s.add(ScreenshotImport(
-                user_id=user_id, telegram_file_id=telegram_file_id,
-                telegram_message_id=message_id, image_sha256=sha,
-                source=extraction.source, extracted=extraction.__dict__, status="staged",
-                input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
-                reasoning_tokens=usage.reasoning_tokens))
+            s.add(
+                ScreenshotImport(
+                    user_id=user_id,
+                    telegram_file_id=telegram_file_id,
+                    telegram_message_id=message_id,
+                    image_sha256=sha,
+                    source=extraction.source,
+                    extracted=extraction.__dict__,
+                    status="staged",
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    reasoning_tokens=usage.reasoning_tokens,
+                )
+            )
             await s.commit()
 
         staged = await _staged_rows(s, user_id)
@@ -576,6 +604,7 @@ async def _stage_and_card(
         # card shows real figures, not "£?". Best-effort — never block the card.
         unit = await _distance_unit_for(s)
         from datetime import date as _date
+
         projected: list[dict] = []
         for m in merged:
             try:
@@ -587,7 +616,8 @@ async def _stage_and_card(
                 }
                 if cs.odometer_at_session_km is not None:
                     existing_max = await max_odo_at_or_before(
-                        s, user_id=user_id, car_id=car_id, on_or_before=_date.today())
+                        s, user_id=user_id, car_id=car_id, on_or_before=_date.today()
+                    )
                     entry["odometer_km"] = cs.odometer_at_session_km
                     if existing_max is not None and cs.odometer_at_session_km < existing_max:
                         entry["odometer_regressed"] = True
@@ -612,12 +642,12 @@ async def _resolve_and_stage(
     *,
     user_id: int,
     chat_id: int,
-    extraction: "Extraction",
-    usage: "Any",
-    telegram_file_id: Optional[str],
-    message_id: Optional[int],
+    extraction: Extraction,
+    usage: Any,
+    telegram_file_id: str | None,
+    message_id: int | None,
     sha: str,
-    caption: Optional[str] = None,
+    caption: str | None = None,
 ) -> None:
     """Shared car-resolution + staging for both photo and text paths.
 
@@ -625,21 +655,28 @@ async def _resolve_and_stage(
     goes through identical logic instead of calling _stage_and_card directly
     with car_id=None.
     """
-    resolved_car_id: Optional[int] = ctx.pending_car_choice.get(chat_id)
+    resolved_car_id: int | None = ctx.pending_car_choice.get(chat_id)
     if resolved_car_id is None:
         async with ctx.sessionmaker() as _res_session:
             resolution = await resolve_car_for_message(
-                _res_session, user_id=user_id, caption=caption)
+                _res_session, user_id=user_id, caption=caption
+            )
         if resolution.kind == "none":
             await ctx.telegram.send_message(
-                chat_id=chat_id,
-                text="No active car — add or restore one first.")
+                chat_id=chat_id, text="No active car — add or restore one first."
+            )
             return
         if resolution.kind == "prompt":
             # Stage without showing the confirm card yet; send the carpick keyboard.
             await _stage_and_card(
-                ctx, user_id=user_id, chat_id=chat_id, extraction=extraction,
-                usage=usage, telegram_file_id=telegram_file_id, message_id=message_id, sha=sha,
+                ctx,
+                user_id=user_id,
+                chat_id=chat_id,
+                extraction=extraction,
+                usage=usage,
+                telegram_file_id=telegram_file_id,
+                message_id=message_id,
+                sha=sha,
                 send_card=False,
             )
             await ctx.telegram.send_message(
@@ -653,12 +690,19 @@ async def _resolve_and_stage(
         ctx.pending_car_choice[chat_id] = resolved_car_id
 
     await _stage_and_card(
-        ctx, user_id=user_id, car_id=resolved_car_id, chat_id=chat_id, extraction=extraction,
-        usage=usage, telegram_file_id=telegram_file_id, message_id=message_id, sha=sha,
+        ctx,
+        user_id=user_id,
+        car_id=resolved_car_id,
+        chat_id=chat_id,
+        extraction=extraction,
+        usage=usage,
+        telegram_file_id=telegram_file_id,
+        message_id=message_id,
+        sha=sha,
     )
 
 
-def _extraction_to_edit_kwargs(extraction: "Extraction") -> dict[str, Any]:
+def _extraction_to_edit_kwargs(extraction: Extraction) -> dict[str, Any]:
     """Map Extraction fields → propose_edit_charge keyword arguments.
 
     Only includes fields that are not None. Date and notes are never set from
@@ -686,7 +730,12 @@ def _extraction_to_edit_kwargs(extraction: "Extraction") -> dict[str, Any]:
 
 
 async def _handle_photo_update_target(
-    ctx: IngestContext, *, target: int, user_id: int, chat_id: int, image: bytes,
+    ctx: IngestContext,
+    *,
+    target: int,
+    user_id: int,
+    chat_id: int,
+    image: bytes,
     consumed_pending: bool = False,
 ) -> None:
     """Execute the update-from-screenshot path for a resolved target session id.
@@ -763,8 +812,13 @@ async def _handle_photo_update_target(
 
 
 async def handle_photo(
-    ctx: IngestContext, *, from_id: int, chat_id: int, message_id: int, file_id: str,
-    caption: Optional[str] = None,
+    ctx: IngestContext,
+    *,
+    from_id: int,
+    chat_id: int,
+    message_id: int,
+    file_id: str,
+    caption: str | None = None,
 ) -> None:
     if from_id not in ctx.allowed_user_ids:
         return
@@ -787,7 +841,7 @@ async def handle_photo(
     # When a target is found, delegate to the update path and RETURN — the
     # new-session staging flow below is never reached.
     # -------------------------------------------------------------------
-    target: Optional[int] = _parse_update_target(caption)
+    target: int | None = _parse_update_target(caption)
     consumed_pending = False
     if target is None:
         pending = ctx.pending_edit_target.get(chat_id)
@@ -805,8 +859,13 @@ async def handle_photo(
 
     if target is not None:
         await _handle_photo_update_target(
-            ctx, target=target, user_id=user_id, chat_id=chat_id, image=image,
-            consumed_pending=consumed_pending)
+            ctx,
+            target=target,
+            user_id=user_id,
+            chat_id=chat_id,
+            image=image,
+            consumed_pending=consumed_pending,
+        )
         return
 
     # -------------------------------------------------------------------
@@ -845,8 +904,14 @@ async def handle_photo(
     # handle_text goes through identical logic.
     # -------------------------------------------------------------------
     await _resolve_and_stage(
-        ctx, user_id=user_id, chat_id=chat_id, extraction=extraction,
-        usage=result.usage, telegram_file_id=file_id, message_id=message_id, sha=sha,
+        ctx,
+        user_id=user_id,
+        chat_id=chat_id,
+        extraction=extraction,
+        usage=result.usage,
+        telegram_file_id=file_id,
+        message_id=message_id,
+        sha=sha,
         caption=caption,
     )
 
@@ -862,11 +927,12 @@ async def handle_callback(
     # MCP propose/commit callbacks (Task 4)
     # -----------------------------------------------------------------------
     if data.startswith("mcpcommit:"):
-        token = data[len("mcpcommit:"):]
+        token = data[len("mcpcommit:") :]
         await ctx.telegram.answer_callback(callback_id, "Applying…")
         try:
             async with ctx.sessionmaker() as s:
                 from ..mcp.tools import commit_change
+
                 result = await commit_change(s, user_id, token)
             # Only pop the stored token if it matches the one being committed (fix 4).
             if ctx.pending_tokens.get(chat_id) == token:
@@ -875,9 +941,7 @@ async def handle_callback(
                 await ctx.telegram.send_message(chat_id=chat_id, text="Done — change saved.")
             else:
                 err = result.get("error", "unknown error")
-                await ctx.telegram.send_message(
-                    chat_id=chat_id, text=f"Could not apply: {err}"
-                )
+                await ctx.telegram.send_message(chat_id=chat_id, text=f"Could not apply: {err}")
         except Exception:
             logger.exception("mcpcommit failed")
             await ctx.telegram.send_message(
@@ -886,7 +950,7 @@ async def handle_callback(
         return
 
     if data.startswith("mcpdiscard:"):
-        token = data[len("mcpdiscard:"):]
+        token = data[len("mcpdiscard:") :]
         # Only pop the stored token if it matches the one being discarded (fix 4).
         if ctx.pending_tokens.get(chat_id) == token:
             ctx.pending_tokens.pop(chat_id, None)
@@ -907,35 +971,41 @@ async def handle_callback(
             return
         await ctx.telegram.answer_callback(callback_id, "Locating…")
         await _propose_attach_location_card(
-            ctx, user_id=user_id, chat_id=chat_id, charge_id=charge_id, lat=lat, lng=lng)
+            ctx, user_id=user_id, chat_id=chat_id, charge_id=charge_id, lat=lat, lng=lng
+        )
         return
 
     # -----------------------------------------------------------------------
     # Car-pick callback: user tapped a car button to resolve a multi-car prompt.
     # -----------------------------------------------------------------------
     if data.startswith("carpick:"):
-        chosen_car_id = int(data[len("carpick:"):])
+        chosen_car_id = int(data[len("carpick:") :])
         ctx.pending_car_choice[chat_id] = chosen_car_id
         await ctx.telegram.answer_callback(callback_id, "Car selected")
         # Show the confirm card for the already-staged screenshot(s) targeting chosen car.
         async with ctx.sessionmaker() as s:
             staged = (
-                await s.execute(
-                    select(ScreenshotImport).where(
-                        ScreenshotImport.user_id == user_id,
-                        ScreenshotImport.status == "staged",
+                (
+                    await s.execute(
+                        select(ScreenshotImport).where(
+                            ScreenshotImport.user_id == user_id,
+                            ScreenshotImport.status == "staged",
+                        )
                     )
                 )
-            ).scalars().all()
-            merged, unplaceable = correlate_batch(
-                [parse_extraction(r.extracted) for r in staged])
+                .scalars()
+                .all()
+            )
+            merged, unplaceable = correlate_batch([parse_extraction(r.extracted) for r in staged])
             from datetime import date as _date
+
             unit = await _distance_unit_for(s)
             projected: list[dict] = []
             for m in merged:
                 try:
                     cs = await preview_merged_session(
-                        s, user_id=user_id, car_id=chosen_car_id, merged=m)
+                        s, user_id=user_id, car_id=chosen_car_id, merged=m
+                    )
                     entry: dict[str, Any] = {
                         "kwh_added": cs.kwh_added,
                         "cost_pence": cs.cost_pence,
@@ -943,8 +1013,8 @@ async def handle_callback(
                     }
                     if cs.odometer_at_session_km is not None:
                         existing_max = await max_odo_at_or_before(
-                            s, user_id=user_id, car_id=chosen_car_id,
-                            on_or_before=_date.today())
+                            s, user_id=user_id, car_id=chosen_car_id, on_or_before=_date.today()
+                        )
                         entry["odometer_km"] = cs.odometer_at_session_km
                         if existing_max is not None and cs.odometer_at_session_km < existing_max:
                             entry["odometer_regressed"] = True
@@ -984,12 +1054,16 @@ async def handle_callback(
 
     async with ctx.sessionmaker() as s:
         staged = (
-            await s.execute(
-                select(ScreenshotImport).where(
-                    ScreenshotImport.user_id == user_id, ScreenshotImport.status == "staged"
+            (
+                await s.execute(
+                    select(ScreenshotImport).where(
+                        ScreenshotImport.user_id == user_id, ScreenshotImport.status == "staged"
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         if data == "discard":
             for r in staged:
@@ -1005,7 +1079,7 @@ async def handle_callback(
         exts = [parse_extraction(r.extracted) for r in staged]
         merged, unplaceable = correlate_batch(exts)
         unplaceable_ids = {id(e) for e in unplaceable}
-        created: list[tuple[int, Optional[int], Optional[str]]] = []  # (id, cost_pence, cost_basis)
+        created: list[tuple[int, int | None, str | None]] = []  # (id, cost_pence, cost_basis)
         for m in merged:
             cs = await commit_merged_session(s, user_id=user_id, car_id=car_id, merged=m)
             if cs is not None:
@@ -1027,24 +1101,27 @@ async def handle_callback(
         # Remember the last committed session so a shortly-following location pin
         # attaches to it; and if a pin was shared while this charge was staged,
         # attach it now to the (single) created session.
-        attached_place: Optional[str] = None
+        attached_place: str | None = None
         if created:
             ctx.last_committed[chat_id] = (created[-1][0], time.time())
             held = ctx.pending_location.pop(chat_id, None)
             if held is not None and len(created) == 1:
                 lat, lng, _ts = held
-                place: Optional[str] = None
+                place: str | None = None
                 try:
                     from .geocoding import get_provider
                     from .ingest_location import _geocoding_settings
+
                     provider = get_provider(await _geocoding_settings(s))
                     r = await provider.reverse(lat, lng)
                     place = r.address if r is not None else None
                 except Exception:  # noqa: BLE001 — reverse-geocode is best-effort
                     place = None
                 from ..mcp.tools import attach_coords_to_charge
+
                 loc = await attach_coords_to_charge(
-                    s, user_id, charge_id=created[0][0], lat=lat, lng=lng, name=place)
+                    s, user_id, charge_id=created[0][0], lat=lat, lng=lng, name=place
+                )
                 if loc is not None:
                     await s.commit()
                     attached_place = loc.name or place or f"({lat:.4f}, {lng:.4f})"
@@ -1053,7 +1130,7 @@ async def handle_callback(
     lines = [f"Saved {len(created)} session(s)."]
     base = ctx.public_base_url.rstrip("/") if ctx.public_base_url else None
     for sid, cost_pence, basis in created:
-        cost = f"£{cost_pence/100:.2f} ({basis})" if cost_pence is not None else "cost n/a"
+        cost = f"£{cost_pence / 100:.2f} ({basis})" if cost_pence is not None else "cost n/a"
         line = f"#{sid}: {cost}"
         if base:
             line += f" — {base}/sessions/{sid}"
@@ -1071,34 +1148,35 @@ async def handle_callback(
     # durably committed. Never let a broker problem break the save flow.
     try:
         from .ha_publisher import run_ha_publish_tick
+
         await run_ha_publish_tick(ctx.sessionmaker)
     except Exception:  # noqa: BLE001
-        logging.getLogger(__name__).exception(
-            "ha_publisher: post-commit publish failed"
-        )
+        logging.getLogger(__name__).exception("ha_publisher: post-commit publish failed")
 
 
 # Rolling history cap: keep the last N user+assistant turn pairs (2 items each).
 _HISTORY_TURN_CAP = 10  # keeps last 10 pairs = 20 items
 
 
-def _append_history(ctx: "IngestContext", chat_id: int, user_text: str, reply_text: str) -> None:
+def _append_history(ctx: IngestContext, chat_id: int, user_text: str, reply_text: str) -> None:
     """Append a user+assistant pair to rolling_context[chat_id], then cap."""
     history = ctx.rolling_context.setdefault(chat_id, [])
     history.append({"role": "user", "content": [{"type": "input_text", "text": user_text}]})
     history.append({"role": "assistant", "content": [{"type": "output_text", "text": reply_text}]})
     # Cap: keep only the last _HISTORY_TURN_CAP * 2 items
     if len(history) > _HISTORY_TURN_CAP * 2:
-        ctx.rolling_context[chat_id] = history[-(  _HISTORY_TURN_CAP * 2):]
+        ctx.rolling_context[chat_id] = history[-(_HISTORY_TURN_CAP * 2) :]
 
 
 def _proposal_kb(change_token: str) -> dict[str, Any]:
     """Build an inline keyboard for a pending proposal (Save = commit, Discard = drop)."""
     return {
-        "inline_keyboard": [[
-            {"text": "✓ Save", "callback_data": f"mcpcommit:{change_token}"},
-            {"text": "🗑️ Discard", "callback_data": f"mcpdiscard:{change_token}"},
-        ]]
+        "inline_keyboard": [
+            [
+                {"text": "✓ Save", "callback_data": f"mcpcommit:{change_token}"},
+                {"text": "🗑️ Discard", "callback_data": f"mcpdiscard:{change_token}"},
+            ]
+        ]
     }
 
 
@@ -1111,6 +1189,7 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
     cmd = (text or "").strip().lower()
     if cmd in _COMMANDS and ctx.health_check is not None:
         from .telegram_health import format_health_text
+
         report = await ctx.health_check(from_id)
         await ctx.telegram.send_message(chat_id=chat_id, text=format_health_text(report))
         return
@@ -1121,6 +1200,7 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
     target_id = _parse_pending_screenshot_edit(text)
     if target_id is not None:
         from ..mcp.tools import get_charge
+
         user_id_for_check, _ = ctx.resolve_target()
         async with ctx.sessionmaker() as s:
             owned = await get_charge(s, user_id_for_check, target_id)
@@ -1154,16 +1234,30 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
             logger.exception("charge-note extraction failed; falling through")
             result = None
         e = result.extraction if result is not None else None
-        usable = e is not None and e.confidence > 0 and (
-            e.energy_kwh is not None or e.soc_start is not None
-            or e.soc_end is not None or e.cost_total_pence is not None)
+        usable = (
+            e is not None
+            and e.confidence > 0
+            and (
+                e.energy_kwh is not None
+                or e.soc_start is not None
+                or e.soc_end is not None
+                or e.cost_total_pence is not None
+            )
+        )
         if usable:
             import hashlib as _hashlib
+
             sha = _hashlib.sha256(("text:" + text.strip().lower()).encode()).hexdigest()
             user_id, _ = ctx.resolve_target()
             await _resolve_and_stage(
-                ctx, user_id=user_id, chat_id=chat_id, extraction=e,
-                usage=result.usage, telegram_file_id=None, message_id=None, sha=sha,
+                ctx,
+                user_id=user_id,
+                chat_id=chat_id,
+                extraction=e,
+                usage=result.usage,
+                telegram_file_id=None,
+                message_id=None,
+                sha=sha,
                 caption=text,
             )
             return
@@ -1187,7 +1281,8 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
         except Exception:  # noqa: BLE001
             logger.exception("agent_runner failed; sending error reply")
             await ctx.telegram.send_message(
-                chat_id=chat_id, text="Sorry — I couldn't answer that right now.")
+                chat_id=chat_id, text="Sorry — I couldn't answer that right now."
+            )
             return
 
         reply_text = result.get("reply_text") or ""
@@ -1213,7 +1308,8 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
             answer, _usage = await ctx.usage_answerer(text)
         except Exception:  # noqa: BLE001 — never crash the long-poll loop
             await ctx.telegram.send_message(
-                chat_id=chat_id, text="Sorry — I couldn't answer that right now.")
+                chat_id=chat_id, text="Sorry — I couldn't answer that right now."
+            )
             return
         await ctx.telegram.send_message(chat_id=chat_id, text=answer)
         return
@@ -1223,12 +1319,13 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
     # legacy IngestContext setups (no agent_runner at all) still show the plain help.
     if ctx.agent_runner is not None and not ctx.ai_enabled and text and text.strip():
         await ctx.telegram.send_message(
-            chat_id=chat_id,
-            text="AI features are off — enable AI in Admin to ask questions.")
+            chat_id=chat_id, text="AI features are off — enable AI in Admin to ask questions."
+        )
         return
 
     await ctx.telegram.send_message(
-        chat_id=chat_id, text="Send me a charge screenshot, or /test to check status.")
+        chat_id=chat_id, text="Send me a charge screenshot, or /test to check status."
+    )
 
 
 # A shared pin attaches to a charge committed via this chat within this window.
@@ -1236,20 +1333,26 @@ _LOCATION_TTL = 1800  # 30 minutes
 
 
 async def _propose_attach_location_card(
-    ctx: IngestContext, *, user_id: int, chat_id: int, charge_id: int,
-    lat: float, lng: float,
+    ctx: IngestContext,
+    *,
+    user_id: int,
+    chat_id: int,
+    charge_id: int,
+    lat: float,
+    lng: float,
 ) -> bool:
     """Build and send an attach-location proposal card. Returns True on success."""
     from ..mcp.tools import propose_attach_location
+
     async with ctx.sessionmaker() as s:
-        result = await propose_attach_location(
-            s, user_id, charge_id=charge_id, lat=lat, lng=lng)
+        result = await propose_attach_location(s, user_id, charge_id=charge_id, lat=lat, lng=lng)
     if result.get("error"):
         await ctx.telegram.send_message(chat_id=chat_id, text=result["error"])
         return False
     ctx.pending_tokens[chat_id] = result["change_token"]
     await ctx.telegram.send_message(
-        chat_id=chat_id, text=result["summary"], reply_markup=_proposal_kb(result["change_token"]))
+        chat_id=chat_id, text=result["summary"], reply_markup=_proposal_kb(result["change_token"])
+    )
     return True
 
 
@@ -1271,14 +1374,22 @@ async def handle_location(
 
     # 1) Staged batch open → hold for Save.
     async with ctx.sessionmaker() as s:
-        staged = (await s.execute(select(ScreenshotImport).where(
-            ScreenshotImport.user_id == user_id,
-            ScreenshotImport.status == "staged"))).scalars().first()
+        staged = (
+            (
+                await s.execute(
+                    select(ScreenshotImport).where(
+                        ScreenshotImport.user_id == user_id, ScreenshotImport.status == "staged"
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
     if staged is not None:
         ctx.pending_location[chat_id] = (latitude, longitude, time.time())
         await ctx.telegram.send_message(
-            chat_id=chat_id,
-            text="Got it — I'll attach this location to the charge when you Save.")
+            chat_id=chat_id, text="Got it — I'll attach this location to the charge when you Save."
+        )
         return
 
     # 2) Recently committed via this chat → propose attach.
@@ -1287,39 +1398,46 @@ async def handle_location(
         sid, set_at = recent
         if time.time() - set_at <= _LOCATION_TTL:
             await _propose_attach_location_card(
-                ctx, user_id=user_id, chat_id=chat_id, charge_id=sid,
-                lat=latitude, lng=longitude)
+                ctx, user_id=user_id, chat_id=chat_id, charge_id=sid, lat=latitude, lng=longitude
+            )
             return
         ctx.last_committed.pop(chat_id, None)
 
     # 3) Fallback: let the user pick a recent charge for the pin.
     from ..mcp.tools import find_charges
+
     async with ctx.sessionmaker() as s:
         charges = await find_charges(s, user_id, limit=5)
     picks = [c for c in charges if isinstance(c, dict) and c.get("id") is not None]
     if not picks:
         await ctx.telegram.send_message(
             chat_id=chat_id,
-            text="No recent charge to attach this location to — send the charge first.")
+            text="No recent charge to attach this location to — send the charge first.",
+        )
         return
     buttons = []
     for c in picks:
         who = c.get("network") or c.get("location_name") or "charge"
         label = f"#{c['id']} {who} ({c.get('date')})"
-        buttons.append([{
-            "text": label,
-            "callback_data": f"locattach:{c['id']}:{latitude}:{longitude}",
-        }])
+        buttons.append(
+            [
+                {
+                    "text": label,
+                    "callback_data": f"locattach:{c['id']}:{latitude}:{longitude}",
+                }
+            ]
+        )
     await ctx.telegram.send_message(
         chat_id=chat_id,
         text="Which charge is this location for?",
-        reply_markup={"inline_keyboard": buttons})
+        reply_markup={"inline_keyboard": buttons},
+    )
 
 
 logger = logging.getLogger(__name__)
 
 
-async def dispatch_update(*, ctx: Optional[IngestContext], update: dict[str, Any]) -> None:
+async def dispatch_update(*, ctx: IngestContext | None, update: dict[str, Any]) -> None:
     msg = update.get("message")
     if msg and msg.get("photo"):
         photos = msg["photo"]
@@ -1340,8 +1458,11 @@ async def dispatch_update(*, ctx: Optional[IngestContext], update: dict[str, Any
     if msg and msg.get("location"):
         loc = msg["location"]
         await handle_location(
-            ctx, from_id=msg["from"]["id"], chat_id=msg["chat"]["id"],
-            latitude=loc["latitude"], longitude=loc["longitude"],
+            ctx,
+            from_id=msg["from"]["id"],
+            chat_id=msg["chat"]["id"],
+            latitude=loc["latitude"],
+            longitude=loc["longitude"],
         )
         return
     cb = update.get("callback_query")
@@ -1377,6 +1498,7 @@ async def run_bot(ctx: IngestContext, *, stop: asyncio.Event) -> None:
 async def load_bot_config(sessionmaker):
     """Read+decrypt settings into BotConfig, or ConfigProblem(reasons)."""
     from sqlalchemy import select as _select
+
     from ..bootstrap import get_settings
     from ..models import Setting, User
     from ..security.crypto import decrypt_secret
@@ -1433,8 +1555,14 @@ async def read_raw_credentials(sessionmaker):
         rows = {r.key: r.value for r in (await s.execute(_select(Setting))).scalars().all()}
 
     secret = get_settings().app_secret_key
-    token = decrypt_secret(rows["telegram_bot_token"], secret) if rows.get("telegram_bot_token") else None
-    openai_key = decrypt_secret(rows["openai_api_key"], secret) if rows.get("openai_api_key") else None
+    token = (
+        decrypt_secret(rows["telegram_bot_token"], secret)
+        if rows.get("telegram_bot_token")
+        else None
+    )
+    openai_key = (
+        decrypt_secret(rows["openai_api_key"], secret) if rows.get("openai_api_key") else None
+    )
     model = rows.get("openai_model") or None
     return token, openai_key, model
 
@@ -1445,7 +1573,7 @@ def build_ingest_context(
     sessionmaker,
     health_check=None,
     ai_enabled: bool = False,
-) -> "IngestContext":
+) -> IngestContext:
     from .screenshot_extraction import ExtractionResult, call_openai, extract_from_text
     from .telegram_client import TelegramClient
 
@@ -1461,18 +1589,23 @@ def build_ingest_context(
     # agentic loop takes priority when ai_enabled and agent_runner are set).
     async def usage_answerer(question: str):
         from datetime import date
-        from .usage_stats import build_usage_snapshot
+
         from .usage_chat import answer_usage_question
+        from .usage_stats import build_usage_snapshot
+
         async with sessionmaker() as s:
             unit = await _distance_unit_for(s)
             snap = await build_usage_snapshot(
-                s, user_id=config.user_id, today=date.today(), distance_unit=unit)
+                s, user_id=config.user_id, today=date.today(), distance_unit=unit
+            )
         return await answer_usage_question(
-            question, snap.to_prompt_dict(), api_key=config.openai_key, model=config.model)
+            question, snap.to_prompt_dict(), api_key=config.openai_key, model=config.model
+        )
 
     # Build the agentic runner: a sessionmaker-aware wrapper around run_agent_turn
     # that opens a session per call and passes the bound tool_runner.
-    from .bot_agent import make_tool_runner, run_agent_turn as _run_agent_turn
+    from .bot_agent import make_tool_runner
+    from .bot_agent import run_agent_turn as _run_agent_turn
 
     async def agent_runner(
         *,

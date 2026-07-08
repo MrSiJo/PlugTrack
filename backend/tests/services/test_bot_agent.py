@@ -4,10 +4,10 @@
 All OpenAI HTTP calls are mocked — no network happens.
 Tests follow TDD: written before the implementation exists.
 """
+
 from __future__ import annotations
 
 import json
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,6 +15,7 @@ import pytest
 # ---------------------------------------------------------------------------
 # Helpers to build fake OpenAI Responses-API payloads
 # ---------------------------------------------------------------------------
+
 
 def _tool_call_response(tool_name: str, args: dict, call_id: str = "call_1") -> dict:
     """A Responses API body whose output is a tool_call."""
@@ -58,6 +59,7 @@ def _text_response(text: str) -> dict:
 # Fake tool runner
 # ---------------------------------------------------------------------------
 
+
 async def _fake_runner(tool_name: str, args: dict) -> dict:
     """Returns deterministic fake results for each tool."""
     if tool_name == "find_charges":
@@ -80,6 +82,7 @@ async def _fake_runner(tool_name: str, args: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Tests for run_agent_turn
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_agent_nl_question_calls_find_charges_and_returns_reply():
@@ -187,7 +190,7 @@ async def test_agent_propose_set_location_returns_proposal_no_commit():
 async def test_agent_loop_caps_at_max_iterations():
     """The loop must stop after the configured max iterations, even if the model
     keeps emitting tool calls (avoiding runaway loops)."""
-    from plugtrack.services.bot_agent import run_agent_turn, MAX_TOOL_ITERATIONS
+    from plugtrack.services.bot_agent import MAX_TOOL_ITERATIONS, run_agent_turn
 
     call_count = 0
 
@@ -197,7 +200,9 @@ async def test_agent_loop_caps_at_max_iterations():
         m = MagicMock()
         m.status_code = 200
         # Always returns a tool call — never a final text
-        m.json.return_value = _tool_call_response("find_charges", {"limit": 5}, call_id=f"call_{call_count}")
+        m.json.return_value = _tool_call_response(
+            "find_charges", {"limit": 5}, call_id=f"call_{call_count}"
+        )
         return m
 
     with patch("httpx.AsyncClient") as mock_client_cls:
@@ -320,6 +325,7 @@ async def test_agent_openai_error_returns_gracefully():
 # Tests for handle_text + handle_callback wiring
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_handle_text_photo_path_unchanged(test_sessionmaker, seeded_user_car):
     """A photo message still routes to handle_photo (unchanged path)."""
@@ -330,22 +336,40 @@ async def test_handle_text_photo_path_unchanged(test_sessionmaker, seeded_user_c
 
     async def fake_extractor(image_bytes):
         from plugtrack.services.screenshot_extraction import (
-            Extraction, ExtractionResult, Usage,
+            Extraction,
+            ExtractionResult,
+            Usage,
         )
+
         photo_called["called"] = True
         e = Extraction(
-            source="mycupra", has_cost=False, energy_kwh=None, cost_total_pence=None,
-            cost_per_kwh_pence=None, start_at="2026-06-17T16:36:00",
-            end_at="2026-06-18T07:06:00", soc_start=75, soc_end=79,
-            location_name=None, location_address=None, network=None,
-            peak_kw=2.0, confidence=0.89,
+            source="mycupra",
+            has_cost=False,
+            energy_kwh=None,
+            cost_total_pence=None,
+            cost_per_kwh_pence=None,
+            start_at="2026-06-17T16:36:00",
+            end_at="2026-06-18T07:06:00",
+            soc_start=75,
+            soc_end=79,
+            location_name=None,
+            location_address=None,
+            network=None,
+            peak_kw=2.0,
+            confidence=0.89,
         )
         return ExtractionResult(extraction=e, usage=Usage(None, None, None))
 
     class FakeTg:
-        def __init__(self): self.sent = []
-        async def get_file_path(self, file_id): return file_id
-        async def download_file(self, path): return b"fake_image"
+        def __init__(self):
+            self.sent = []
+
+        async def get_file_path(self, file_id):
+            return file_id
+
+        async def download_file(self, path):
+            return b"fake_image"
+
         async def send_message(self, *, chat_id, text, reply_markup=None):
             self.sent.append(text)
             return 1
@@ -359,15 +383,18 @@ async def test_handle_text_photo_path_unchanged(test_sessionmaker, seeded_user_c
         allowed_user_ids={42},
     )
     # Dispatch a photo update — must not crash and must invoke extractor
-    await ti.dispatch_update(ctx=ctx, update={
-        "update_id": 1,
-        "message": {
-            "from": {"id": 42},
-            "chat": {"id": 99},
-            "message_id": 1,
-            "photo": [{"file_id": "f1"}, {"file_id": "f2"}],
+    await ti.dispatch_update(
+        ctx=ctx,
+        update={
+            "update_id": 1,
+            "message": {
+                "from": {"id": 42},
+                "chat": {"id": 99},
+                "message_id": 1,
+                "photo": [{"file_id": "f1"}, {"file_id": "f2"}],
+            },
         },
-    })
+    )
     assert photo_called.get("called"), "extractor (photo path) was not called"
 
 
@@ -376,7 +403,9 @@ async def test_handle_text_charge_note_still_extracts(test_sessionmaker, seeded_
     """A charge-note text message still goes through extractor_text (unchanged path)."""
     import plugtrack.services.telegram_ingest as ti
     from plugtrack.services.screenshot_extraction import (
-        Extraction, ExtractionResult, Usage,
+        Extraction,
+        ExtractionResult,
+        Usage,
     )
 
     user_id, car_id = seeded_user_car
@@ -385,15 +414,27 @@ async def test_handle_text_charge_note_still_extracts(test_sessionmaker, seeded_
     async def extractor_text(text):
         extracted["text"] = text
         e = Extraction(
-            source="text", has_cost=False, energy_kwh=9.3, cost_total_pence=None,
-            cost_per_kwh_pence=None, start_at="2026-06-15T19:27:00", end_at=None,
-            soc_start=None, soc_end=None, location_name="home",
-            location_address=None, network=None, peak_kw=None, confidence=0.9,
+            source="text",
+            has_cost=False,
+            energy_kwh=9.3,
+            cost_total_pence=None,
+            cost_per_kwh_pence=None,
+            start_at="2026-06-15T19:27:00",
+            end_at=None,
+            soc_start=None,
+            soc_end=None,
+            location_name="home",
+            location_address=None,
+            network=None,
+            peak_kw=None,
+            confidence=0.9,
         )
         return ExtractionResult(extraction=e, usage=Usage(10, 10, 0))
 
     class FakeTg:
-        def __init__(self): self.sent = []
+        def __init__(self):
+            self.sent = []
+
         async def send_message(self, *, chat_id, text, reply_markup=None):
             self.sent.append({"text": text, "kb": reply_markup})
             return 1
@@ -420,7 +461,9 @@ async def test_handle_text_agentic_loop_when_ai_enabled(test_sessionmaker, seede
     """When ai_enabled=True and no charge note, falls through to the agentic loop."""
     import plugtrack.services.telegram_ingest as ti
     from plugtrack.services.screenshot_extraction import (
-        Extraction, ExtractionResult, Usage,
+        Extraction,
+        ExtractionResult,
+        Usage,
     )
 
     user_id, car_id = seeded_user_car
@@ -429,10 +472,20 @@ async def test_handle_text_agentic_loop_when_ai_enabled(test_sessionmaker, seede
     async def extractor_text(text):
         # Returns a non-charge (confidence 0)
         e = Extraction(
-            source="text", has_cost=False, energy_kwh=None, cost_total_pence=None,
-            cost_per_kwh_pence=None, start_at=None, end_at=None,
-            soc_start=None, soc_end=None, location_name=None, location_address=None,
-            network=None, peak_kw=None, confidence=0.0,
+            source="text",
+            has_cost=False,
+            energy_kwh=None,
+            cost_total_pence=None,
+            cost_per_kwh_pence=None,
+            start_at=None,
+            end_at=None,
+            soc_start=None,
+            soc_end=None,
+            location_name=None,
+            location_address=None,
+            network=None,
+            peak_kw=None,
+            confidence=0.0,
         )
         return ExtractionResult(extraction=e, usage=Usage(5, 5, 0))
 
@@ -445,7 +498,9 @@ async def test_handle_text_agentic_loop_when_ai_enabled(test_sessionmaker, seede
         }
 
     class FakeTg:
-        def __init__(self): self.sent = []
+        def __init__(self):
+            self.sent = []
+
         async def send_message(self, *, chat_id, text, reply_markup=None):
             self.sent.append({"text": text, "kb": reply_markup})
             return 1
@@ -472,21 +527,35 @@ async def test_handle_text_agentic_loop_when_ai_enabled(test_sessionmaker, seede
 
 
 @pytest.mark.asyncio
-async def test_handle_text_proposal_renders_save_discard_buttons(test_sessionmaker, seeded_user_car):
+async def test_handle_text_proposal_renders_save_discard_buttons(
+    test_sessionmaker, seeded_user_car
+):
     """When the agent returns a proposal, handle_text renders Save/Discard inline keyboard."""
     import plugtrack.services.telegram_ingest as ti
     from plugtrack.services.screenshot_extraction import (
-        Extraction, ExtractionResult, Usage,
+        Extraction,
+        ExtractionResult,
+        Usage,
     )
 
     user_id, car_id = seeded_user_car
 
     async def extractor_text(text):
         e = Extraction(
-            source="text", has_cost=False, energy_kwh=None, cost_total_pence=None,
-            cost_per_kwh_pence=None, start_at=None, end_at=None,
-            soc_start=None, soc_end=None, location_name=None, location_address=None,
-            network=None, peak_kw=None, confidence=0.0,
+            source="text",
+            has_cost=False,
+            energy_kwh=None,
+            cost_total_pence=None,
+            cost_per_kwh_pence=None,
+            start_at=None,
+            end_at=None,
+            soc_start=None,
+            soc_end=None,
+            location_name=None,
+            location_address=None,
+            network=None,
+            peak_kw=None,
+            confidence=0.0,
         )
         return ExtractionResult(extraction=e, usage=Usage(5, 5, 0))
 
@@ -498,7 +567,9 @@ async def test_handle_text_proposal_renders_save_discard_buttons(test_sessionmak
         }
 
     class FakeTg:
-        def __init__(self): self.sent = []
+        def __init__(self):
+            self.sent = []
+
         async def send_message(self, *, chat_id, text, reply_markup=None):
             self.sent.append({"text": text, "kb": reply_markup})
             return 1
@@ -533,17 +604,29 @@ async def test_handle_text_ai_disabled_sends_help_message():
     """When ai_enabled=False, a non-charge-note falls back to help text (not agent loop)."""
     import plugtrack.services.telegram_ingest as ti
     from plugtrack.services.screenshot_extraction import (
-        Extraction, ExtractionResult, Usage,
+        Extraction,
+        ExtractionResult,
+        Usage,
     )
 
     agent_called = {}
 
     async def extractor_text(text):
         e = Extraction(
-            source="text", has_cost=False, energy_kwh=None, cost_total_pence=None,
-            cost_per_kwh_pence=None, start_at=None, end_at=None,
-            soc_start=None, soc_end=None, location_name=None, location_address=None,
-            network=None, peak_kw=None, confidence=0.0,
+            source="text",
+            has_cost=False,
+            energy_kwh=None,
+            cost_total_pence=None,
+            cost_per_kwh_pence=None,
+            start_at=None,
+            end_at=None,
+            soc_start=None,
+            soc_end=None,
+            location_name=None,
+            location_address=None,
+            network=None,
+            peak_kw=None,
+            confidence=0.0,
         )
         return ExtractionResult(extraction=e, usage=Usage(5, 5, 0))
 
@@ -552,7 +635,9 @@ async def test_handle_text_ai_disabled_sends_help_message():
         return {"reply_text": "agent reply", "proposal": None, "usage": {}}
 
     class FakeTg:
-        def __init__(self): self.sent = []
+        def __init__(self):
+            self.sent = []
+
         async def send_message(self, *, chat_id, text, reply_markup=None):
             self.sent.append(text)
             return 1
@@ -566,7 +651,7 @@ async def test_handle_text_ai_disabled_sends_help_message():
         allowed_user_ids={42},
         extractor_text=extractor_text,
         agent_runner=fake_run_agent_turn,
-        ai_enabled=False,   # AI disabled
+        ai_enabled=False,  # AI disabled
         openai_key=None,
         openai_model="gpt-5-mini",
     )
@@ -592,12 +677,19 @@ async def test_handle_callback_mcpcommit_calls_commit_change(test_sessionmaker, 
         return {"error": "unexpected"}
 
     class FakeTg:
-        def __init__(self): self.sent = []; self.answered = []
+        def __init__(self):
+            self.sent = []
+            self.answered = []
+
         async def send_message(self, *, chat_id, text, reply_markup=None):
-            self.sent.append(text); return 1
+            self.sent.append(text)
+            return 1
+
         async def answer_callback(self, callback_id, text=""):
             self.answered.append(callback_id)
-        async def edit_message_text(self, **kwargs): pass
+
+        async def edit_message_text(self, **kwargs):
+            pass
 
     tg = FakeTg()
     ctx = ti.IngestContext(
@@ -630,12 +722,19 @@ async def test_handle_callback_mcpdiscard_drops_token():
     import plugtrack.services.telegram_ingest as ti
 
     class FakeTg:
-        def __init__(self): self.sent = []; self.answered = []
+        def __init__(self):
+            self.sent = []
+            self.answered = []
+
         async def send_message(self, *, chat_id, text, reply_markup=None):
-            self.sent.append(text); return 1
+            self.sent.append(text)
+            return 1
+
         async def answer_callback(self, callback_id, text=""):
             self.answered.append(callback_id)
-        async def edit_message_text(self, **kwargs): pass
+
+        async def edit_message_text(self, **kwargs):
+            pass
 
     tg = FakeTg()
     ctx = ti.IngestContext(
@@ -661,19 +760,28 @@ async def test_handle_callback_mcpdiscard_drops_token():
 
 
 @pytest.mark.asyncio
-async def test_handle_callback_existing_save_discard_paths_unchanged(test_sessionmaker, seeded_user_car):
+async def test_handle_callback_existing_save_discard_paths_unchanged(
+    test_sessionmaker, seeded_user_car
+):
     """The existing 'save'/'discard' callback paths are not broken by the new mcpcommit/mcpdiscard."""
     import plugtrack.services.telegram_ingest as ti
 
     user_id, car_id = seeded_user_car
 
     class FakeTg:
-        def __init__(self): self.sent = []; self.answered = []
+        def __init__(self):
+            self.sent = []
+            self.answered = []
+
         async def send_message(self, *, chat_id, text, reply_markup=None):
-            self.sent.append(text); return 1
+            self.sent.append(text)
+            return 1
+
         async def answer_callback(self, callback_id, text=""):
             self.answered.append(callback_id)
-        async def edit_message_text(self, **kwargs): pass
+
+        async def edit_message_text(self, **kwargs):
+            pass
 
     tg = FakeTg()
     ctx = ti.IngestContext(
@@ -689,9 +797,7 @@ async def test_handle_callback_existing_save_discard_paths_unchanged(test_sessio
     )
 
     # discard with no staged shots should still work gracefully
-    await ti.handle_callback(
-        ctx, from_id=42, callback_id="cb3", data="discard", chat_id=99
-    )
+    await ti.handle_callback(ctx, from_id=42, callback_id="cb3", data="discard", chat_id=99)
     assert tg.answered  # answer_callback called
     assert any("Discard" in s or "discard" in s.lower() for s in tg.sent)
 
@@ -701,7 +807,9 @@ async def test_rolling_context_accumulates_turns(test_sessionmaker, seeded_user_
     """Rolling history accumulates user+assistant turns per chat_id."""
     import plugtrack.services.telegram_ingest as ti
     from plugtrack.services.screenshot_extraction import (
-        Extraction, ExtractionResult, Usage,
+        Extraction,
+        ExtractionResult,
+        Usage,
     )
 
     user_id, car_id = seeded_user_car
@@ -709,10 +817,20 @@ async def test_rolling_context_accumulates_turns(test_sessionmaker, seeded_user_
 
     async def extractor_text(text):
         e = Extraction(
-            source="text", has_cost=False, energy_kwh=None, cost_total_pence=None,
-            cost_per_kwh_pence=None, start_at=None, end_at=None,
-            soc_start=None, soc_end=None, location_name=None, location_address=None,
-            network=None, peak_kw=None, confidence=0.0,
+            source="text",
+            has_cost=False,
+            energy_kwh=None,
+            cost_total_pence=None,
+            cost_per_kwh_pence=None,
+            start_at=None,
+            end_at=None,
+            soc_start=None,
+            soc_end=None,
+            location_name=None,
+            location_address=None,
+            network=None,
+            peak_kw=None,
+            confidence=0.0,
         )
         return ExtractionResult(extraction=e, usage=Usage(5, 5, 0))
 
@@ -727,9 +845,12 @@ async def test_rolling_context_accumulates_turns(test_sessionmaker, seeded_user_
         }
 
     class FakeTg:
-        def __init__(self): self.sent = []
+        def __init__(self):
+            self.sent = []
+
         async def send_message(self, *, chat_id, text, reply_markup=None):
-            self.sent.append(text); return 1
+            self.sent.append(text)
+            return 1
 
     tg = FakeTg()
     ctx = ti.IngestContext(
@@ -761,6 +882,7 @@ async def test_rolling_context_accumulates_turns(test_sessionmaker, seeded_user_
 
 def test_build_tool_catalogue_propose_edit_charge_has_odometer():
     from plugtrack.services.bot_agent import build_tool_catalogue
+
     catalogue = build_tool_catalogue()
     edit_tool = next(t for t in catalogue if t["name"] == "propose_edit_charge")
     props = edit_tool["parameters"]["properties"]
@@ -777,6 +899,7 @@ def test_build_tool_catalogue_propose_edit_charge_has_odometer():
 @pytest.mark.asyncio
 async def test_run_agent_turn_instructions_contain_today_date():
     import re
+
     from plugtrack.services.bot_agent import run_agent_turn
 
     captured_instructions = {}
@@ -797,8 +920,13 @@ async def test_run_agent_turn_instructions_contain_today_date():
         mock_client_cls.return_value = mock_client
 
         await run_agent_turn(
-            session=None, user_id=1, text="hello", history=[],
-            api_key="sk-test", model="gpt-5-mini", tool_runner=_fake_runner,
+            session=None,
+            user_id=1,
+            text="hello",
+            history=[],
+            api_key="sk-test",
+            model="gpt-5-mini",
+            tool_runner=_fake_runner,
         )
 
     instr = captured_instructions.get("instructions", "")

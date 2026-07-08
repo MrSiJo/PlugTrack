@@ -5,15 +5,17 @@ Pure-ish: collaborators (telegram client, openai validator, sessionmaker,
 the loaded config, running flag, clock) are injected so the same report
 backs POST /api/telegram/test and the in-chat /test command.
 """
+
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any
 
 from sqlalchemy import select
 
-from .telegram_ingest import BotConfig, ConfigProblem
+from .telegram_ingest import BotConfig
 
 
 @dataclass
@@ -28,23 +30,28 @@ class UsageSummary:
     input_tokens: int
     output_tokens: int
     reasoning_tokens: int
-    cost_pence: Optional[int]
+    cost_pence: int | None
 
 
 @dataclass
 class HealthReport:
     checks: list[Check]
     all_ok: bool
-    usage_this_month: Optional[UsageSummary]
+    usage_this_month: UsageSummary | None
 
 
-async def _month_usage(sessionmaker, *, now: datetime, config: Optional[BotConfig]) -> Optional[UsageSummary]:
+async def _month_usage(
+    sessionmaker, *, now: datetime, config: BotConfig | None
+) -> UsageSummary | None:
     from ..models import ScreenshotImport
+
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     async with sessionmaker() as s:
-        rows = (await s.execute(
-            select(ScreenshotImport).where(ScreenshotImport.created_at >= start)
-        )).scalars().all()
+        rows = (
+            (await s.execute(select(ScreenshotImport).where(ScreenshotImport.created_at >= start)))
+            .scalars()
+            .all()
+        )
     it = sum(r.input_tokens or 0 for r in rows)
     ot = sum(r.output_tokens or 0 for r in rows)
     rt = sum(r.reasoning_tokens or 0 for r in rows)
@@ -61,15 +68,15 @@ _COVERED_REASONS = {"telegram_bot_token not set", "openai_api_key not set"}
 
 async def build_health_report(
     *,
-    token: Optional[str],
-    openai_key: Optional[str],
-    model: Optional[str],
+    token: str | None,
+    openai_key: str | None,
+    model: str | None,
     make_telegram_client: Callable[[str], Any],
     openai_validate: Callable[[str], Awaitable[tuple[bool, str]]],
     config_or_problem,
     sessionmaker,
     is_running: bool,
-    requesting_user_id: Optional[int] = None,
+    requesting_user_id: int | None = None,
     now: datetime,
 ) -> HealthReport:
     checks: list[Check] = []
@@ -83,7 +90,9 @@ async def build_health_report(
         try:
             me = await client.get_me()
             uname = me.get("username")
-            checks.append(Check("Telegram", True, f"connected as @{uname}" if uname else "connected"))
+            checks.append(
+                Check("Telegram", True, f"connected as @{uname}" if uname else "connected")
+            )
         except Exception as exc:  # noqa: BLE001
             checks.append(Check("Telegram", False, f"token check failed: {exc}"))
         finally:
@@ -111,8 +120,11 @@ async def build_health_report(
         # in-chat /test command passes the real Telegram from_id for a true
         # membership check.
         allow_ok = requesting_user_id is None or requesting_user_id in config.allowed
-        detail = "configured" if requesting_user_id is None else (
-            "you are on the allowlist" if allow_ok else "you are NOT on the allowlist")
+        detail = (
+            "configured"
+            if requesting_user_id is None
+            else ("you are on the allowlist" if allow_ok else "you are NOT on the allowlist")
+        )
         checks.append(Check("Allowlist", allow_ok, detail))
     else:
         for reason in config_or_problem.reasons:
@@ -131,6 +143,6 @@ def format_health_text(report: HealthReport) -> str:
     lines = [("✓" if c.ok else "✗") + f" {c.name}: {c.detail}" for c in report.checks]
     if report.usage_this_month:
         u = report.usage_this_month
-        cost = f" · £{u.cost_pence/100:.2f}" if u.cost_pence is not None else ""
+        cost = f" · £{u.cost_pence / 100:.2f}" if u.cost_pence is not None else ""
         lines.append(f"📊 This month: {u.input_tokens + u.output_tokens} tokens{cost}")
     return "\n".join(lines)

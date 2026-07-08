@@ -9,12 +9,12 @@ The live sync subsystem has been removed, so panels are sourced purely
 from the most-recent session (battery → end_soc) with the formerly
 live-only fields always None.
 """
+
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
-
 from plugtrack.models import Car, ChargingSession, Location, User
 from plugtrack.services.dashboard_service import dashboard_summary
 from plugtrack.services.mileage_tracking import KM_PER_MILE
@@ -100,9 +100,7 @@ async def _make_session(
             location_id=location_id,
             odometer_at_session_km=odometer_km,
             source=source,
-            charge_end_at=datetime.combine(when, datetime.min.time()).replace(
-                tzinfo=timezone.utc
-            ),
+            charge_end_at=datetime.combine(when, datetime.min.time()).replace(tzinfo=UTC),
         )
         s.add(cs)
         await s.commit()
@@ -142,23 +140,43 @@ async def test_dashboard_cost_per_mile_lifetime_and_30d(test_sessionmaker):
 
     # 90 days ago — earliest reading (sets lifetime min odometer).
     await _make_session(
-        test_sessionmaker, user_id=user.id, car_id=car.id,
-        when=date(2026, 2, 1), kwh=10.0, cost_pence=100, odometer_km=10_000,
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=date(2026, 2, 1),
+        kwh=10.0,
+        cost_pence=100,
+        odometer_km=10_000,
     )
     # Just before the 30d window — the reference reading the window leans on.
     await _make_session(
-        test_sessionmaker, user_id=user.id, car_id=car.id,
-        when=date(2026, 3, 25), kwh=10.0, cost_pence=200, odometer_km=10_700,
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=date(2026, 3, 25),
+        kwh=10.0,
+        cost_pence=200,
+        odometer_km=10_700,
     )
     # Inside the 30d window.
     await _make_session(
-        test_sessionmaker, user_id=user.id, car_id=car.id,
-        when=date(2026, 4, 10), kwh=10.0, cost_pence=300, odometer_km=11_000,
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=date(2026, 4, 10),
+        kwh=10.0,
+        cost_pence=300,
+        odometer_km=11_000,
     )
     # Today (inside the window; sets lifetime max odometer).
     await _make_session(
-        test_sessionmaker, user_id=user.id, car_id=car.id,
-        when=today, kwh=10.0, cost_pence=150, odometer_km=11_200,
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=today,
+        kwh=10.0,
+        cost_pence=150,
+        odometer_km=11_200,
     )
 
     async with test_sessionmaker() as session:
@@ -180,8 +198,13 @@ async def test_dashboard_cost_per_mile_none_without_odometer(test_sessionmaker):
     user = await _make_user(test_sessionmaker)
     car = await _make_car(test_sessionmaker, user.id)
     await _make_session(
-        test_sessionmaker, user_id=user.id, car_id=car.id,
-        when=date(2026, 5, 1), kwh=10.0, cost_pence=150, odometer_km=None,
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=date(2026, 5, 1),
+        kwh=10.0,
+        cost_pence=150,
+        odometer_km=None,
     )
 
     async with test_sessionmaker() as session:
@@ -260,9 +283,7 @@ async def test_dashboard_summary_multi_car_top_locations(test_sessionmaker):
 
     home = await _make_location(test_sessionmaker, user.id, name="Home", visit_count=10)
     work = await _make_location(test_sessionmaker, user.id, name="Work", visit_count=4)
-    rapid = await _make_location(
-        test_sessionmaker, user.id, name="Gridserve", visit_count=2
-    )
+    rapid = await _make_location(test_sessionmaker, user.id, name="Gridserve", visit_count=2)
     await _make_location(test_sessionmaker, user.id, name="Visited Once", visit_count=1)
 
     today = date(2026, 5, 1)
@@ -345,10 +366,18 @@ async def test_dashboard_summary_battery_falls_back_to_last_session(test_session
     assert panel.last_soc == 50
     # PLUG-M1: the dead pycupra/live-sync fields were removed outright.
     for gone in (
-        "last_state", "next_poll_at", "active_job_id",
-        "charging_cable_connected", "charging_power_kw", "target_soc",
-        "battery_care", "max_charge_current", "charging_estimated_end_at",
-        "location_name", "location_address", "electric_range_km",
+        "last_state",
+        "next_poll_at",
+        "active_job_id",
+        "charging_cable_connected",
+        "charging_power_kw",
+        "target_soc",
+        "battery_care",
+        "max_charge_current",
+        "charging_estimated_end_at",
+        "location_name",
+        "location_address",
+        "electric_range_km",
     ):
         assert not hasattr(panel, gone), f"CarPanel.{gone} should be gone"
 

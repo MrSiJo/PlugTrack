@@ -8,10 +8,11 @@ update when any cost-affecting field changes (kwh_added, location_id,
 or either override). Override fields are sacred — re-syncs in Phase 4
 must never overwrite them.
 """
+
 from __future__ import annotations
 
-from datetime import date as date_cls, datetime
-from typing import Optional
+from datetime import date as date_cls
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
@@ -26,7 +27,6 @@ from ...services.session_metrics import (
     compute_savings_for_sessions,
     compute_session_metrics,
 )
-
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -56,9 +56,7 @@ _OVERRIDE_FIELDS = frozenset(
 _SOC_AFFECTING = frozenset({"start_soc", "end_soc"})
 
 
-async def _derive_kwh_calculated(
-    session: AsyncSession, cs: ChargingSession
-) -> None:
+async def _derive_kwh_calculated(session: AsyncSession, cs: ChargingSession) -> None:
     """Set cs.kwh_calculated from (Δsoc / 100) × car.battery_kwh.
 
     No-op when SoC is missing or the car can't be found. Clamped to >=0
@@ -77,33 +75,33 @@ async def _derive_kwh_calculated(
 
 
 class SessionMetricsPayload(BaseModel):
-    miles_since_previous: Optional[float]
+    miles_since_previous: float | None
     # Genuine odometer-measured miles since the previous odometer-bearing
     # charge. Informational only — does not feed the savings calculation.
     # None when no prior odometer reading exists.
-    measured_miles_since_previous: Optional[float] = None
-    cost_per_mile_p: Optional[float]
-    petrol_ppm: Optional[float]
-    petrol_equivalent_cost_p: Optional[int]
-    savings_vs_petrol_p: Optional[int]
-    petrol_price_p_per_litre: Optional[float]
-    petrol_mpg: Optional[float]
+    measured_miles_since_previous: float | None = None
+    cost_per_mile_p: float | None
+    petrol_ppm: float | None
+    petrol_equivalent_cost_p: int | None
+    savings_vs_petrol_p: int | None
+    petrol_price_p_per_litre: float | None
+    petrol_mpg: float | None
     chain_session_ids: list[int] = []
-    chain_total_cost_pence: Optional[int] = None
-    chain_anchor_id: Optional[int] = None
+    chain_total_cost_pence: int | None = None
+    chain_anchor_id: int | None = None
     # Charge-mechanics derived fields. Any may be None when inputs are
     # missing — manual sessions typically have no power_curve so
     # peak_power_kw is None; sessions without start/end timestamps have
     # no duration or avg power.
-    range_added_miles: Optional[float] = None
-    duration_minutes: Optional[int] = None
-    average_power_kw: Optional[float] = None
-    peak_power_kw: Optional[float] = None
-    efficiency_percent: Optional[float] = None
+    range_added_miles: float | None = None
+    duration_minutes: int | None = None
+    average_power_kw: float | None = None
+    peak_power_kw: float | None = None
+    efficiency_percent: float | None = None
     # Real-world efficiency (mi/kWh) used for this session's estimates, plus
     # whether it came from observed odometer history or the nominal spec.
-    efficiency_mi_per_kwh: Optional[float] = None
-    efficiency_basis: Optional[str] = None
+    efficiency_mi_per_kwh: float | None = None
+    efficiency_basis: str | None = None
 
 
 class SessionPayload(BaseModel):
@@ -111,51 +109,51 @@ class SessionPayload(BaseModel):
     user_id: int
     car_id: int
     date: date_cls
-    charge_start_at: Optional[datetime]
-    charge_end_at: Optional[datetime]
+    charge_start_at: datetime | None
+    charge_end_at: datetime | None
     start_soc: int
     end_soc: int
     kwh_added: float
-    kwh_calculated: Optional[float] = None
-    odometer_at_session_km: Optional[float]
+    kwh_calculated: float | None = None
+    odometer_at_session_km: float | None
     charging_type: str
     charging_mode: str
-    battery_care: Optional[bool] = None
-    max_charge_current: Optional[str] = None
-    actual_charge_seconds: Optional[int] = None
+    battery_care: bool | None = None
+    max_charge_current: str | None = None
+    actual_charge_seconds: int | None = None
     interrupted: bool
-    cost_pence: Optional[int]
+    cost_pence: int | None
     cost_basis: str
-    tariff_p_per_kwh: Optional[float]
-    cost_per_kwh_override_p: Optional[float]
-    total_cost_pence_override: Optional[int]
-    location_id: Optional[int]
-    location_name: Optional[str] = None
-    location_address: Optional[str] = None
-    location_lat: Optional[float] = None
-    location_lng: Optional[float] = None
-    user_label: Optional[str]
-    charge_network: Optional[str]
-    notes: Optional[str]
+    tariff_p_per_kwh: float | None
+    cost_per_kwh_override_p: float | None
+    total_cost_pence_override: int | None
+    location_id: int | None
+    location_name: str | None = None
+    location_address: str | None = None
+    location_lat: float | None = None
+    location_lng: float | None = None
+    user_label: str | None
+    charge_network: str | None
+    notes: str | None
     source: str
-    telematics_session_id: Optional[str]
+    telematics_session_id: str | None
     # Live charge curve as `[[delta_seconds, soc, power_kw], ...]`.
     # Written by the sync worker on every poll while CHARGING so the
     # session detail page can plot SoC + power as the charge progresses.
     # NULL on manual sessions and pre-Phase-4 historic rows.
-    power_curve: Optional[list] = None
+    power_curve: list | None = None
     # True when `power_curve` is a vision-extracted approximation (a telegram
     # screenshot's app graph) rather than a measured synthesis curve. The
     # frontend dashes + badges an approximate curve.
     power_curve_approximate: bool = False
-    saved_vs_petrol_p: Optional[int] = None
-    comparison_basis: Optional[str] = None
-    breakeven_p_per_kwh: Optional[float] = None
+    saved_vs_petrol_p: int | None = None
+    comparison_basis: str | None = None
+    breakeven_p_per_kwh: float | None = None
     # Per-session efficiency surfaced top-level so the sessions list/table can
     # show it without the full metrics payload.
-    efficiency_mi_per_kwh: Optional[float] = None
-    efficiency_basis: Optional[str] = None
-    metrics: Optional[SessionMetricsPayload] = None
+    efficiency_mi_per_kwh: float | None = None
+    efficiency_basis: str | None = None
+    metrics: SessionMetricsPayload | None = None
 
 
 class SessionCreateRequest(BaseModel):
@@ -164,41 +162,41 @@ class SessionCreateRequest(BaseModel):
     start_soc: int = Field(ge=0, le=100)
     end_soc: int = Field(ge=0, le=100)
     kwh_added: float = Field(gt=0, lt=1000)
-    odometer_at_session_km: Optional[float] = Field(default=None, ge=0)
-    charge_start_at: Optional[datetime] = None
-    charge_end_at: Optional[datetime] = None
-    location_id: Optional[int] = None
+    odometer_at_session_km: float | None = Field(default=None, ge=0)
+    charge_start_at: datetime | None = None
+    charge_end_at: datetime | None = None
+    location_id: int | None = None
     charging_type: str = Field(default="unknown", max_length=16)
     charging_mode: str = Field(default="unknown", max_length=16)
-    cost_per_kwh_override_p: Optional[float] = Field(default=None, ge=0)
-    total_cost_pence_override: Optional[int] = Field(default=None, ge=0)
-    charge_network: Optional[str] = Field(default=None, max_length=64)
-    notes: Optional[str] = Field(default=None, max_length=512)
-    user_label: Optional[str] = Field(default=None, max_length=128)
+    cost_per_kwh_override_p: float | None = Field(default=None, ge=0)
+    total_cost_pence_override: int | None = Field(default=None, ge=0)
+    charge_network: str | None = Field(default=None, max_length=64)
+    notes: str | None = Field(default=None, max_length=512)
+    user_label: str | None = Field(default=None, max_length=128)
 
 
 class SessionUpdateRequest(BaseModel):
-    car_id: Optional[int] = None
-    date: Optional[date_cls] = None
-    start_soc: Optional[int] = Field(default=None, ge=0, le=100)
-    end_soc: Optional[int] = Field(default=None, ge=0, le=100)
-    kwh_added: Optional[float] = Field(default=None, gt=0, lt=1000)
-    odometer_at_session_km: Optional[float] = Field(default=None, ge=0)
-    charge_start_at: Optional[datetime] = None
-    charge_end_at: Optional[datetime] = None
-    location_id: Optional[int] = None
-    charging_type: Optional[str] = Field(default=None, max_length=16)
-    charging_mode: Optional[str] = Field(default=None, max_length=16)
-    battery_care: Optional[bool] = None
-    max_charge_current: Optional[str] = Field(default=None, max_length=16)
+    car_id: int | None = None
+    date: date_cls | None = None
+    start_soc: int | None = Field(default=None, ge=0, le=100)
+    end_soc: int | None = Field(default=None, ge=0, le=100)
+    kwh_added: float | None = Field(default=None, gt=0, lt=1000)
+    odometer_at_session_km: float | None = Field(default=None, ge=0)
+    charge_start_at: datetime | None = None
+    charge_end_at: datetime | None = None
+    location_id: int | None = None
+    charging_type: str | None = Field(default=None, max_length=16)
+    charging_mode: str | None = Field(default=None, max_length=16)
+    battery_care: bool | None = None
+    max_charge_current: str | None = Field(default=None, max_length=16)
     # Editable so a user can correct a synthesis row that the cloud closed as
     # interrupted (e.g. a public DC charge whose start the cloud never saw).
-    interrupted: Optional[bool] = None
-    cost_per_kwh_override_p: Optional[float] = Field(default=None, ge=0)
-    total_cost_pence_override: Optional[int] = Field(default=None, ge=0)
-    charge_network: Optional[str] = Field(default=None, max_length=64)
-    notes: Optional[str] = Field(default=None, max_length=512)
-    user_label: Optional[str] = Field(default=None, max_length=128)
+    interrupted: bool | None = None
+    cost_per_kwh_override_p: float | None = Field(default=None, ge=0)
+    total_cost_pence_override: int | None = Field(default=None, ge=0)
+    charge_network: str | None = Field(default=None, max_length=64)
+    notes: str | None = Field(default=None, max_length=512)
+    user_label: str | None = Field(default=None, max_length=128)
 
 
 def _user_id(request: Request) -> int:
@@ -211,15 +209,15 @@ def _user_id(request: Request) -> int:
 def _to_payload(
     cs: ChargingSession,
     *,
-    location_name: Optional[str] = None,
-    location_address: Optional[str] = None,
-    location_lat: Optional[float] = None,
-    location_lng: Optional[float] = None,
-    saved_vs_petrol_p: Optional[int] = None,
-    comparison_basis: Optional[str] = None,
-    breakeven_p_per_kwh: Optional[float] = None,
-    efficiency_mi_per_kwh: Optional[float] = None,
-    efficiency_basis: Optional[str] = None,
+    location_name: str | None = None,
+    location_address: str | None = None,
+    location_lat: float | None = None,
+    location_lng: float | None = None,
+    saved_vs_petrol_p: int | None = None,
+    comparison_basis: str | None = None,
+    breakeven_p_per_kwh: float | None = None,
+    efficiency_mi_per_kwh: float | None = None,
+    efficiency_basis: str | None = None,
 ) -> SessionPayload:
     return SessionPayload(
         id=cs.id,
@@ -264,9 +262,7 @@ def _to_payload(
     )
 
 
-async def _get_owned(
-    session: AsyncSession, session_id: int, user_id: int
-) -> ChargingSession:
+async def _get_owned(session: AsyncSession, session_id: int, user_id: int) -> ChargingSession:
     result = await session.execute(
         select(ChargingSession).where(
             ChargingSession.id == session_id,
@@ -280,14 +276,12 @@ async def _get_owned(
 
 
 async def _get_owned_location(
-    session: AsyncSession, location_id: Optional[int], user_id: int
-) -> Optional[Location]:
+    session: AsyncSession, location_id: int | None, user_id: int
+) -> Location | None:
     if location_id is None:
         return None
     result = await session.execute(
-        select(Location).where(
-            Location.id == location_id, Location.user_id == user_id
-        )
+        select(Location).where(Location.id == location_id, Location.user_id == user_id)
     )
     loc = result.scalar_one_or_none()
     if loc is None:
@@ -315,11 +309,11 @@ _SORT_COLUMNS = {
 @router.get("", response_model=list[SessionPayload])
 async def list_sessions(
     request: Request,
-    car_id: Optional[int] = Query(default=None),
-    date_from: Optional[date_cls] = Query(default=None),
-    date_to: Optional[date_cls] = Query(default=None),
-    source: Optional[str] = Query(default=None),
-    location_id: Optional[int] = Query(default=None),
+    car_id: int | None = Query(default=None),
+    date_from: date_cls | None = Query(default=None),
+    date_to: date_cls | None = Query(default=None),
+    source: str | None = Query(default=None),
+    location_id: int | None = Query(default=None),
     sort: str = Query(default="date"),
     dir: str = Query(default="desc"),
     session: AsyncSession = Depends(get_db),
@@ -425,9 +419,7 @@ async def list_sessions(
     return payloads
 
 
-async def _to_payload_with_location(
-    session: AsyncSession, cs: ChargingSession
-) -> SessionPayload:
+async def _to_payload_with_location(session: AsyncSession, cs: ChargingSession) -> SessionPayload:
     if cs.location_id is None:
         return _to_payload(cs)
     loc = await session.get(Location, cs.location_id)
@@ -555,9 +547,7 @@ async def update_session(
     if soc_dirty:
         await _derive_kwh_calculated(session, cs)
     if cost_dirty:
-        await apply_cost(
-            session, cs, first_compute=False, override_changed=override_changed
-        )
+        await apply_cost(session, cs, first_compute=False, override_changed=override_changed)
 
     await session.commit()
     await session.refresh(cs)

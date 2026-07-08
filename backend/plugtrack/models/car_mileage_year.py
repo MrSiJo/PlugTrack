@@ -10,19 +10,19 @@ Distances are stored in km — UI converts on render via the user's
 `distance_unit` setting. The user enters miles in the form; the API
 layer converts to km before persisting.
 """
+
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
-from typing import Optional
+from datetime import UTC, date, datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Index, Integer
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class CarMileageYear(Base):
@@ -38,16 +38,12 @@ class CarMileageYear(Base):
     opening_odometer_km: Mapped[float] = mapped_column(Float, nullable=False)
     # NULL while the period is active. Set to the latest session odometer
     # at-or-before period_end_date when the anniversary rolls over.
-    closing_odometer_km: Mapped[Optional[float]] = mapped_column(
-        Float, nullable=True
-    )
+    closing_odometer_km: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Optional annual mileage cap (e.g. lease/insurance limit). Copied
     # forward to each new period on rollover; user can edit on the
     # active row at any time.
-    annual_mileage_target_km: Mapped[Optional[float]] = mapped_column(
-        Float, nullable=True
-    )
+    annual_mileage_target_km: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -56,9 +52,7 @@ class CarMileageYear(Base):
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
 
-    __table_args__ = (
-        Index("ix_car_mileage_year_car", "car_id", "period_start_date"),
-    )
+    __table_args__ = (Index("ix_car_mileage_year_car", "car_id", "period_start_date"),)
 
     def __repr__(self) -> str:
         return (

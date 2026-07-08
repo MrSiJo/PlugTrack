@@ -3,9 +3,10 @@
 Module-level `engine` and `SessionLocal` are intentionally importable so
 test fixtures can monkeypatch them per-test.
 """
+
 from __future__ import annotations
 
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from sqlalchemy import event
 from sqlalchemy.engine import Engine

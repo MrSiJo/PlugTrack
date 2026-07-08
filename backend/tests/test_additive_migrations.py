@@ -4,10 +4,10 @@ These columns are added idempotently via `_apply_additive_migrations`
 for existing databases, and declared on the models so `create_all`
 (and the test schema) provisions them on a fresh DB.
 """
+
 import datetime as dt
 
 import pytest
-
 from plugtrack.models import ChargingSession
 
 
@@ -57,8 +57,13 @@ async def test_session_has_actual_charge_seconds(test_sessionmaker, seeded_user_
     # Defaults to NULL when not provided.
     async with test_sessionmaker() as s:
         row2 = ChargingSession(
-            user_id=user_id, car_id=car_id, date=dt.date.today(),
-            start_soc=20, end_soc=30, kwh_added=5.0, source="manual",
+            user_id=user_id,
+            car_id=car_id,
+            date=dt.date.today(),
+            start_soc=20,
+            end_soc=30,
+            kwh_added=5.0,
+            source="manual",
         )
         s.add(row2)
         await s.commit()

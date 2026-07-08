@@ -4,10 +4,10 @@ Each entry defines key, value_type, group_name, label, description,
 default value, and `is_secret` flag. `seed_defaults` reads this list on
 every startup and inserts any rows missing from the `setting` table.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,7 @@ class CatalogueEntry:
     group_name: str
     label: str
     description: str
-    default_value: Optional[str]
+    default_value: str | None
     is_secret: bool = False
 
 

@@ -6,11 +6,11 @@ distances in the user's unit) so the answering model performs no arithmetic and
 no unit conversion — it only selects and narrates. Every query filters by
 user_id.
 """
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
-from typing import Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,19 +19,19 @@ from ..models import Car, ChargingSession, Setting
 from . import mileage_tracking
 from .insights_stats import (
     _base_filter,
-    miles_driven_km,
     home_public_split,
+    miles_driven_km,
     window_totals,
 )
 from .mileage_tracking import KM_PER_MILE
 from .session_metrics import compute_savings_for_sessions, petrol_pence_per_mile
 
 
-def _gbp(pence: Optional[int]) -> str:
+def _gbp(pence: int | None) -> str:
     return f"£{(pence or 0) / 100:,.2f}"
 
 
-def _kwh(kwh: Optional[float]) -> str:
+def _kwh(kwh: float | None) -> str:
     return f"{(kwh or 0.0):,.1f} kWh"
 
 
@@ -39,13 +39,13 @@ def _dist(km: float, unit: str) -> str:
     return f"{km / KM_PER_MILE:,.0f} mi" if unit == "mi" else f"{km:,.0f} km"
 
 
-def _pkwh(pence_total: Optional[int], kwh_costed: Optional[float]) -> Optional[str]:
+def _pkwh(pence_total: int | None, kwh_costed: float | None) -> str | None:
     if not kwh_costed or kwh_costed <= 0:
         return None
     return f"{(pence_total or 0) / kwh_costed:,.1f} p/kWh"
 
 
-def _vs_petrol(pence: Optional[int]) -> Optional[str]:
+def _vs_petrol(pence: int | None) -> str | None:
     """Render a window's net saving vs an equivalent petrol trip."""
     if pence is None:
         return None
@@ -62,13 +62,13 @@ class WindowStats:
     spend: str
     energy: str
     sessions: int
-    avg_p_per_kwh: Optional[str]
+    avg_p_per_kwh: str | None
     # Actual distance driven in the window, from odometer deltas. None when
     # there isn't enough odometer coverage to bound the window.
-    miles_driven: Optional[str] = None
+    miles_driven: str | None = None
     # Net cost vs an equivalent petrol trip across the window (energy-based,
     # same basis as the per-session UI figure). None when no comparison data.
-    vs_petrol: Optional[str] = None
+    vs_petrol: str | None = None
 
 
 @dataclass
@@ -84,8 +84,8 @@ class MileageStats:
     car_label: str
     current: str
     this_year: str
-    target: Optional[str]
-    pace: Optional[str]
+    target: str | None
+    pace: str | None
 
 
 @dataclass
@@ -93,7 +93,7 @@ class UsageSnapshot:
     today: str
     distance_unit: str
     # Petrol baseline (e.g. "13.5 p/mile") for the vs-petrol comparisons.
-    petrol_p_per_mile: Optional[str] = None
+    petrol_p_per_mile: str | None = None
     windows: list[WindowStats] = field(default_factory=list)
     splits: list[SplitStats] = field(default_factory=list)
     mileage: list[MileageStats] = field(default_factory=list)
@@ -102,7 +102,7 @@ class UsageSnapshot:
         return asdict(self)
 
 
-def _window_bounds(today: date) -> list[tuple[str, Optional[date], Optional[date]]]:
+def _window_bounds(today: date) -> list[tuple[str, date | None, date | None]]:
     first_this = today.replace(day=1)
     last_prev_end = first_this - timedelta(days=1)
     last_prev_start = last_prev_end.replace(day=1)
@@ -117,8 +117,10 @@ def _window_bounds(today: date) -> list[tuple[str, Optional[date], Optional[date
     ]
 
 
-async def _float_setting(session: AsyncSession, key: str) -> Optional[float]:
-    row = (await session.execute(select(Setting.value).where(Setting.key == key))).scalar_one_or_none()
+async def _float_setting(session: AsyncSession, key: str) -> float | None:
+    row = (
+        await session.execute(select(Setting.value).where(Setting.key == key))
+    ).scalar_one_or_none()
     if row is None or row == "":
         return None
     try:
@@ -127,7 +129,7 @@ async def _float_setting(session: AsyncSession, key: str) -> Optional[float]:
         return None
 
 
-async def _petrol_ppm(session: AsyncSession) -> Optional[float]:
+async def _petrol_ppm(session: AsyncSession) -> float | None:
     """Petrol pence-per-mile from settings, or None when unset."""
     p = await _float_setting(session, "petrol_price_p_per_litre")
     mpg = await _float_setting(session, "petrol_mpg")
@@ -137,8 +139,8 @@ async def _petrol_ppm(session: AsyncSession) -> Optional[float]:
 
 
 async def _petrol_saving_pence(
-    session: AsyncSession, *, user_id: int, lo: Optional[date], hi: Optional[date]
-) -> Optional[int]:
+    session: AsyncSession, *, user_id: int, lo: date | None, hi: date | None
+) -> int | None:
     """Net saving vs petrol across the window, summing the per-session
     energy-based savings (reuses session_metrics so the figure matches the UI)."""
     stmt = select(ChargingSession).where(*_base_filter(user_id))
@@ -155,8 +157,13 @@ async def _petrol_saving_pence(
 
 
 async def _window_stats(
-    session: AsyncSession, *, user_id: int, label: str,
-    lo: Optional[date], hi: Optional[date], unit: str,
+    session: AsyncSession,
+    *,
+    user_id: int,
+    label: str,
+    lo: date | None,
+    hi: date | None,
+    unit: str,
 ) -> WindowStats:
     t = await window_totals(session, user_id=user_id, lo=lo, hi=hi)
     driven_km = await miles_driven_km(session, user_id=user_id, lo=lo, hi=hi)
@@ -172,13 +179,17 @@ async def _window_stats(
     )
 
 
-def _over(pence: Optional[int], kwh: Optional[float]) -> str:
+def _over(pence: int | None, kwh: float | None) -> str:
     return f"{_gbp(int(pence or 0))} over {_kwh(float(kwh or 0.0))}"
 
 
 async def _split_stats(
-    session: AsyncSession, *, user_id: int, label: str,
-    lo: Optional[date], hi: Optional[date],
+    session: AsyncSession,
+    *,
+    user_id: int,
+    label: str,
+    lo: date | None,
+    hi: date | None,
 ) -> SplitStats:
     def _scoped(stmt):
         stmt = stmt.where(*_base_filter(user_id))
@@ -196,8 +207,7 @@ async def _split_stats(
             func.coalesce(func.sum(ChargingSession.cost_pence), 0),
             func.coalesce(func.sum(ChargingSession.kwh_added), 0.0),
         )
-        .where(ChargingSession.charging_type == "dc",
-               ChargingSession.charge_network.isnot(None))
+        .where(ChargingSession.charging_type == "dc", ChargingSession.charge_network.isnot(None))
         .group_by(ChargingSession.charge_network)
     )
     by_network: dict[str, str] = {}
@@ -216,10 +226,14 @@ async def _mileage_stats(
     session: AsyncSession, *, user_id: int, today: date, distance_unit: str
 ) -> list[MileageStats]:
     cars = (
-        await session.execute(
-            select(Car).where(Car.user_id == user_id, Car.active == True)  # noqa: E712
+        (
+            await session.execute(
+                select(Car).where(Car.user_id == user_id, Car.active == True)  # noqa: E712
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     out: list[MileageStats] = []
     for car in cars:
         status = await mileage_tracking.get_status(
@@ -230,20 +244,22 @@ async def _mileage_stats(
             continue
         this_year_km = max(0.0, cp.current_odometer_km - cp.opening_odometer_km)
         days = (today - cp.period_start_date).days
-        pace: Optional[str] = None
+        pace: str | None = None
         if days > 0:
             annual_km = this_year_km / days * 365
             pace = f"on pace for {_dist(annual_km, distance_unit)}"
-        target: Optional[str] = None
+        target: str | None = None
         if cp.annual_mileage_target_km is not None:
             target = f"{_dist(cp.annual_mileage_target_km, distance_unit)}/yr target"
-        out.append(MileageStats(
-            car_label=f"{car.make} {car.model}".strip(),
-            current=_dist(cp.current_odometer_km, distance_unit),
-            this_year=f"{_dist(this_year_km, distance_unit)} this tracking year",
-            target=target,
-            pace=pace,
-        ))
+        out.append(
+            MileageStats(
+                car_label=f"{car.make} {car.model}".strip(),
+                current=_dist(cp.current_odometer_km, distance_unit),
+                this_year=f"{_dist(this_year_km, distance_unit)} this tracking year",
+                target=target,
+                pace=pace,
+            )
+        )
     return out
 
 
@@ -262,9 +278,7 @@ async def build_usage_snapshot(
     bounds = {label: (lo, hi) for label, lo, hi in _window_bounds(today)}
     for label in ("this month", "lifetime"):
         lo, hi = bounds[label]
-        snap.splits.append(
-            await _split_stats(session, user_id=user_id, label=label, lo=lo, hi=hi)
-        )
+        snap.splits.append(await _split_stats(session, user_id=user_id, label=label, lo=lo, hi=hi))
     snap.mileage = await _mileage_stats(
         session, user_id=user_id, today=today, distance_unit=distance_unit
     )

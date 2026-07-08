@@ -44,17 +44,16 @@ These fractions are a plausible CCS DC curve based on published Born/ID.4 data;
 they are intentionally conservative.  Loss factor is NOT applied here — callers
 (estimate_scenario) apply loss.
 """
+
 from __future__ import annotations
 
 import statistics
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Car, ChargingSession, Location, Setting
-
 
 # ---------------------------------------------------------------------------
 # DC Capability model (pure, no DB)
@@ -63,7 +62,7 @@ from ..models import Car, ChargingSession, Location, Setting
 # Generic DC ramp-then-taper fractions of ceiling, keyed by band lower bound.
 # Band 0 → [0,10), band 10 → [10,20), ..., band 90 → [90,100].
 _DC_TAPER_FRACTIONS: dict[int, float] = {
-    0:  0.60,
+    0: 0.60,
     10: 0.80,
     20: 0.95,
     30: 1.00,
@@ -92,9 +91,9 @@ class DcSession:
     start_soc: int
     end_soc: int
     kwh_added: float
-    actual_charge_seconds: Optional[int]
-    wall_seconds: Optional[int]
-    power_curve: Optional[list]  # [[t_seconds, soc, power_kw], ...] or None
+    actual_charge_seconds: int | None
+    wall_seconds: int | None
+    power_curve: list | None  # [[t_seconds, soc, power_kw], ...] or None
 
 
 class DcCapability:
@@ -108,8 +107,8 @@ class DcCapability:
     def __init__(
         self,
         ceiling: float,
-        band_curve: dict[int, float],      # band → median curve power (pre-capped)
-        band_average: dict[int, float],    # band → mean effective power (pre-capped)
+        band_curve: dict[int, float],  # band → median curve power (pre-capped)
+        band_average: dict[int, float],  # band → mean effective power (pre-capped)
     ) -> None:
         self.ceiling = ceiling
         self._band_curve = band_curve
@@ -136,7 +135,7 @@ def build_dc_capability(
     *,
     battery_kwh: float,  # noqa: ARG001 — reserved for future net-energy normalization
     dc_sessions: list[DcSession],
-    max_dc_kw: Optional[float],
+    max_dc_kw: float | None,
 ) -> DcCapability:
     """Build a 3-tier DC capability model from historical DC sessions.
 
@@ -171,13 +170,11 @@ def build_dc_capability(
             band_points.setdefault(band, []).append(float(power_kw))
 
     # Tier 1: median curve power per band (uncapped — ceiling applied in power_at).
-    band_curve: dict[int, float] = {
-        b: statistics.median(pts) for b, pts in band_points.items()
-    }
+    band_curve: dict[int, float] = {b: statistics.median(pts) for b, pts in band_points.items()}
 
     # --- Per-session effective power (used for Tier 2 and ceiling derivation) ---
     # Aligned 1-to-1 with dc_sessions; None when no valid time source.
-    per_session_eff: list[Optional[float]] = []
+    per_session_eff: list[float | None] = []
     for sess in dc_sessions:
         if sess.actual_charge_seconds is not None and sess.actual_charge_seconds > 0:
             hours = sess.actual_charge_seconds / 3600.0
@@ -213,7 +210,7 @@ def build_dc_capability(
         # effective averages.  This is robust to transient single-point spikes
         # because medians smooth out outliers within each band.
         observed: list[float] = []
-        observed.extend(band_curve.values())           # per-band curve medians
+        observed.extend(band_curve.values())  # per-band curve medians
         observed.extend(v for v in per_session_eff if v is not None)
         ceiling = max(observed) if observed else 50.0  # bare minimum fallback
 
@@ -380,9 +377,9 @@ class ScenarioRow:
     power_kw: float
     minutes: int
     source_tag: str
-    finish_at: Optional[str] = None
-    nights: Optional[int] = None
-    note: Optional[str] = None
+    finish_at: str | None = None
+    nights: int | None = None
+    note: str | None = None
 
 
 def estimate_scenario(
@@ -392,13 +389,13 @@ def estimate_scenario(
     start_soc: int,
     target_soc: int,
     battery_kwh: float,
-    charger_cap_kw: Optional[float],
-    capability: Optional[DcCapability],
-    flat_power_kw: Optional[float],
+    charger_cap_kw: float | None,
+    capability: DcCapability | None,
+    flat_power_kw: float | None,
     loss_factor: float,
-    ac_window: Optional[dict],
+    ac_window: dict | None,
     source_tag: str,
-    note: Optional[str] = None,
+    note: str | None = None,
 ) -> ScenarioRow:
     """Estimate charge time for one scenario row.
 
@@ -474,11 +471,7 @@ def estimate_scenario(
         # Representative power = energy / lossless time = the harmonic-mean-like
         # value for the effective capability across the range.
         total_energy_kwh = battery_kwh * (target_soc - start_soc) / 100
-        rep_power_kw = (
-            total_energy_kwh / total_time_h_no_loss
-            if total_time_h_no_loss > 0
-            else 0.0
-        )
+        rep_power_kw = total_energy_kwh / total_time_h_no_loss if total_time_h_no_loss > 0 else 0.0
 
         # Resolve dominant tag
         rank_to_tag = {v: k for k, v in _TAG_RANK.items()}
@@ -538,7 +531,7 @@ def build_scenario_table(
     loss_factor: float,
     ac: dict,
     dc: dict,
-    custom_kw: Optional[float],
+    custom_kw: float | None,
 ) -> list[ScenarioRow]:
     """Build the fixed ordered scenario comparison table.
 
@@ -577,7 +570,7 @@ def build_scenario_table(
     """
     cap: DcCapability = dc["capability"]
     ceiling: float = dc["ceiling"]
-    ac_ceiling_kw: Optional[float] = ac["ac_ceiling_kw"]
+    ac_ceiling_kw: float | None = ac["ac_ceiling_kw"]
     ac_window = {
         "window_minutes": ac["window_minutes"],
         "window_start_str": ac["window_start_str"],
@@ -590,63 +583,108 @@ def build_scenario_table(
     # --- AC rows ---
 
     # "Your home (actual)"
-    rows.append(estimate_scenario(
-        kind="ac", label="Your home (actual)",
-        start_soc=start_soc, target_soc=target_soc, battery_kwh=battery_kwh,
-        charger_cap_kw=ac_ceiling_kw,
-        capability=None,
-        flat_power_kw=ac["home_actual_kw"],
-        loss_factor=loss_factor,
-        ac_window=ac_window,
-        source_tag="history",
-    ))
+    rows.append(
+        estimate_scenario(
+            kind="ac",
+            label="Your home (actual)",
+            start_soc=start_soc,
+            target_soc=target_soc,
+            battery_kwh=battery_kwh,
+            charger_cap_kw=ac_ceiling_kw,
+            capability=None,
+            flat_power_kw=ac["home_actual_kw"],
+            loss_factor=loss_factor,
+            ac_window=ac_window,
+            source_tag="history",
+        )
+    )
 
     # "7 kW"
-    rows.append(estimate_scenario(
-        kind="ac", label="7 kW",
-        start_soc=start_soc, target_soc=target_soc, battery_kwh=battery_kwh,
-        charger_cap_kw=ac_ceiling_kw,
-        capability=None, flat_power_kw=7.0,
-        loss_factor=loss_factor, ac_window=ac_window, source_tag="spec",
-    ))
+    rows.append(
+        estimate_scenario(
+            kind="ac",
+            label="7 kW",
+            start_soc=start_soc,
+            target_soc=target_soc,
+            battery_kwh=battery_kwh,
+            charger_cap_kw=ac_ceiling_kw,
+            capability=None,
+            flat_power_kw=7.0,
+            loss_factor=loss_factor,
+            ac_window=ac_window,
+            source_tag="spec",
+        )
+    )
 
     # "11 kW"
-    rows.append(estimate_scenario(
-        kind="ac", label="11 kW",
-        start_soc=start_soc, target_soc=target_soc, battery_kwh=battery_kwh,
-        charger_cap_kw=ac_ceiling_kw,
-        capability=None, flat_power_kw=11.0,
-        loss_factor=loss_factor, ac_window=ac_window, source_tag="spec",
-    ))
+    rows.append(
+        estimate_scenario(
+            kind="ac",
+            label="11 kW",
+            start_soc=start_soc,
+            target_soc=target_soc,
+            battery_kwh=battery_kwh,
+            charger_cap_kw=ac_ceiling_kw,
+            capability=None,
+            flat_power_kw=11.0,
+            loss_factor=loss_factor,
+            ac_window=ac_window,
+            source_tag="spec",
+        )
+    )
 
     # --- DC rows ---
 
     # "50 kW"
-    rows.append(estimate_scenario(
-        kind="dc", label="50 kW",
-        start_soc=start_soc, target_soc=target_soc, battery_kwh=battery_kwh,
-        charger_cap_kw=50.0,
-        capability=cap, flat_power_kw=None,
-        loss_factor=loss_factor, ac_window=None, source_tag="",
-    ))
+    rows.append(
+        estimate_scenario(
+            kind="dc",
+            label="50 kW",
+            start_soc=start_soc,
+            target_soc=target_soc,
+            battery_kwh=battery_kwh,
+            charger_cap_kw=50.0,
+            capability=cap,
+            flat_power_kw=None,
+            loss_factor=loss_factor,
+            ac_window=None,
+            source_tag="",
+        )
+    )
 
     # "150 kW"
-    rows.append(estimate_scenario(
-        kind="dc", label="150 kW",
-        start_soc=start_soc, target_soc=target_soc, battery_kwh=battery_kwh,
-        charger_cap_kw=150.0,
-        capability=cap, flat_power_kw=None,
-        loss_factor=loss_factor, ac_window=None, source_tag="",
-    ))
+    rows.append(
+        estimate_scenario(
+            kind="dc",
+            label="150 kW",
+            start_soc=start_soc,
+            target_soc=target_soc,
+            battery_kwh=battery_kwh,
+            charger_cap_kw=150.0,
+            capability=cap,
+            flat_power_kw=None,
+            loss_factor=loss_factor,
+            ac_window=None,
+            source_tag="",
+        )
+    )
 
     # "Car max" — uses ceiling as the charger cap
-    rows.append(estimate_scenario(
-        kind="dc", label="Car max",
-        start_soc=start_soc, target_soc=target_soc, battery_kwh=battery_kwh,
-        charger_cap_kw=ceiling,
-        capability=cap, flat_power_kw=None,
-        loss_factor=loss_factor, ac_window=None, source_tag="",
-    ))
+    rows.append(
+        estimate_scenario(
+            kind="dc",
+            label="Car max",
+            start_soc=start_soc,
+            target_soc=target_soc,
+            battery_kwh=battery_kwh,
+            charger_cap_kw=ceiling,
+            capability=cap,
+            flat_power_kw=None,
+            loss_factor=loss_factor,
+            ac_window=None,
+            source_tag="",
+        )
+    )
 
     # --- Optional custom kW row ---
     if custom_kw is not None:
@@ -657,14 +695,22 @@ def build_scenario_table(
             custom_note = None
             effective_cap = custom_kw
 
-        rows.append(estimate_scenario(
-            kind="dc", label="Custom kW",
-            start_soc=start_soc, target_soc=target_soc, battery_kwh=battery_kwh,
-            charger_cap_kw=effective_cap,
-            capability=cap, flat_power_kw=None,
-            loss_factor=loss_factor, ac_window=None, source_tag="",
-            note=custom_note,
-        ))
+        rows.append(
+            estimate_scenario(
+                kind="dc",
+                label="Custom kW",
+                start_soc=start_soc,
+                target_soc=target_soc,
+                battery_kwh=battery_kwh,
+                charger_cap_kw=effective_cap,
+                capability=cap,
+                flat_power_kw=None,
+                loss_factor=loss_factor,
+                ac_window=None,
+                source_tag="",
+                note=custom_note,
+            )
+        )
 
     return rows
 
@@ -690,8 +736,8 @@ class BlendedTotal:
     kwh: float
     minutes: int
     cost_pence: int
-    cost_per_mile_p: Optional[float]  # None when efficiency is unknown / non-positive
-    mi_per_kwh: Optional[float]       # efficiency used (echoed for the UI's Wh/mi figure)
+    cost_per_mile_p: float | None  # None when efficiency is unknown / non-positive
+    mi_per_kwh: float | None  # efficiency used (echoed for the UI's Wh/mi figure)
 
 
 @dataclass
@@ -715,7 +761,7 @@ def build_blended_plan(
     home_rate_p: float,
     is_free: bool,
     loss_factor: float,
-    mi_per_kwh: Optional[float],
+    mi_per_kwh: float | None,
 ) -> BlendedPlan:
     """Compose a two-phase charge: rapid DC up to ``dc_stop_soc``, then home AC to ``target_soc``.
 
@@ -783,8 +829,8 @@ def build_blended_plan(
 
     if mi_per_kwh is not None and mi_per_kwh > 0 and total_kwh > 0:
         miles_gained = total_kwh * mi_per_kwh
-        cost_per_mile_p: Optional[float] = round(total_cost / miles_gained, 2)
-        eff: Optional[float] = mi_per_kwh
+        cost_per_mile_p: float | None = round(total_cost / miles_gained, 2)
+        eff: float | None = mi_per_kwh
     else:
         cost_per_mile_p = None
         eff = mi_per_kwh if (mi_per_kwh and mi_per_kwh > 0) else None
@@ -814,7 +860,7 @@ _DEFAULT_AC_CEILING_KW = 7.4
 class PlanInputs:
     battery_kwh: float
     power_kw: float
-    power_basis: str          # "history" | "fallback"
+    power_basis: str  # "history" | "fallback"
     sample_size: int
     window_start_str: str
     window_end_str: str
@@ -823,7 +869,7 @@ class PlanInputs:
     is_free: bool
     # Extended fields for scenario table (Task 4)
     # ac_ceiling_kw is None when car.max_ac_kw is unknown — means "no cap on fixed AC rows"
-    ac_ceiling_kw: Optional[float]
+    ac_ceiling_kw: float | None
     dc_capability: DcCapability
     dc_ceiling: float
     loss_factor: float
@@ -853,15 +899,9 @@ async def resolve_plan_inputs(
         raise ValueError("car has no usable battery capacity (battery_kwh <= 0)")
 
     # ---- Window settings ----
-    window_start_str = await _get_setting(
-        session, "home_charge_window_start", "23:45"
-    )
-    window_end_str = await _get_setting(
-        session, "home_charge_window_end", "07:15"
-    )
-    fallback_kw_str = await _get_setting(
-        session, "home_charge_fallback_kw", "7.4"
-    )
+    window_start_str = await _get_setting(session, "home_charge_window_start", "23:45")
+    window_end_str = await _get_setting(session, "home_charge_window_end", "07:15")
+    fallback_kw_str = await _get_setting(session, "home_charge_fallback_kw", "7.4")
     try:
         fallback_kw = float(fallback_kw_str)
     except (TypeError, ValueError):
@@ -894,7 +934,7 @@ async def resolve_plan_inputs(
             Location.is_home.is_(True),
         )
     )
-    home_loc: Optional[Location] = home_loc_result.scalars().first()
+    home_loc: Location | None = home_loc_result.scalars().first()
 
     # Resolve home rate / is_free.
     if home_loc is not None and home_loc.is_free:
@@ -949,9 +989,7 @@ async def resolve_plan_inputs(
         if cs.actual_charge_seconds is not None and cs.actual_charge_seconds > 0:
             duration_hours = cs.actual_charge_seconds / 3600.0
         else:
-            duration_hours = (
-                cs.charge_end_at - cs.charge_start_at
-            ).total_seconds() / 3600.0
+            duration_hours = (cs.charge_end_at - cs.charge_start_at).total_seconds() / 3600.0
         if duration_hours <= 0:
             continue
         effective_kws.append(cs.kwh_added / duration_hours)
@@ -977,7 +1015,7 @@ async def resolve_plan_inputs(
     # When car.max_ac_kw is None, ac_ceiling_kw is None (uncapped).
     # estimate_scenario / build_scenario_table treat None ceiling as uncapped.
     if car.max_ac_kw is not None:
-        ac_ceiling_kw: Optional[float] = float(car.max_ac_kw)
+        ac_ceiling_kw: float | None = float(car.max_ac_kw)
     else:
         ac_ceiling_kw = None
 

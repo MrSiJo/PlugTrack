@@ -1,10 +1,10 @@
 """Tests for session_metrics — per-charge energy-based petrol comparison."""
+
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
-
 from plugtrack.models import Car, ChargingSession, Setting, User
 from plugtrack.services.session_metrics import (
     _observed_mi_per_kwh,
@@ -32,8 +32,13 @@ async def test_metrics_none_without_settings(test_sessionmaker):
         s.add(User(id=1, username="alice", password_hash="x"))
         s.add(
             ChargingSession(
-                user_id=1, car_id=1, date=date(2026, 5, 1),
-                start_soc=20, end_soc=80, kwh_added=40.0, source="manual",
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 1),
+                start_soc=20,
+                end_soc=80,
+                kwh_added=40.0,
+                source="manual",
                 cost_basis="home_rate",
             )
         )
@@ -57,8 +62,28 @@ async def test_per_charge_savings_each_row_independent(test_sessionmaker):
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=58.0, mi_per_kwh=3.6)
-        s.add(Setting(key="petrol_price_p_per_litre", value="150.0", value_type="float", group_name="cost", label="x", description=None, default_value="150.0"))
-        s.add(Setting(key="petrol_mpg", value="50.0", value_type="float", group_name="cost", label="x", description=None, default_value="50.0"))
+        s.add(
+            Setting(
+                key="petrol_price_p_per_litre",
+                value="150.0",
+                value_type="float",
+                group_name="cost",
+                label="x",
+                description=None,
+                default_value="150.0",
+            )
+        )
+        s.add(
+            Setting(
+                key="petrol_mpg",
+                value="50.0",
+                value_type="float",
+                group_name="cost",
+                label="x",
+                description=None,
+                default_value="50.0",
+            )
+        )
         # Prior session with odometer at 1000 km.
         s.add(_session(id=1, date=date(2026, 4, 28), odo_km=1000.0, cost_pence=200))
         # Next session — moved to 1100 km.
@@ -90,8 +115,28 @@ async def test_same_odometer_followup_gets_per_charge_estimate(test_sessionmaker
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=58.0, mi_per_kwh=3.6)
-        s.add(Setting(key="petrol_price_p_per_litre", value="150.0", value_type="float", group_name="cost", label="x", description=None, default_value="150.0"))
-        s.add(Setting(key="petrol_mpg", value="50.0", value_type="float", group_name="cost", label="x", description=None, default_value="50.0"))
+        s.add(
+            Setting(
+                key="petrol_price_p_per_litre",
+                value="150.0",
+                value_type="float",
+                group_name="cost",
+                label="x",
+                description=None,
+                default_value="150.0",
+            )
+        )
+        s.add(
+            Setting(
+                key="petrol_mpg",
+                value="50.0",
+                value_type="float",
+                group_name="cost",
+                label="x",
+                description=None,
+                default_value="50.0",
+            )
+        )
         s.add(_session(id=1, date=date(2026, 4, 28), odo_km=1000.0, cost_pence=200))
         s.add(_session(id=2, date=date(2026, 4, 30), odo_km=1100.0, cost_pence=500))
         s.add(_session(id=3, date=date(2026, 5, 1), odo_km=1100.0, cost_pence=300))
@@ -125,6 +170,7 @@ def _session(*, id, date, odo_km, cost_pence):
 
 def _one(model):
     from sqlalchemy import select
+
     return select(model)
 
 
@@ -153,11 +199,19 @@ async def test_range_added_from_soc_delta(test_sessionmaker):
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.6)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=86, kwh_added=18.0,
-            cost_basis="override_total", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=86,
+                kwh_added=18.0,
+                cost_basis="override_total",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -171,13 +225,21 @@ async def test_duration_and_average_power(test_sessionmaker):
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            charge_start_at=datetime(2026, 5, 14, 11, 18, tzinfo=timezone.utc),
-            charge_end_at=datetime(2026, 5, 14, 11, 43, tzinfo=timezone.utc),
-            start_soc=60, end_soc=86, kwh_added=18.0,
-            cost_basis="override_total", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                charge_start_at=datetime(2026, 5, 14, 11, 18, tzinfo=UTC),
+                charge_end_at=datetime(2026, 5, 14, 11, 43, tzinfo=UTC),
+                start_soc=60,
+                end_soc=86,
+                kwh_added=18.0,
+                cost_basis="override_total",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -194,14 +256,22 @@ async def test_average_power_uses_actual_charge_time(test_sessionmaker):
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 6, 17),
-            charge_start_at=datetime(2026, 6, 17, 16, 36, tzinfo=timezone.utc),
-            charge_end_at=datetime(2026, 6, 18, 7, 6, tzinfo=timezone.utc),
-            start_soc=75, end_soc=79, kwh_added=3.47,
-            actual_charge_seconds=4980,  # 1h23m actually drawing power
-            cost_basis="home_rate", source="telegram",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 6, 17),
+                charge_start_at=datetime(2026, 6, 17, 16, 36, tzinfo=UTC),
+                charge_end_at=datetime(2026, 6, 18, 7, 6, tzinfo=UTC),
+                start_soc=75,
+                end_soc=79,
+                kwh_added=3.47,
+                actual_charge_seconds=4980,  # 1h23m actually drawing power
+                cost_basis="home_rate",
+                source="telegram",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -216,11 +286,19 @@ async def test_duration_none_when_timestamps_missing(test_sessionmaker):
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=86, kwh_added=18.0,
-            cost_basis="override_total", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=86,
+                kwh_added=18.0,
+                cost_basis="override_total",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -234,17 +312,25 @@ async def test_peak_power_from_curve(test_sessionmaker):
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=86, kwh_added=18.0,
-            cost_basis="override_total", source="synthesis",
-            power_curve=[
-                [0.0, 60.0, 30.0],
-                [60.0, 65.0, 90.0],
-                [120.0, 75.0, 47.2],
-                [180.0, 86.0, 15.0],
-            ],
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=86,
+                kwh_added=18.0,
+                cost_basis="override_total",
+                source="synthesis",
+                power_curve=[
+                    [0.0, 60.0, 30.0],
+                    [60.0, 65.0, 90.0],
+                    [120.0, 75.0, 47.2],
+                    [180.0, 86.0, 15.0],
+                ],
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -257,11 +343,19 @@ async def test_peak_power_none_for_manual_sessions(test_sessionmaker):
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=86, kwh_added=18.0,
-            cost_basis="override_total", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=86,
+                kwh_added=18.0,
+                cost_basis="override_total",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -274,12 +368,20 @@ async def test_efficiency_percent(test_sessionmaker):
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=86, kwh_added=18.0,
-            kwh_calculated=15.34,
-            cost_basis="override_total", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=86,
+                kwh_added=18.0,
+                kwh_calculated=15.34,
+                cost_basis="override_total",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -292,11 +394,19 @@ async def test_efficiency_none_when_kwh_calculated_missing(test_sessionmaker):
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=86, kwh_added=18.0,
-            cost_basis="override_total", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=86,
+                kwh_added=18.0,
+                cost_basis="override_total",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -309,11 +419,19 @@ async def test_efficiency_mi_per_kwh_falls_back_to_nominal(test_sessionmaker):
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, mi_per_kwh=3.6)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=86, kwh_added=18.0,
-            cost_basis="override_total", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=86,
+                kwh_added=18.0,
+                cost_basis="override_total",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -329,8 +447,28 @@ _KM_PER_MILE = 1.609344
 
 
 def _add_petrol_settings(s, *, p_per_litre: float = 151.9, mpg: float = 54.1):
-    s.add(Setting(key="petrol_price_p_per_litre", value=str(p_per_litre), value_type="float", group_name="cost", label="x", description=None, default_value=str(p_per_litre)))
-    s.add(Setting(key="petrol_mpg", value=str(mpg), value_type="float", group_name="cost", label="x", description=None, default_value=str(mpg)))
+    s.add(
+        Setting(
+            key="petrol_price_p_per_litre",
+            value=str(p_per_litre),
+            value_type="float",
+            group_name="cost",
+            label="x",
+            description=None,
+            default_value=str(p_per_litre),
+        )
+    )
+    s.add(
+        Setting(
+            key="petrol_mpg",
+            value=str(mpg),
+            value_type="float",
+            group_name="cost",
+            label="x",
+            description=None,
+            default_value=str(mpg),
+        )
+    )
 
 
 @pytest.mark.asyncio
@@ -342,11 +480,21 @@ async def test_estimate_no_odometer_uses_kwh_calculated(test_sessionmaker):
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
         _add_petrol_settings(s)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=17.7,
-            cost_pence=368, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=90,
+                kwh_added=18.0,
+                kwh_calculated=17.7,
+                cost_pence=368,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -367,11 +515,21 @@ async def test_estimate_falls_back_to_kwh_added(test_sessionmaker):
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
         _add_petrol_settings(s)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=None,
-            cost_pence=400, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=90,
+                kwh_added=18.0,
+                kwh_calculated=None,
+                cost_pence=400,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -481,11 +639,21 @@ async def test_zero_energy_session_no_estimate(test_sessionmaker):
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s)
         _add_petrol_settings(s)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=80, end_soc=80, kwh_added=0.0, kwh_calculated=0.0,
-            cost_pence=100, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=80,
+                end_soc=80,
+                kwh_added=0.0,
+                kwh_calculated=0.0,
+                cost_pence=100,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -504,11 +672,21 @@ async def test_estimate_without_petrol_settings(test_sessionmaker):
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
         # No petrol settings seeded.
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=17.7,
-            cost_pence=368, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=90,
+                kwh_added=18.0,
+                kwh_calculated=17.7,
+                cost_pence=368,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -543,35 +721,67 @@ async def test_estimate_uses_observed_efficiency(test_sessionmaker):
         # consecutive charges = end_soc(prev) 80 - start_soc(next) 30 = 50 pp
         # = 25 kWh (on a 50 kWh pack). 75 mi / 25 kWh = 3.0 mi/kWh.
         # Aggregate = 150 mi / 50 kWh = 3.0 mi/kWh.
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 1),
-            start_soc=30, end_soc=80, kwh_added=25.0,
-            odometer_at_session_km=1000.0,
-            cost_basis="home_rate", source="manual",
-        ))
-        s.add(ChargingSession(
-            id=2, user_id=1, car_id=1, date=date(2026, 5, 5),
-            start_soc=30, end_soc=80, kwh_added=25.0,
-            odometer_at_session_km=1000.0 + 120.7008,
-            cost_basis="home_rate", source="manual",
-        ))
-        s.add(ChargingSession(
-            id=3, user_id=1, car_id=1, date=date(2026, 5, 9),
-            start_soc=30, end_soc=80, kwh_added=25.0,
-            odometer_at_session_km=1000.0 + 2 * 120.7008,
-            cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 1),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=25.0,
+                odometer_at_session_km=1000.0,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
+        s.add(
+            ChargingSession(
+                id=2,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 5),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=25.0,
+                odometer_at_session_km=1000.0 + 120.7008,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
+        s.add(
+            ChargingSession(
+                id=3,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 9),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=25.0,
+                odometer_at_session_km=1000.0 + 2 * 120.7008,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         # The estimated session — no odometer.
-        s.add(ChargingSession(
-            id=4, user_id=1, car_id=1, date=date(2026, 5, 12),
-            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=15.0,
-            cost_pence=300, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=4,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 12),
+                start_soc=60,
+                end_soc=90,
+                kwh_added=18.0,
+                kwh_calculated=15.0,
+                cost_pence=300,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
 
-        observed = await _observed_mi_per_kwh(
-            s, car_id=1, user_id=1, battery_kwh=50.0
-        )
+        observed = await _observed_mi_per_kwh(s, car_id=1, user_id=1, battery_kwh=50.0)
         assert observed == pytest.approx(3.0, abs=1e-4)
 
         cs = await s.get(ChargingSession, 4)
@@ -593,23 +803,39 @@ async def test_estimate_falls_back_to_nominal_efficiency(test_sessionmaker):
         _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
         _add_petrol_settings(s)
         # Single odometer reading — no pair to form a leg.
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 1),
-            start_soc=30, end_soc=80, kwh_added=25.0,
-            odometer_at_session_km=1000.0,
-            cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 1),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=25.0,
+                odometer_at_session_km=1000.0,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         # Estimated session — no odometer.
-        s.add(ChargingSession(
-            id=2, user_id=1, car_id=1, date=date(2026, 5, 5),
-            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=15.0,
-            cost_pence=300, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=2,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 5),
+                start_soc=60,
+                end_soc=90,
+                kwh_added=18.0,
+                kwh_calculated=15.0,
+                cost_pence=300,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
 
-        observed = await _observed_mi_per_kwh(
-            s, car_id=1, user_id=1, battery_kwh=59.0
-        )
+        observed = await _observed_mi_per_kwh(s, car_id=1, user_id=1, battery_kwh=59.0)
         assert observed is None
 
         cs = await s.get(ChargingSession, 2)
@@ -626,10 +852,16 @@ async def test_estimate_falls_back_to_nominal_efficiency(test_sessionmaker):
 
 def _odo_session(*, id, date, odo_km, start_soc, end_soc):
     return ChargingSession(
-        id=id, user_id=1, car_id=1, date=date,
-        start_soc=start_soc, end_soc=end_soc, kwh_added=10.0,
+        id=id,
+        user_id=1,
+        car_id=1,
+        date=date,
+        start_soc=start_soc,
+        end_soc=end_soc,
+        kwh_added=10.0,
         odometer_at_session_km=odo_km,
-        cost_basis="home_rate", source="manual",
+        cost_basis="home_rate",
+        source="manual",
     )
 
 
@@ -686,8 +918,16 @@ async def test_observed_soc_rise_clamps_to_zero(test_sessionmaker):
         #     25 kWh → 75 mi / 25 kWh = 3.0 mi/kWh.
         # Only M→B contributes; the SoC-rise pair did not poison it.
         s.add(_odo_session(id=1, date=date(2026, 5, 1), odo_km=1000.0, start_soc=30, end_soc=80))
-        s.add(_odo_session(id=2, date=date(2026, 5, 5), odo_km=1000.0 + 120.7008, start_soc=90, end_soc=95))
-        s.add(_odo_session(id=3, date=date(2026, 5, 9), odo_km=1000.0 + 2 * 120.7008, start_soc=45, end_soc=80))
+        s.add(
+            _odo_session(
+                id=2, date=date(2026, 5, 5), odo_km=1000.0 + 120.7008, start_soc=90, end_soc=95
+            )
+        )
+        s.add(
+            _odo_session(
+                id=3, date=date(2026, 5, 9), odo_km=1000.0 + 2 * 120.7008, start_soc=45, end_soc=80
+            )
+        )
         await s.commit()
 
         observed = await _observed_mi_per_kwh(s, car_id=1, user_id=1, battery_kwh=50.0)
@@ -736,16 +976,13 @@ async def _assert_batch_matches_single(s, rows):
         m = await compute_session_metrics(s, cs)
         saved, basis, breakeven = batch[cs.id]
         assert saved == m.savings_vs_petrol_p, (
-            f"session {cs.id}: batch saved={saved} != single "
-            f"{m.savings_vs_petrol_p}"
+            f"session {cs.id}: batch saved={saved} != single {m.savings_vs_petrol_p}"
         )
         assert basis == m.comparison_basis, (
-            f"session {cs.id}: batch basis={basis} != single "
-            f"{m.comparison_basis}"
+            f"session {cs.id}: batch basis={basis} != single {m.comparison_basis}"
         )
         assert breakeven == m.breakeven_p_per_kwh, (
-            f"session {cs.id}: batch breakeven={breakeven} != single "
-            f"{m.breakeven_p_per_kwh}"
+            f"session {cs.id}: batch breakeven={breakeven} != single {m.breakeven_p_per_kwh}"
         )
 
 
@@ -786,17 +1023,37 @@ async def test_batch_savings_matches_single_estimated_and_none(test_sessionmaker
         _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
         _add_petrol_settings(s)
         # Estimated — no odometer, has energy + cost.
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=17.7,
-            cost_pence=368, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=90,
+                kwh_added=18.0,
+                kwh_calculated=17.7,
+                cost_pence=368,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         # None — zero energy, no estimate possible.
-        s.add(ChargingSession(
-            id=2, user_id=1, car_id=1, date=date(2026, 5, 15),
-            start_soc=80, end_soc=80, kwh_added=0.0, kwh_calculated=0.0,
-            cost_pence=100, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=2,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 15),
+                start_soc=80,
+                end_soc=80,
+                kwh_added=0.0,
+                kwh_calculated=0.0,
+                cost_pence=100,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
 
         rows = [await s.get(ChargingSession, i) for i in (1, 2)]
@@ -818,11 +1075,21 @@ async def test_batch_savings_matches_single_no_petrol_settings(test_sessionmaker
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
         # No petrol settings.
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=17.7,
-            cost_pence=368, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=90,
+                kwh_added=18.0,
+                kwh_calculated=17.7,
+                cost_pence=368,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
 
         rows = [await s.get(ChargingSession, 1)]
@@ -845,30 +1112,64 @@ async def test_batch_savings_uses_full_history_not_input_window(test_sessionmake
         _seed_car(s, battery_kwh=50.0, mi_per_kwh=5.0)
         _add_petrol_settings(s)
         # Three measured legs implying observed 3.0 mi/kWh.
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 1),
-            start_soc=30, end_soc=80, kwh_added=25.0,
-            odometer_at_session_km=1000.0,
-            cost_basis="home_rate", source="manual",
-        ))
-        s.add(ChargingSession(
-            id=2, user_id=1, car_id=1, date=date(2026, 5, 5),
-            start_soc=30, end_soc=80, kwh_added=25.0,
-            odometer_at_session_km=1000.0 + 120.7008,
-            cost_basis="home_rate", source="manual",
-        ))
-        s.add(ChargingSession(
-            id=3, user_id=1, car_id=1, date=date(2026, 5, 9),
-            start_soc=30, end_soc=80, kwh_added=25.0,
-            odometer_at_session_km=1000.0 + 2 * 120.7008,
-            cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 1),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=25.0,
+                odometer_at_session_km=1000.0,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
+        s.add(
+            ChargingSession(
+                id=2,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 5),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=25.0,
+                odometer_at_session_km=1000.0 + 120.7008,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
+        s.add(
+            ChargingSession(
+                id=3,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 9),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=25.0,
+                odometer_at_session_km=1000.0 + 2 * 120.7008,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         # Estimated session — no odometer.
-        s.add(ChargingSession(
-            id=4, user_id=1, car_id=1, date=date(2026, 5, 12),
-            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=15.0,
-            cost_pence=300, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=4,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 12),
+                start_soc=60,
+                end_soc=90,
+                kwh_added=18.0,
+                kwh_calculated=15.0,
+                cost_pence=300,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
 
         estimated = await s.get(ChargingSession, 4)
@@ -905,19 +1206,49 @@ async def test_null_odometer_charge_is_independent_estimate(
     async with test_sessionmaker() as s:
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s)
-        s.add(Setting(key="petrol_price_p_per_litre", value="150.0", value_type="float", group_name="cost", label="x", description=None, default_value="150.0"))
-        s.add(Setting(key="petrol_mpg", value="50.0", value_type="float", group_name="cost", label="x", description=None, default_value="50.0"))
+        s.add(
+            Setting(
+                key="petrol_price_p_per_litre",
+                value="150.0",
+                value_type="float",
+                group_name="cost",
+                label="x",
+                description=None,
+                default_value="150.0",
+            )
+        )
+        s.add(
+            Setting(
+                key="petrol_mpg",
+                value="50.0",
+                value_type="float",
+                group_name="cost",
+                label="x",
+                description=None,
+                default_value="50.0",
+            )
+        )
         # Prior reading so the first row has measured_miles_since_previous.
         s.add(_session(id=1, date=date(2026, 1, 1), odo_km=900.0, cost_pence=50))
         # Odometer-bearing session, cost 1000p.
         s.add(_session(id=2, date=date(2026, 1, 3), odo_km=1000.0, cost_pence=1000))
         # Later independent manual charge — NO odometer, weeks later.
-        s.add(ChargingSession(
-            id=3, user_id=1, car_id=1, date=date(2026, 1, 20),
-            start_soc=60, end_soc=90, kwh_added=12.0, kwh_calculated=12.0,
-            odometer_at_session_km=None, cost_pence=300,
-            cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=3,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 1, 20),
+                start_soc=60,
+                end_soc=90,
+                kwh_added=12.0,
+                kwh_calculated=12.0,
+                odometer_at_session_km=None,
+                cost_pence=300,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
 
         anchor = await s.get(ChargingSession, 2)
@@ -964,12 +1295,21 @@ async def test_expensive_rapid_shows_loss(test_sessionmaker):
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=77.0, mi_per_kwh=3.7)
         _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 27),
-            start_soc=20, end_soc=80, kwh_added=15.4, kwh_calculated=15.4,
-            cost_pence=round(15.4 * 92),   # 92p/kWh rapid
-            cost_basis="override_per_kwh", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 27),
+                start_soc=20,
+                end_soc=80,
+                kwh_added=15.4,
+                kwh_calculated=15.4,
+                cost_pence=round(15.4 * 92),  # 92p/kWh rapid
+                cost_basis="override_per_kwh",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -996,12 +1336,21 @@ async def test_cheap_home_charge_shows_saving(test_sessionmaker):
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=77.0, mi_per_kwh=3.7)
         _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 27),
-            start_soc=20, end_soc=80, kwh_added=20.0, kwh_calculated=20.0,
-            cost_pence=round(20.0 * 7.5),  # 7.5p/kWh home
-            cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 27),
+                start_soc=20,
+                end_soc=80,
+                kwh_added=20.0,
+                kwh_calculated=20.0,
+                cost_pence=round(20.0 * 7.5),  # 7.5p/kWh home
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -1028,37 +1377,73 @@ async def test_total_saved_equals_sum_of_rows_no_double_count(test_sessionmaker)
         _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
 
         # id=1: 14 May odometer anchor (start of interleave window).
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=20, end_soc=80, kwh_added=20.0, kwh_calculated=20.0,
-            odometer_at_session_km=1000.0,
-            cost_pence=round(20.0 * 7.5),
-            cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=20,
+                end_soc=80,
+                kwh_added=20.0,
+                kwh_calculated=20.0,
+                odometer_at_session_km=1000.0,
+                cost_pence=round(20.0 * 7.5),
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         # id=2: 23 May home charge — no odometer.
-        s.add(ChargingSession(
-            id=2, user_id=1, car_id=1, date=date(2026, 5, 23),
-            start_soc=20, end_soc=80, kwh_added=18.0, kwh_calculated=18.0,
-            odometer_at_session_km=None,
-            cost_pence=round(18.0 * 7.5),
-            cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=2,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 23),
+                start_soc=20,
+                end_soc=80,
+                kwh_added=18.0,
+                kwh_calculated=18.0,
+                odometer_at_session_km=None,
+                cost_pence=round(18.0 * 7.5),
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         # id=3: 27 May DC rapid at 92p/kWh — expensive, should be a LOSS.
-        s.add(ChargingSession(
-            id=3, user_id=1, car_id=1, date=date(2026, 5, 27),
-            start_soc=20, end_soc=80, kwh_added=15.4, kwh_calculated=15.4,
-            odometer_at_session_km=None,
-            cost_pence=round(15.4 * 92),
-            cost_basis="override_per_kwh", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=3,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 27),
+                start_soc=20,
+                end_soc=80,
+                kwh_added=15.4,
+                kwh_calculated=15.4,
+                odometer_at_session_km=None,
+                cost_pence=round(15.4 * 92),
+                cost_basis="override_per_kwh",
+                source="manual",
+            )
+        )
         # id=4: 27 May Morrisons — cheap, another no-odometer session.
-        s.add(ChargingSession(
-            id=4, user_id=1, car_id=1, date=date(2026, 5, 27),
-            start_soc=20, end_soc=50, kwh_added=8.0, kwh_calculated=8.0,
-            odometer_at_session_km=None,
-            cost_pence=round(8.0 * 15),
-            cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=4,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 27),
+                start_soc=20,
+                end_soc=50,
+                kwh_added=8.0,
+                kwh_calculated=8.0,
+                odometer_at_session_km=None,
+                cost_pence=round(8.0 * 15),
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
 
         rows = [await s.get(ChargingSession, i) for i in (1, 2, 3, 4)]
@@ -1071,9 +1456,7 @@ async def test_total_saved_equals_sum_of_rows_no_double_count(test_sessionmaker)
         assert saved_3 < 0, f"Expensive rapid should be a loss, got {saved_3}"
 
         # Total = row sum (no overlap, no double-count).
-        row_total = sum(
-            batch[i][0] for i in (1, 2, 3, 4) if batch[i][0] is not None
-        )
+        row_total = sum(batch[i][0] for i in (1, 2, 3, 4) if batch[i][0] is not None)
         # All four rows have energy so all should be computable.
         individual = [batch[i][0] for i in (1, 2, 3, 4)]
         assert all(v is not None for v in individual), (
@@ -1092,17 +1475,37 @@ async def test_comparison_basis_estimated_for_energy_rows(test_sessionmaker):
         _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
         _add_petrol_settings(s)
         # Energy-bearing row with cost.
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=17.7,
-            cost_pence=368, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=90,
+                kwh_added=18.0,
+                kwh_calculated=17.7,
+                cost_pence=368,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         # Zero-energy row — no comparison.
-        s.add(ChargingSession(
-            id=2, user_id=1, car_id=1, date=date(2026, 5, 15),
-            start_soc=80, end_soc=80, kwh_added=0.0, kwh_calculated=0.0,
-            cost_pence=100, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=2,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 15),
+                start_soc=80,
+                end_soc=80,
+                kwh_added=0.0,
+                kwh_calculated=0.0,
+                cost_pence=100,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
 
         cs1 = await s.get(ChargingSession, 1)
@@ -1124,11 +1527,21 @@ async def test_comparison_basis_none_when_no_petrol_settings(test_sessionmaker):
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
         # No petrol settings seeded.
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=17.7,
-            cost_pence=368, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=90,
+                kwh_added=18.0,
+                kwh_calculated=17.7,
+                cost_pence=368,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -1149,24 +1562,54 @@ async def test_batch_and_single_agree_for_every_row(test_sessionmaker):
         _add_petrol_settings(s, p_per_litre=151.9, mpg=54.1)
 
         # Mix of odometer-bearing and odometer-less rows.
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 1),
-            start_soc=30, end_soc=80, kwh_added=20.0, kwh_calculated=20.0,
-            odometer_at_session_km=1000.0, cost_pence=150,
-            cost_basis="home_rate", source="manual",
-        ))
-        s.add(ChargingSession(
-            id=2, user_id=1, car_id=1, date=date(2026, 5, 10),
-            start_soc=20, end_soc=80, kwh_added=15.4, kwh_calculated=15.4,
-            odometer_at_session_km=None, cost_pence=1417,
-            cost_basis="override_per_kwh", source="manual",
-        ))
-        s.add(ChargingSession(
-            id=3, user_id=1, car_id=1, date=date(2026, 5, 20),
-            start_soc=30, end_soc=80, kwh_added=18.0, kwh_calculated=18.0,
-            odometer_at_session_km=1200.0, cost_pence=135,
-            cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 1),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=20.0,
+                kwh_calculated=20.0,
+                odometer_at_session_km=1000.0,
+                cost_pence=150,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
+        s.add(
+            ChargingSession(
+                id=2,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 10),
+                start_soc=20,
+                end_soc=80,
+                kwh_added=15.4,
+                kwh_calculated=15.4,
+                odometer_at_session_km=None,
+                cost_pence=1417,
+                cost_basis="override_per_kwh",
+                source="manual",
+            )
+        )
+        s.add(
+            ChargingSession(
+                id=3,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 20),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=18.0,
+                kwh_calculated=18.0,
+                odometer_at_session_km=1200.0,
+                cost_pence=135,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
 
         rows = [await s.get(ChargingSession, i) for i in (1, 2, 3)]
@@ -1186,11 +1629,21 @@ async def test_breakeven_p_per_kwh_formula(test_sessionmaker):
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=77.0, mi_per_kwh=3.7)
         _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=20, end_soc=80, kwh_added=20.0, kwh_calculated=20.0,
-            cost_pence=150, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=20,
+                end_soc=80,
+                kwh_added=20.0,
+                kwh_calculated=20.0,
+                cost_pence=150,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -1212,30 +1665,64 @@ async def test_breakeven_uses_observed_efficiency(test_sessionmaker):
         _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
 
         # Three sessions implying observed = 3.0 mi/kWh.
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 1),
-            start_soc=30, end_soc=80, kwh_added=25.0,
-            odometer_at_session_km=1000.0,
-            cost_basis="home_rate", source="manual",
-        ))
-        s.add(ChargingSession(
-            id=2, user_id=1, car_id=1, date=date(2026, 5, 5),
-            start_soc=30, end_soc=80, kwh_added=25.0,
-            odometer_at_session_km=1000.0 + 120.7008,
-            cost_basis="home_rate", source="manual",
-        ))
-        s.add(ChargingSession(
-            id=3, user_id=1, car_id=1, date=date(2026, 5, 9),
-            start_soc=30, end_soc=80, kwh_added=25.0,
-            odometer_at_session_km=1000.0 + 2 * 120.7008,
-            cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 1),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=25.0,
+                odometer_at_session_km=1000.0,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
+        s.add(
+            ChargingSession(
+                id=2,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 5),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=25.0,
+                odometer_at_session_km=1000.0 + 120.7008,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
+        s.add(
+            ChargingSession(
+                id=3,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 9),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=25.0,
+                odometer_at_session_km=1000.0 + 2 * 120.7008,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         # Estimated session — no odometer, has cost.
-        s.add(ChargingSession(
-            id=4, user_id=1, car_id=1, date=date(2026, 5, 12),
-            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=15.0,
-            cost_pence=300, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=4,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 12),
+                start_soc=60,
+                end_soc=90,
+                kwh_added=18.0,
+                kwh_calculated=15.0,
+                cost_pence=300,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
 
         cs = await s.get(ChargingSession, 4)
@@ -1256,11 +1743,21 @@ async def test_breakeven_none_without_petrol_settings(test_sessionmaker):
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=59.0, mi_per_kwh=3.5)
         # No petrol settings.
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=17.7,
-            cost_pence=368, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=90,
+                kwh_added=18.0,
+                kwh_calculated=17.7,
+                cost_pence=368,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -1278,19 +1775,38 @@ async def test_measured_miles_since_previous_informational(test_sessionmaker):
         _seed_car(s, battery_kwh=58.0, mi_per_kwh=4.0)
         _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
         # Prior odometer reading.
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 1),
-            start_soc=30, end_soc=80, kwh_added=10.0,
-            odometer_at_session_km=1000.0,
-            cost_pence=75, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 1),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=10.0,
+                odometer_at_session_km=1000.0,
+                cost_pence=75,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         # Current session — advanced 100 km (62.14 mi).
-        s.add(ChargingSession(
-            id=2, user_id=1, car_id=1, date=date(2026, 5, 10),
-            start_soc=30, end_soc=80, kwh_added=20.0, kwh_calculated=20.0,
-            odometer_at_session_km=1100.0,
-            cost_pence=150, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=2,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 10),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=20.0,
+                kwh_calculated=20.0,
+                odometer_at_session_km=1100.0,
+                cost_pence=150,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 2)
         m = await compute_session_metrics(s, cs)
@@ -1318,12 +1834,22 @@ async def test_measured_miles_none_without_prior_odometer(test_sessionmaker):
         _seed_car(s, battery_kwh=58.0, mi_per_kwh=4.0)
         _add_petrol_settings(s)
         # Session with odometer but no prior.
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 10),
-            start_soc=30, end_soc=80, kwh_added=20.0, kwh_calculated=20.0,
-            odometer_at_session_km=1100.0,
-            cost_pence=150, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 10),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=20.0,
+                kwh_calculated=20.0,
+                odometer_at_session_km=1100.0,
+                cost_pence=150,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 1)
         m = await compute_session_metrics(s, cs)
@@ -1340,19 +1866,38 @@ async def test_measured_miles_none_for_no_odometer_session(test_sessionmaker):
         _seed_car(s, battery_kwh=58.0, mi_per_kwh=4.0)
         _add_petrol_settings(s)
         # Prior with odometer.
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 1),
-            start_soc=30, end_soc=80, kwh_added=10.0,
-            odometer_at_session_km=1000.0,
-            cost_pence=75, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 1),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=10.0,
+                odometer_at_session_km=1000.0,
+                cost_pence=75,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         # Current without odometer.
-        s.add(ChargingSession(
-            id=2, user_id=1, car_id=1, date=date(2026, 5, 10),
-            start_soc=30, end_soc=80, kwh_added=20.0, kwh_calculated=20.0,
-            odometer_at_session_km=None,
-            cost_pence=150, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=2,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 10),
+                start_soc=30,
+                end_soc=80,
+                kwh_added=20.0,
+                kwh_calculated=20.0,
+                odometer_at_session_km=None,
+                cost_pence=150,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
         cs = await s.get(ChargingSession, 2)
         m = await compute_session_metrics(s, cs)
@@ -1370,16 +1915,36 @@ async def test_batch_returns_breakeven_matching_single(test_sessionmaker):
         s.add(User(id=1, username="alice", password_hash="x"))
         _seed_car(s, battery_kwh=58.0, mi_per_kwh=3.6)
         _add_petrol_settings(s, p_per_litre=150.0, mpg=50.0)
-        s.add(ChargingSession(
-            id=1, user_id=1, car_id=1, date=date(2026, 5, 14),
-            start_soc=60, end_soc=90, kwh_added=18.0, kwh_calculated=17.7,
-            cost_pence=150, cost_basis="home_rate", source="manual",
-        ))
-        s.add(ChargingSession(
-            id=2, user_id=1, car_id=1, date=date(2026, 5, 15),
-            start_soc=80, end_soc=80, kwh_added=0.0, kwh_calculated=0.0,
-            cost_pence=100, cost_basis="home_rate", source="manual",
-        ))
+        s.add(
+            ChargingSession(
+                id=1,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 14),
+                start_soc=60,
+                end_soc=90,
+                kwh_added=18.0,
+                kwh_calculated=17.7,
+                cost_pence=150,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
+        s.add(
+            ChargingSession(
+                id=2,
+                user_id=1,
+                car_id=1,
+                date=date(2026, 5, 15),
+                start_soc=80,
+                end_soc=80,
+                kwh_added=0.0,
+                kwh_calculated=0.0,
+                cost_pence=100,
+                cost_basis="home_rate",
+                source="manual",
+            )
+        )
         await s.commit()
 
         rows = [await s.get(ChargingSession, i) for i in (1, 2)]

@@ -4,12 +4,11 @@ Assert that backup_enabled, backup_interval_hours, and backup_retention
 exist in the CATALOGUE with the correct value_type, group_name, and
 default_value before any implementation is added.
 """
+
 from __future__ import annotations
 
 import pytest
-
 from plugtrack.settings.catalogue import CATALOGUE
-
 
 BACKUP_KEYS = {
     "backup_enabled": ("bool", "backup", "true"),
@@ -33,10 +32,9 @@ def test_backup_keys_present_with_expected_types_and_groups():
 @pytest.mark.asyncio
 async def test_backup_keys_seeded(test_sessionmaker):
     """seed_defaults must insert the backup keys into the setting table."""
-    from sqlalchemy import select
-
     from plugtrack.models import Setting
     from plugtrack.settings.seeds import seed_defaults
+    from sqlalchemy import select
 
     async with test_sessionmaker() as s:
         await seed_defaults(s)

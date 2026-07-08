@@ -1,10 +1,10 @@
 """MQTT settings catalogue."""
-import pytest
-from sqlalchemy import select
 
+import pytest
 from plugtrack.models.setting import Setting
 from plugtrack.settings.catalogue import CATALOGUE
 from plugtrack.settings.seeds import seed_defaults
+from sqlalchemy import select
 
 MQTT_KEYS = {
     "mqtt_enabled",

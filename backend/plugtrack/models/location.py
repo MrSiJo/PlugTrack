@@ -10,10 +10,10 @@ Locations are clustered by `find_or_create_location` (see
 `address` is deferred to Phase 5; new locations are created with
 `address=None`.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -22,7 +22,7 @@ from .base import Base
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Location(Base):
@@ -33,16 +33,16 @@ class Location(Base):
 
     # Free-text user label. NULL until the user labels the location for
     # the first time (post-session-labelling flow).
-    name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     centroid_lat: Mapped[float] = mapped_column(Float, nullable=False)
     centroid_lng: Mapped[float] = mapped_column(Float, nullable=False)
     radius_m: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
 
     # Reverse-geocode metadata — populated in Phase 5.
-    address: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    address_provider: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
-    address_fetched_at: Mapped[Optional[datetime]] = mapped_column(
+    address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    address_provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    address_fetched_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
@@ -51,23 +51,17 @@ class Location(Base):
     # 143–162).
     is_home: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_free: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    default_cost_per_kwh_p: Mapped[Optional[float]] = mapped_column(
-        Float, nullable=True
-    )
+    default_cost_per_kwh_p: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Default charge network for sessions at this location. When a sync
     # closes a session here and the session has no charge_network set,
     # this value is copied across. User edits to a session's network are
     # sacred — never overwritten on re-sync. Useful for tagging the home
     # location with the energy supplier (e.g. "Outfox Energy") and
     # commercial sites with the network operator (e.g. "MFG", "Tesla").
-    default_charge_network: Mapped[Optional[str]] = mapped_column(
-        String(64), nullable=True
-    )
+    default_charge_network: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     visit_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    last_visited_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_visited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

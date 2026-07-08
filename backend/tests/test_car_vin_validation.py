@@ -4,15 +4,17 @@ Real VINs are alphanumeric (e.g. ``VSSZZZK19SP001843``), so the request
 models must reject any VIN containing path-traversal or other
 non-alphanumeric characters before it is ever stored.
 """
+
 from __future__ import annotations
 
 import pytest
+from plugtrack.api.routes.cars import CarCreateRequest, CarUpdateRequest
 from pydantic import ValidationError
 
-from plugtrack.api.routes.cars import CarCreateRequest, CarUpdateRequest
-
 _BASE_CREATE = dict(
-    make="Cupra", model="Born", battery_kwh=59.0,
+    make="Cupra",
+    model="Born",
+    battery_kwh=59.0,
     nominal_efficiency_mi_per_kwh=3.5,
 )
 

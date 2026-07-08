@@ -1,8 +1,8 @@
 """Tests for location clustering + haversine helpers."""
+
 from __future__ import annotations
 
 import pytest
-
 from plugtrack.models import Location, User
 from plugtrack.services.location_clustering import (
     find_or_create_location,

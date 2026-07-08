@@ -5,17 +5,18 @@ Exercises:
 - Partial unique index on (car_id, telematics_session_id)
 - Distance-column naming convention (every distance col ends in `_km`)
 """
+
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
 
 
 def _tomorrow_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @pytest.mark.asyncio
@@ -81,16 +82,26 @@ async def test_unique_telematics_id_per_car(test_sessionmaker):
         await session.refresh(car)
 
         cs1 = ChargingSession(
-            user_id=user.id, car_id=car.id, date=date.today(),
-            source="synthesis", start_soc=20, end_soc=80, kwh_added=46.2,
+            user_id=user.id,
+            car_id=car.id,
+            date=date.today(),
+            source="synthesis",
+            start_soc=20,
+            end_soc=80,
+            kwh_added=46.2,
             telematics_session_id="hash-abc",
         )
         session.add(cs1)
         await session.commit()
 
         cs2 = ChargingSession(
-            user_id=user.id, car_id=car.id, date=date.today(),
-            source="synthesis", start_soc=30, end_soc=70, kwh_added=30.8,
+            user_id=user.id,
+            car_id=car.id,
+            date=date.today(),
+            source="synthesis",
+            start_soc=30,
+            end_soc=70,
+            kwh_added=30.8,
             telematics_session_id="hash-abc",  # duplicate!
         )
         session.add(cs2)
@@ -124,8 +135,13 @@ async def test_null_telematics_id_does_not_collide(test_sessionmaker):
         for i in range(3):
             session.add(
                 ChargingSession(
-                    user_id=user.id, car_id=car.id, date=date.today(),
-                    source="manual", start_soc=10 + i, end_soc=80, kwh_added=42.0,
+                    user_id=user.id,
+                    car_id=car.id,
+                    date=date.today(),
+                    source="manual",
+                    start_soc=10 + i,
+                    end_soc=80,
+                    kwh_added=42.0,
                     telematics_session_id=None,
                 )
             )
@@ -144,6 +160,7 @@ async def test_distance_columns_have_km_suffix(test_engine):
     distance_keywords = ("distance", "odometer", "range", "mileage")
 
     async with test_engine.begin() as conn:
+
         def _check(sync_conn):
             insp = inspect(sync_conn)
             for table_name in Base.metadata.tables:
@@ -155,4 +172,5 @@ async def test_distance_columns_have_km_suffix(test_engine):
                             f"{table_name}.{name}: distance-bearing columns "
                             f"must end in '_km' (got {name!r})"
                         )
+
         await conn.run_sync(_check)

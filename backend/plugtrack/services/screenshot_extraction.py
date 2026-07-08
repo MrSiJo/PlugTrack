@@ -7,13 +7,14 @@ to EXTRACTION_SCHEMA via `text.format` json_schema. Network I/O is isolated in
 `call_openai` so tests can mock it; `build_request_payload`/`parse_extraction`/
 `parse_usage`/`extract_output_text` are pure and unit-tested directly.
 """
+
 from __future__ import annotations
 
 import asyncio
 import base64
 import json
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -49,16 +50,35 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
             "actual_charge_seconds": {"type": ["integer", "null"]},
             "power_curve": {
                 "type": ["array", "null"],
-                "items": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+                "items": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 2,
+                    "maxItems": 2,
+                },
             },
             "confidence": {"type": "number"},
         },
         "required": [
-            "source", "has_cost", "energy_kwh", "cost_total_pence",
-            "cost_per_kwh_pence", "start_at", "end_at", "soc_start", "soc_end",
-            "location_name", "location_address", "location_short_name", "network",
-            "peak_kw", "odometer", "odometer_unit", "actual_charge_seconds",
-            "power_curve", "confidence",
+            "source",
+            "has_cost",
+            "energy_kwh",
+            "cost_total_pence",
+            "cost_per_kwh_pence",
+            "start_at",
+            "end_at",
+            "soc_start",
+            "soc_end",
+            "location_name",
+            "location_address",
+            "location_short_name",
+            "network",
+            "peak_kw",
+            "odometer",
+            "odometer_unit",
+            "actual_charge_seconds",
+            "power_curve",
+            "confidence",
         ],
     },
 }
@@ -120,35 +140,35 @@ TEXT_SYSTEM_PROMPT = (
 class Extraction:
     source: str
     has_cost: bool
-    energy_kwh: Optional[float]
-    cost_total_pence: Optional[int]
-    cost_per_kwh_pence: Optional[float]
-    start_at: Optional[str]
-    end_at: Optional[str]
-    soc_start: Optional[int]
-    soc_end: Optional[int]
-    location_name: Optional[str]
-    location_address: Optional[str]
-    network: Optional[str]
-    peak_kw: Optional[float]
+    energy_kwh: float | None
+    cost_total_pence: int | None
+    cost_per_kwh_pence: float | None
+    start_at: str | None
+    end_at: str | None
+    soc_start: int | None
+    soc_end: int | None
+    location_name: str | None
+    location_address: str | None
+    network: str | None
+    peak_kw: float | None
     confidence: float
-    odometer: Optional[float] = None
-    odometer_unit: Optional[str] = None
-    location_short_name: Optional[str] = None
-    actual_charge_seconds: Optional[int] = None
-    power_curve: Optional[list] = None
+    odometer: float | None = None
+    odometer_unit: str | None = None
+    location_short_name: str | None = None
+    actual_charge_seconds: int | None = None
+    power_curve: list | None = None
 
 
 @dataclass(frozen=True)
 class Usage:
-    input_tokens: Optional[int]
-    output_tokens: Optional[int]
-    reasoning_tokens: Optional[int]
+    input_tokens: int | None
+    output_tokens: int | None
+    reasoning_tokens: int | None
 
 
 @dataclass(frozen=True)
 class ExtractionResult:
-    extraction: "Extraction"
+    extraction: Extraction
     usage: Usage
 
 
@@ -166,9 +186,7 @@ def build_request_payload(image_bytes: bytes, *, model: str) -> dict[str, Any]:
         "input": [
             {
                 "role": "user",
-                "content": [
-                    {"type": "input_image", "image_url": f"data:image/png;base64,{b64}"}
-                ],
+                "content": [{"type": "input_image", "image_url": f"data:image/png;base64,{b64}"}],
             }
         ],
         # Extraction is a direct field-read/classification task — no reasoning.
@@ -180,7 +198,7 @@ def build_request_payload(image_bytes: bytes, *, model: str) -> dict[str, Any]:
 
 def parse_extraction(raw: dict[str, Any]) -> Extraction:
     _raw_cost = raw.get("cost_total_pence")
-    _cost_total_pence: Optional[int] = int(round(_raw_cost)) if _raw_cost is not None else None
+    _cost_total_pence: int | None = int(round(_raw_cost)) if _raw_cost is not None else None
     return Extraction(
         source=str(raw.get("source") or "other"),
         has_cost=bool(raw.get("has_cost")),
@@ -227,8 +245,11 @@ def parse_usage(body: dict[str, Any]) -> Usage:
 
 
 async def _post_responses(
-    payload: dict[str, Any], *, api_key: str,
-    client: httpx.AsyncClient | None = None, timeout: float = 90,
+    payload: dict[str, Any],
+    *,
+    api_key: str,
+    client: httpx.AsyncClient | None = None,
+    timeout: float = 90,
 ) -> ExtractionResult:
     """POST a Responses-API payload and parse it into an ExtractionResult.
 
@@ -266,8 +287,11 @@ async def _post_responses(
 
 
 async def call_openai(
-    image_bytes: bytes, *, api_key: str, model: str,
-    client: Optional[httpx.AsyncClient] = None,
+    image_bytes: bytes,
+    *,
+    api_key: str,
+    model: str,
+    client: httpx.AsyncClient | None = None,
 ) -> ExtractionResult:
     payload = build_request_payload(image_bytes, model=model)
     return await _post_responses(payload, api_key=api_key, client=client, timeout=90)
@@ -291,8 +315,11 @@ def build_text_request_payload(text: str, *, model: str) -> dict[str, Any]:
 
 
 async def extract_from_text(
-    text: str, *, api_key: str, model: str,
-    client: Optional[httpx.AsyncClient] = None,
+    text: str,
+    *,
+    api_key: str,
+    model: str,
+    client: httpx.AsyncClient | None = None,
 ) -> ExtractionResult:
     payload = build_text_request_payload(text, model=model)
     return await _post_responses(payload, api_key=api_key, client=client, timeout=60)

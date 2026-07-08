@@ -3,7 +3,6 @@ import json
 
 import httpx
 import pytest
-
 from plugtrack.services.telegram_client import TelegramClient
 
 

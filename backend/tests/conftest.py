@@ -3,6 +3,7 @@
 Tests must NEVER touch any real database. Each test gets its own SQLite
 file inside pytest's tmp_path.
 """
+
 from __future__ import annotations
 
 import os
@@ -65,6 +66,7 @@ async def app(test_engine, test_sessionmaker, monkeypatch):
 
     try:
         from plugtrack.api.rate_limit import limiter
+
         limiter.reset()
     except Exception:
         pass

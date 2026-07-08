@@ -14,10 +14,10 @@ property that round-trips Fernet encryption transparently — call sites
 read/write plaintext, the DB stores ciphertext in the `vin_encrypted`
 column.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -28,7 +28,7 @@ from .base import Base
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Car(Base):
@@ -38,25 +38,19 @@ class Car(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False)
     make: Mapped[str] = mapped_column(String(64), nullable=False)
     model: Mapped[str] = mapped_column(String(64), nullable=False)
-    name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # VIN ciphertext; never queried by value. The `vin` property below
     # is the only public access path.
-    vin_encrypted: Mapped[Optional[str]] = mapped_column(
-        "vin_encrypted", String(512), nullable=True
-    )
+    vin_encrypted: Mapped[str | None] = mapped_column("vin_encrypted", String(512), nullable=True)
 
     battery_kwh: Mapped[float] = mapped_column(Float, nullable=False)
     nominal_efficiency_mi_per_kwh: Mapped[float] = mapped_column(Float, nullable=False)
-    max_ac_kw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    max_dc_kw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    max_ac_kw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_dc_kw: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    provider: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="cupra_connect"
-    )
-    provider_vehicle_id: Mapped[Optional[str]] = mapped_column(
-        String(64), nullable=True
-    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="cupra_connect")
+    provider_vehicle_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
@@ -76,13 +70,13 @@ class Car(Base):
     # ---------------------------------------------------------------
 
     @property
-    def vin(self) -> Optional[str]:
+    def vin(self) -> str | None:
         if not self.vin_encrypted:
             return None
         return decrypt_secret(self.vin_encrypted, get_settings().app_secret_key)
 
     @vin.setter
-    def vin(self, value: Optional[str]) -> None:
+    def vin(self, value: str | None) -> None:
         if value is None or value == "":
             self.vin_encrypted = None
         else:

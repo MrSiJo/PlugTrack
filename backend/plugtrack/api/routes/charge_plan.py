@@ -16,9 +16,8 @@ Contract:
 
 Note: archived (active=False) cars are plannable — no active filter is applied.
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -33,7 +32,6 @@ from ...services.charge_planner import (
     resolve_plan_inputs,
 )
 
-
 router = APIRouter(prefix="/api/charge-plan", tags=["charge-plan"])
 
 # Fallback rapid-DC rate (p/kWh) when the caller supplies none. The user
@@ -46,9 +44,9 @@ class ScenarioRowPayload(BaseModel):
     power_kw: float
     minutes: int
     source_tag: str
-    finish_at: Optional[str] = None
-    nights: Optional[int] = None
-    note: Optional[str] = None
+    finish_at: str | None = None
+    nights: int | None = None
+    note: str | None = None
 
 
 class ScenarioPlanResponse(BaseModel):
@@ -72,8 +70,8 @@ class BlendedTotalPayload(BaseModel):
     kwh: float
     minutes: int
     cost_pence: int
-    cost_per_mile_p: Optional[float] = None
-    mi_per_kwh: Optional[float] = None
+    cost_per_mile_p: float | None = None
+    mi_per_kwh: float | None = None
 
 
 class BlendedPlanResponse(BaseModel):
@@ -104,7 +102,7 @@ async def get_charge_plan(
     car_id: int = Query(...),
     start_soc: int = Query(..., ge=0, le=100),
     target_soc: int = Query(..., ge=0, le=100),
-    custom_kw: Optional[float] = Query(default=None, gt=0),
+    custom_kw: float | None = Query(default=None, gt=0),
     session: AsyncSession = Depends(get_db),
 ) -> ScenarioPlanResponse:
     user_id = _user_id(request)
@@ -118,9 +116,7 @@ async def get_charge_plan(
 
     # Fetch car — must exist and belong to the authenticated user.
     # No active filter: archived cars are still plannable.
-    result = await session.execute(
-        select(Car).where(Car.id == car_id, Car.user_id == user_id)
-    )
+    result = await session.execute(select(Car).where(Car.id == car_id, Car.user_id == user_id))
     car = result.scalar_one_or_none()
     if car is None:
         raise HTTPException(status_code=404, detail="car not found")
@@ -189,8 +185,8 @@ async def get_blended_charge_plan(
     start_soc: int = Query(..., ge=0, le=100),
     dc_stop_soc: int = Query(..., ge=0, le=100),
     home_target_soc: int = Query(..., ge=0, le=100),
-    dc_rate_p: Optional[float] = Query(default=None, ge=0),
-    dc_charger_cap_kw: Optional[float] = Query(default=None, gt=0),
+    dc_rate_p: float | None = Query(default=None, ge=0),
+    dc_charger_cap_kw: float | None = Query(default=None, gt=0),
     session: AsyncSession = Depends(get_db),
 ) -> BlendedPlanResponse:
     """Two-phase blended plan: rapid DC to ``dc_stop_soc`` then home AC to ``home_target_soc``."""
@@ -209,9 +205,7 @@ async def get_blended_charge_plan(
         )
 
     # Fetch car — must exist and belong to the authenticated user.
-    result = await session.execute(
-        select(Car).where(Car.id == car_id, Car.user_id == user_id)
-    )
+    result = await session.execute(select(Car).where(Car.id == car_id, Car.user_id == user_id))
     car = result.scalar_one_or_none()
     if car is None:
         raise HTTPException(status_code=404, detail="car not found")
@@ -235,9 +229,7 @@ async def get_blended_charge_plan(
         effective_cap = inputs.dc_ceiling
 
     mi_per_kwh = (
-        float(car.nominal_efficiency_mi_per_kwh)
-        if car.nominal_efficiency_mi_per_kwh
-        else None
+        float(car.nominal_efficiency_mi_per_kwh) if car.nominal_efficiency_mi_per_kwh else None
     )
 
     plan = build_blended_plan(

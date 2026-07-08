@@ -4,12 +4,12 @@ The payload is derived from the existing aggregators and converted to the
 user-facing units (pence -> GBP, km -> miles) at the source, so the HA
 `mqtt:` sensors can carry proper device/state classes.
 """
+
 from __future__ import annotations
 
 import datetime as dt
 import json
 import logging
-from typing import Optional
 
 import aiomqtt
 from sqlalchemy import select
@@ -20,18 +20,18 @@ from plugtrack.models.location import Location
 from plugtrack.models.setting import Setting
 from plugtrack.models.user import User
 from plugtrack.security.crypto import decrypt_secret
+from plugtrack.services import insights_stats
 from plugtrack.services.dashboard_service import dashboard_summary
 from plugtrack.services.formatting import km_to_mi
-from plugtrack.services import insights_stats
 
 log = logging.getLogger(__name__)
 
 
-def _gbp(pence: Optional[int]) -> Optional[float]:
+def _gbp(pence: int | None) -> float | None:
     return None if pence is None else round(pence / 100.0, 2)
 
 
-def _mi(km: Optional[float]) -> Optional[float]:
+def _mi(km: float | None) -> float | None:
     return None if km is None else round(km_to_mi(km), 1)
 
 
@@ -60,9 +60,9 @@ async def _latest_session(session, user_id: int, car_id: int):
     return row, loc_name
 
 
-async def build_ha_payload(session, *, user_id: int, today: Optional[dt.date] = None) -> Optional[dict]:
+async def build_ha_payload(session, *, user_id: int, today: dt.date | None = None) -> dict | None:
     if today is None:
-        today = dt.datetime.now(dt.timezone.utc).date()
+        today = dt.datetime.now(dt.UTC).date()
 
     summary = await dashboard_summary(session, user_id, today=today)
     if not summary.cars:
@@ -143,8 +143,8 @@ async def publish_summary(
     *,
     host: str,
     port: int = 1883,
-    username: Optional[str] = None,
-    password: Optional[str] = None,
+    username: str | None = None,
+    password: str | None = None,
     base_topic: str = "plugtrack",
 ) -> None:
     async with aiomqtt.Client(
@@ -161,7 +161,7 @@ async def publish_summary(
         )
 
 
-def _decrypt_or_plain(value: Optional[str]) -> Optional[str]:
+def _decrypt_or_plain(value: str | None) -> str | None:
     if not value:
         return None
     try:
@@ -172,12 +172,14 @@ def _decrypt_or_plain(value: Optional[str]) -> Optional[str]:
 
 async def _read_mqtt_settings(session) -> dict:
     keys = {
-        "mqtt_enabled", "mqtt_host", "mqtt_port",
-        "mqtt_username", "mqtt_password", "mqtt_base_topic",
+        "mqtt_enabled",
+        "mqtt_host",
+        "mqtt_port",
+        "mqtt_username",
+        "mqtt_password",
+        "mqtt_base_topic",
     }
-    rows = (
-        await session.execute(select(Setting).where(Setting.key.in_(keys)))
-    ).scalars().all()
+    rows = (await session.execute(select(Setting).where(Setting.key.in_(keys)))).scalars().all()
     return {r.key: r.value for r in rows}
 
 

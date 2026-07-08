@@ -1,4 +1,5 @@
 """Tests for /api/health."""
+
 from __future__ import annotations
 
 import pytest

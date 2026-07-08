@@ -2,6 +2,7 @@
 
 Auth + CSRF protected (NOT added to EXEMPT_PATHS).
 """
+
 from __future__ import annotations
 
 from dataclasses import asdict

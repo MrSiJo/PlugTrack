@@ -1,6 +1,6 @@
 """The standalone/ingestion settings must exist in the catalogue and seed."""
-import pytest
 
+import pytest
 from plugtrack.settings.catalogue import CATALOGUE
 from plugtrack.settings.seeds import seed_defaults
 
@@ -37,8 +37,8 @@ def test_ingestion_defaults():
 
 @pytest.mark.asyncio
 async def test_seed_inserts_new_keys(test_sessionmaker):
-    from sqlalchemy import select
     from plugtrack.models import Setting
+    from sqlalchemy import select
 
     async with test_sessionmaker() as s:
         await seed_defaults(s)

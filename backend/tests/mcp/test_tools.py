@@ -14,14 +14,13 @@ Validates:
 - single-use: second commit → error dict
 - cross-user isolation throughout
 """
+
 from __future__ import annotations
 
-import asyncio
 import datetime as dt
-from datetime import date, timezone
+from datetime import date
 
 import pytest
-
 from plugtrack.models import Car, ChargingSession, Location, Setting, User
 from plugtrack.settings.seeds import seed_defaults
 
@@ -52,6 +51,7 @@ async def _seed_home_rate(sm, rate: float) -> None:
         await s.commit()
 
     from sqlalchemy import select as sa_select
+
     async with sm() as s:
         result = await s.execute(
             sa_select(Setting).where(Setting.key == "default_home_rate_p_per_kwh")
@@ -87,9 +87,7 @@ async def _seed_car(sm, user_id: int) -> int:
         return car.id
 
 
-async def _seed_session(
-    sm, user_id: int, car_id: int, *, date_offset: int = 0, **kwargs
-) -> int:
+async def _seed_session(sm, user_id: int, car_id: int, *, date_offset: int = 0, **kwargs) -> int:
     async with sm() as s:
         defaults = dict(
             user_id=user_id,
@@ -208,7 +206,8 @@ async def test_find_charges_date_filter(test_sessionmaker):
 
     async with test_sessionmaker() as session:
         results = await find_charges(
-            session, user_id,
+            session,
+            user_id,
             date_from=date(2026, 6, 4),
             date_to=date(2026, 6, 8),
         )
@@ -263,15 +262,13 @@ async def test_find_charges_formats_money(test_sessionmaker):
 
     user_id = await _seed_user(test_sessionmaker, "alice_money")
     car_id = await _seed_car(test_sessionmaker, user_id)
-    await _seed_session(
-        test_sessionmaker, user_id, car_id, cost_pence=985, tariff_p_per_kwh=7.5
-    )
+    await _seed_session(test_sessionmaker, user_id, car_id, cost_pence=985, tariff_p_per_kwh=7.5)
 
     async with test_sessionmaker() as session:
         r = (await find_charges(session, user_id))[0]
 
-    assert r["cost"] == "£9.85", r["cost"]      # total in pounds
-    assert r["cost_pence"] == 985               # raw still available
+    assert r["cost"] == "£9.85", r["cost"]  # total in pounds
+    assert r["cost_pence"] == 985  # raw still available
     assert r["tariff"] == "7.5p/kWh", r["tariff"]  # rate in pence
 
 
@@ -417,11 +414,14 @@ async def test_propose_edit_charge_kwh_writes_nothing(test_sessionmaker):
     user_id = await _seed_user(test_sessionmaker, "henry")
     car_id = await _seed_car(test_sessionmaker, user_id)
     cs_id = await _seed_session(
-        test_sessionmaker, user_id, car_id,
-        kwh_added=10.0, cost_pence=75, cost_basis="home_rate", tariff_p_per_kwh=7.5
+        test_sessionmaker,
+        user_id,
+        car_id,
+        kwh_added=10.0,
+        cost_pence=75,
+        cost_basis="home_rate",
+        tariff_p_per_kwh=7.5,
     )
-
-    from sqlalchemy import select as sa_select
 
     async with test_sessionmaker() as session:
         result = await propose_edit_charge(session, user_id, charge_id=cs_id, kwh=20.0)
@@ -441,14 +441,19 @@ async def test_propose_edit_charge_kwh_writes_nothing(test_sessionmaker):
 @pytest.mark.asyncio
 async def test_commit_kwh_edit_rescales_at_frozen_tariff(test_sessionmaker):
     """commit_change after kwh edit re-scales at frozen tariff, basis unchanged."""
-    from plugtrack.mcp.tools import propose_edit_charge, commit_change
+    from plugtrack.mcp.tools import commit_change, propose_edit_charge
 
     await _seed_home_rate(test_sessionmaker, 15.0)  # different from frozen tariff
     user_id = await _seed_user(test_sessionmaker, "ivan")
     car_id = await _seed_car(test_sessionmaker, user_id)
     cs_id = await _seed_session(
-        test_sessionmaker, user_id, car_id,
-        kwh_added=10.0, cost_pence=75, cost_basis="home_rate", tariff_p_per_kwh=7.5
+        test_sessionmaker,
+        user_id,
+        car_id,
+        kwh_added=10.0,
+        cost_pence=75,
+        cost_basis="home_rate",
+        tariff_p_per_kwh=7.5,
     )
 
     async with test_sessionmaker() as session:
@@ -462,7 +467,6 @@ async def test_commit_kwh_edit_rescales_at_frozen_tariff(test_sessionmaker):
     assert "error" not in commit_result, f"commit failed: {commit_result}"
 
     # Re-read the row
-    from sqlalchemy import select as sa_select
     async with test_sessionmaker() as session:
         row = await session.get(ChargingSession, cs_id)
         assert row.kwh_added == 20.0, "kwh_added should be updated"
@@ -486,14 +490,17 @@ async def test_propose_edit_charge_price_writes_nothing(test_sessionmaker):
     user_id = await _seed_user(test_sessionmaker, "julia")
     car_id = await _seed_car(test_sessionmaker, user_id)
     cs_id = await _seed_session(
-        test_sessionmaker, user_id, car_id,
-        kwh_added=10.0, cost_pence=75, cost_basis="home_rate", tariff_p_per_kwh=7.5
+        test_sessionmaker,
+        user_id,
+        car_id,
+        kwh_added=10.0,
+        cost_pence=75,
+        cost_basis="home_rate",
+        tariff_p_per_kwh=7.5,
     )
 
     async with test_sessionmaker() as session:
-        result = await propose_edit_charge(
-            session, user_id, charge_id=cs_id, price_p_per_kwh=25.0
-        )
+        result = await propose_edit_charge(session, user_id, charge_id=cs_id, price_p_per_kwh=25.0)
 
     assert "error" not in result
     assert "change_token" in result
@@ -506,14 +513,19 @@ async def test_propose_edit_charge_price_writes_nothing(test_sessionmaker):
 @pytest.mark.asyncio
 async def test_commit_price_edit_sets_override_per_kwh(test_sessionmaker):
     """commit_change after price_p_per_kwh edit sets override_per_kwh basis."""
-    from plugtrack.mcp.tools import propose_edit_charge, commit_change
+    from plugtrack.mcp.tools import commit_change, propose_edit_charge
 
     await _seed_home_rate(test_sessionmaker, 7.5)
     user_id = await _seed_user(test_sessionmaker, "kevin")
     car_id = await _seed_car(test_sessionmaker, user_id)
     cs_id = await _seed_session(
-        test_sessionmaker, user_id, car_id,
-        kwh_added=10.0, cost_pence=75, cost_basis="home_rate", tariff_p_per_kwh=7.5
+        test_sessionmaker,
+        user_id,
+        car_id,
+        kwh_added=10.0,
+        cost_pence=75,
+        cost_basis="home_rate",
+        tariff_p_per_kwh=7.5,
     )
 
     async with test_sessionmaker() as session:
@@ -534,20 +546,23 @@ async def test_commit_price_edit_sets_override_per_kwh(test_sessionmaker):
 @pytest.mark.asyncio
 async def test_commit_total_cost_sets_override_total(test_sessionmaker):
     """commit_change with total_cost_p sets override_total basis."""
-    from plugtrack.mcp.tools import propose_edit_charge, commit_change
+    from plugtrack.mcp.tools import commit_change, propose_edit_charge
 
     await _seed_home_rate(test_sessionmaker, 7.5)
     user_id = await _seed_user(test_sessionmaker, "lara")
     car_id = await _seed_car(test_sessionmaker, user_id)
     cs_id = await _seed_session(
-        test_sessionmaker, user_id, car_id,
-        kwh_added=10.0, cost_pence=75, cost_basis="home_rate", tariff_p_per_kwh=7.5
+        test_sessionmaker,
+        user_id,
+        car_id,
+        kwh_added=10.0,
+        cost_pence=75,
+        cost_basis="home_rate",
+        tariff_p_per_kwh=7.5,
     )
 
     async with test_sessionmaker() as session:
-        proposal = await propose_edit_charge(
-            session, user_id, charge_id=cs_id, total_cost_p=500
-        )
+        proposal = await propose_edit_charge(session, user_id, charge_id=cs_id, total_cost_p=500)
 
     async with test_sessionmaker() as session:
         await commit_change(session, user_id, proposal["change_token"])
@@ -576,9 +591,7 @@ async def test_propose_set_location_writes_nothing(test_sessionmaker):
     cs_id = await _seed_session(test_sessionmaker, user_id, car_id)
 
     async with test_sessionmaker() as session:
-        result = await propose_set_location(
-            session, user_id, charge_id=cs_id, location_id=loc_id
-        )
+        result = await propose_set_location(session, user_id, charge_id=cs_id, location_id=loc_id)
 
     assert "error" not in result
     assert "summary" in result
@@ -592,21 +605,24 @@ async def test_propose_set_location_writes_nothing(test_sessionmaker):
 @pytest.mark.asyncio
 async def test_commit_set_location_updates_location_and_recomputes_cost(test_sessionmaker):
     """commit_change for set_location sets location_id and recomputes cost."""
-    from plugtrack.mcp.tools import propose_set_location, commit_change
+    from plugtrack.mcp.tools import commit_change, propose_set_location
 
     await _seed_home_rate(test_sessionmaker, 7.5)
     user_id = await _seed_user(test_sessionmaker, "nina")
     car_id = await _seed_car(test_sessionmaker, user_id)
     loc_id = await _seed_location(test_sessionmaker, user_id)
     cs_id = await _seed_session(
-        test_sessionmaker, user_id, car_id,
-        kwh_added=10.0, cost_pence=75, cost_basis="home_rate", tariff_p_per_kwh=7.5
+        test_sessionmaker,
+        user_id,
+        car_id,
+        kwh_added=10.0,
+        cost_pence=75,
+        cost_basis="home_rate",
+        tariff_p_per_kwh=7.5,
     )
 
     async with test_sessionmaker() as session:
-        proposal = await propose_set_location(
-            session, user_id, charge_id=cs_id, location_id=loc_id
-        )
+        proposal = await propose_set_location(session, user_id, charge_id=cs_id, location_id=loc_id)
 
     async with test_sessionmaker() as session:
         result = await commit_change(session, user_id, proposal["change_token"])
@@ -651,9 +667,7 @@ async def test_propose_set_location_other_users_location_is_error(test_sessionma
     cs_id = await _seed_session(test_sessionmaker, user_a, car_a)
 
     async with test_sessionmaker() as session:
-        result = await propose_set_location(
-            session, user_a, charge_id=cs_id, location_id=loc_b
-        )
+        result = await propose_set_location(session, user_a, charge_id=cs_id, location_id=loc_b)
 
     assert "error" in result, "Should return error when location belongs to another user"
 
@@ -666,7 +680,8 @@ async def test_propose_set_location_other_users_location_is_error(test_sessionma
 @pytest.mark.asyncio
 async def test_propose_attach_location_writes_nothing(test_sessionmaker):
     from plugtrack.mcp.tools import propose_attach_location
-    from sqlalchemy import func, select as sa_select
+    from sqlalchemy import func
+    from sqlalchemy import select as sa_select
 
     await _seed_home_rate(test_sessionmaker, 7.5)
     user_id = await _seed_user(test_sessionmaker, "rhea")
@@ -685,8 +700,9 @@ async def test_propose_attach_location_writes_nothing(test_sessionmaker):
 
 @pytest.mark.asyncio
 async def test_commit_attach_location_creates_and_sets(test_sessionmaker):
-    from plugtrack.mcp.tools import propose_attach_location, commit_change
-    from sqlalchemy import func, select as sa_select
+    from plugtrack.mcp.tools import commit_change, propose_attach_location
+    from sqlalchemy import func
+    from sqlalchemy import select as sa_select
 
     await _seed_home_rate(test_sessionmaker, 7.5)
     user_id = await _seed_user(test_sessionmaker, "silas")
@@ -719,9 +735,7 @@ async def test_propose_attach_location_other_users_charge_is_error(test_sessionm
     cs_b = await _seed_session(test_sessionmaker, user_b, car_b)
 
     async with test_sessionmaker() as session:
-        result = await propose_attach_location(
-            session, user_a, charge_id=cs_b, lat=50.1, lng=-5.6
-        )
+        result = await propose_attach_location(session, user_a, charge_id=cs_b, lat=50.1, lng=-5.6)
     assert "error" in result
 
 
@@ -739,9 +753,7 @@ async def test_propose_create_location_writes_nothing(test_sessionmaker):
     user_id = await _seed_user(test_sessionmaker, "rachel")
 
     async with test_sessionmaker() as session:
-        result = await propose_create_location(
-            session, user_id, name="Work", lat=51.5, lng=-0.1
-        )
+        result = await propose_create_location(session, user_id, name="Work", lat=51.5, lng=-0.1)
 
     assert "error" not in result
     assert "summary" in result
@@ -749,16 +761,18 @@ async def test_propose_create_location_writes_nothing(test_sessionmaker):
 
     # Verify no location was created
     async with test_sessionmaker() as session:
-        rows = (await session.execute(
-            sa_select(Location).where(Location.user_id == user_id)
-        )).scalars().all()
+        rows = (
+            (await session.execute(sa_select(Location).where(Location.user_id == user_id)))
+            .scalars()
+            .all()
+        )
         assert len(rows) == 0, "propose_create_location must NOT create DB rows"
 
 
 @pytest.mark.asyncio
 async def test_commit_create_location_creates_location_row(test_sessionmaker):
     """commit_change after propose_create_location creates a Location row."""
-    from plugtrack.mcp.tools import propose_create_location, commit_change
+    from plugtrack.mcp.tools import commit_change, propose_create_location
     from sqlalchemy import select as sa_select
 
     user_id = await _seed_user(test_sessionmaker, "sam")
@@ -774,9 +788,11 @@ async def test_commit_create_location_creates_location_row(test_sessionmaker):
     assert "error" not in result
 
     async with test_sessionmaker() as session:
-        rows = (await session.execute(
-            sa_select(Location).where(Location.user_id == user_id)
-        )).scalars().all()
+        rows = (
+            (await session.execute(sa_select(Location).where(Location.user_id == user_id)))
+            .scalars()
+            .all()
+        )
         assert len(rows) == 1
         assert rows[0].name == "Supercharger"
 
@@ -802,8 +818,8 @@ async def test_commit_unknown_token_returns_error(test_sessionmaker):
 @pytest.mark.asyncio
 async def test_commit_expired_token_returns_error(test_sessionmaker):
     """commit_change with an expired token (past TTL) returns an error dict."""
-    from plugtrack.mcp.tools import propose_create_location, commit_change
     import plugtrack.mcp.tools as tools_module
+    from plugtrack.mcp.tools import commit_change, propose_create_location
 
     user_id = await _seed_user(test_sessionmaker, "uma")
 
@@ -815,7 +831,7 @@ async def test_commit_expired_token_returns_error(test_sessionmaker):
     token = proposal["change_token"]
 
     # Manually expire the token by backdating its timestamp
-    old_time = dt.datetime.now(timezone.utc) - dt.timedelta(minutes=15)
+    old_time = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=15)
     tools_module._CHANGE_STORE[token]["created_at"] = old_time
 
     async with test_sessionmaker() as session:
@@ -828,7 +844,7 @@ async def test_commit_expired_token_returns_error(test_sessionmaker):
 @pytest.mark.asyncio
 async def test_commit_cross_user_token_is_rejected(test_sessionmaker):
     """A token minted for user A must be rejected when user B tries to commit."""
-    from plugtrack.mcp.tools import propose_create_location, commit_change
+    from plugtrack.mcp.tools import commit_change, propose_create_location
 
     user_a = await _seed_user(test_sessionmaker, "vera")
     user_b = await _seed_user(test_sessionmaker, "will")
@@ -849,7 +865,7 @@ async def test_commit_cross_user_token_is_rejected(test_sessionmaker):
 @pytest.mark.asyncio
 async def test_commit_single_use_second_commit_is_error(test_sessionmaker):
     """Committing the same token twice returns an error on the second attempt."""
-    from plugtrack.mcp.tools import propose_create_location, commit_change
+    from plugtrack.mcp.tools import commit_change, propose_create_location
 
     user_id = await _seed_user(test_sessionmaker, "xena")
 
@@ -888,9 +904,7 @@ async def test_propose_edit_charge_other_users_session_is_error(test_sessionmake
     cs_id = await _seed_session(test_sessionmaker, user_a, car_a)
 
     async with test_sessionmaker() as session:
-        result = await propose_edit_charge(
-            session, user_b, charge_id=cs_id, kwh=20.0
-        )
+        result = await propose_edit_charge(session, user_b, charge_id=cs_id, kwh=20.0)
 
     assert "error" in result
 
@@ -908,9 +922,7 @@ async def test_propose_set_location_other_users_session_is_error(test_sessionmak
     cs_id = await _seed_session(test_sessionmaker, user_a, car_a)
 
     async with test_sessionmaker() as session:
-        result = await propose_set_location(
-            session, user_b, charge_id=cs_id, location_id=loc_a
-        )
+        result = await propose_set_location(session, user_b, charge_id=cs_id, location_id=loc_a)
 
     assert "error" in result
 
@@ -931,9 +943,15 @@ async def test_find_charges_location_id_filter(test_sessionmaker):
     loc_b = await _seed_location(test_sessionmaker, user_id, name="LocationB")
 
     # Two sessions at loc_a, one at loc_b
-    id_a1 = await _seed_session(test_sessionmaker, user_id, car_id, date_offset=0, location_id=loc_a)
-    id_a2 = await _seed_session(test_sessionmaker, user_id, car_id, date_offset=1, location_id=loc_a)
-    _id_b = await _seed_session(test_sessionmaker, user_id, car_id, date_offset=2, location_id=loc_b)
+    id_a1 = await _seed_session(
+        test_sessionmaker, user_id, car_id, date_offset=0, location_id=loc_a
+    )
+    id_a2 = await _seed_session(
+        test_sessionmaker, user_id, car_id, date_offset=1, location_id=loc_a
+    )
+    _id_b = await _seed_session(
+        test_sessionmaker, user_id, car_id, date_offset=2, location_id=loc_b
+    )
 
     async with test_sessionmaker() as session:
         results = await find_charges(session, user_id, location_id=loc_a)
@@ -949,12 +967,10 @@ async def test_find_charges_location_id_filter(test_sessionmaker):
 
 
 @pytest.mark.asyncio
-async def test_propose_create_location_address_geocodes_at_propose(
-    test_sessionmaker, monkeypatch
-):
+async def test_propose_create_location_address_geocodes_at_propose(test_sessionmaker, monkeypatch):
     """propose_create_location(address=...) geocodes at propose time and stores coords."""
     from plugtrack.mcp import tools as tools_module
-    from plugtrack.mcp.tools import propose_create_location, commit_change
+    from plugtrack.mcp.tools import commit_change, propose_create_location
     from plugtrack.services.geocoding import GeocodeResult
     from sqlalchemy import select as sa_select
 
@@ -996,8 +1012,10 @@ async def test_propose_create_location_address_geocodes_at_propose(
 
     async with test_sessionmaker() as session:
         rows = (
-            await session.execute(sa_select(Location).where(Location.user_id == user_id))
-        ).scalars().all()
+            (await session.execute(sa_select(Location).where(Location.user_id == user_id)))
+            .scalars()
+            .all()
+        )
     assert len(rows) >= 1
     # The created location should have the geocoded coordinates
     created = next((r for r in rows if r.name == "Westminster"), None)
@@ -1037,8 +1055,10 @@ async def test_propose_create_location_address_geocode_fails_returns_error(
     # No location should have been created
     async with test_sessionmaker() as session:
         rows = (
-            await session.execute(sa_select(Location).where(Location.user_id == user_id))
-        ).scalars().all()
+            (await session.execute(sa_select(Location).where(Location.user_id == user_id)))
+            .scalars()
+            .all()
+        )
     assert len(rows) == 0, "No location should be created when geocoding fails"
 
 
@@ -1068,9 +1088,7 @@ async def test_mint_token_purges_expired_entries(test_sessionmaker):
     tok2 = r2["change_token"]
 
     # Backdate both tokens beyond TTL
-    old_time = dt.datetime.now(timezone.utc) - dt.timedelta(
-        seconds=tools_module._TOKEN_TTL_SECONDS + 60
-    )
+    old_time = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=tools_module._TOKEN_TTL_SECONDS + 60)
     tools_module._CHANGE_STORE[tok1]["created_at"] = old_time
     tools_module._CHANGE_STORE[tok2]["created_at"] = old_time
 
@@ -1128,14 +1146,12 @@ async def test_mint_token_purges_used_entries(test_sessionmaker):
 @pytest.mark.asyncio
 async def test_propose_edit_charge_odometer_mi_default(test_sessionmaker):
     """Odometer in miles (default unit) is converted to km and committed correctly."""
-    from plugtrack.mcp.tools import propose_edit_charge, commit_change
+    from plugtrack.mcp.tools import commit_change, propose_edit_charge
 
     await _seed_home_rate(test_sessionmaker, 7.5)
     user_id = await _seed_user(test_sessionmaker, "odo_mi_user")
     car_id = await _seed_car(test_sessionmaker, user_id)
-    cs_id = await _seed_session(
-        test_sessionmaker, user_id, car_id, odometer_at_session_km=None
-    )
+    cs_id = await _seed_session(test_sessionmaker, user_id, car_id, odometer_at_session_km=None)
 
     async with test_sessionmaker() as session:
         result = await propose_edit_charge(session, user_id, charge_id=cs_id, odometer=11056)
@@ -1161,14 +1177,12 @@ async def test_propose_edit_charge_odometer_mi_default(test_sessionmaker):
 @pytest.mark.asyncio
 async def test_propose_edit_charge_odometer_km_explicit(test_sessionmaker):
     """Odometer with explicit km unit is stored as-is."""
-    from plugtrack.mcp.tools import propose_edit_charge, commit_change
+    from plugtrack.mcp.tools import commit_change, propose_edit_charge
 
     await _seed_home_rate(test_sessionmaker, 7.5)
     user_id = await _seed_user(test_sessionmaker, "odo_km_user")
     car_id = await _seed_car(test_sessionmaker, user_id)
-    cs_id = await _seed_session(
-        test_sessionmaker, user_id, car_id, odometer_at_session_km=None
-    )
+    cs_id = await _seed_session(test_sessionmaker, user_id, car_id, odometer_at_session_km=None)
 
     async with test_sessionmaker() as session:
         result = await propose_edit_charge(
@@ -1217,15 +1231,11 @@ async def test_find_charges_includes_odometer_display(test_sessionmaker):
     await _seed_home_rate(test_sessionmaker, 7.5)
     user_id = await _seed_user(test_sessionmaker, "odo_find_user")
     car_id = await _seed_car(test_sessionmaker, user_id)
-    cs_id = await _seed_session(
-        test_sessionmaker, user_id, car_id, odometer_at_session_km=17800.0
-    )
+    cs_id = await _seed_session(test_sessionmaker, user_id, car_id, odometer_at_session_km=17800.0)
 
     # Set distance_unit to "mi"
     async with test_sessionmaker() as s:
-        result = await s.execute(
-            sa_select(Setting).where(Setting.key == "distance_unit")
-        )
+        result = await s.execute(sa_select(Setting).where(Setting.key == "distance_unit"))
         row = result.scalar_one_or_none()
         if row is not None:
             row.value = "mi"
@@ -1253,15 +1263,11 @@ async def test_get_charge_includes_odometer_display(test_sessionmaker):
     await _seed_home_rate(test_sessionmaker, 7.5)
     user_id = await _seed_user(test_sessionmaker, "odo_get_user")
     car_id = await _seed_car(test_sessionmaker, user_id)
-    cs_id = await _seed_session(
-        test_sessionmaker, user_id, car_id, odometer_at_session_km=17800.0
-    )
+    cs_id = await _seed_session(test_sessionmaker, user_id, car_id, odometer_at_session_km=17800.0)
 
     # Set distance_unit to "mi"
     async with test_sessionmaker() as s:
-        result = await s.execute(
-            sa_select(Setting).where(Setting.key == "distance_unit")
-        )
+        result = await s.execute(sa_select(Setting).where(Setting.key == "distance_unit"))
         row = result.scalar_one_or_none()
         if row is not None:
             row.value = "mi"

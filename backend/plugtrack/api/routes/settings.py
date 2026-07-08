@@ -10,7 +10,8 @@ PUT  /api/settings — auth + CSRF. Body {key, value}. Validates the key
    exists in the catalogue (rejects unknown keys). Encrypts secret values
    via Fernet (`encrypt_secret`) before storing.
 """
-from typing import Any, Optional
+
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -22,7 +23,6 @@ from ...db import get_db
 from ...models import Setting
 from ...security.crypto import encrypt_secret
 from ...settings.catalogue import CATALOGUE
-
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -50,17 +50,17 @@ _RECONCILE_KEYS = {
 
 class SettingPayload(BaseModel):
     key: str
-    value: Optional[Any]
+    value: Any | None
     value_type: str
     group_name: str
     label: str
-    description: Optional[str]
+    description: str | None
     is_secret: bool
 
 
 class UpdateSettingRequest(BaseModel):
     key: str = Field(min_length=1, max_length=128)
-    value: Optional[str] = None
+    value: str | None = None
 
 
 def _is_secret_per_catalogue(key: str) -> bool:
@@ -81,7 +81,7 @@ async def list_settings(
             continue
         # Defence-in-depth: read is_secret from the catalogue, not the row.
         secret = _is_secret_per_catalogue(row.key)
-        value: Optional[Any] = "***" if (secret and row.value) else row.value
+        value: Any | None = "***" if (secret and row.value) else row.value
         out[row.key] = SettingPayload(
             key=row.key,
             value=value,
@@ -102,9 +102,7 @@ async def update_setting(
 ) -> dict[str, str]:
     entry = _CATALOGUE_BY_KEY.get(body.key)
     if entry is None:
-        raise HTTPException(
-            status_code=400, detail=f"unknown setting key: {body.key!r}"
-        )
+        raise HTTPException(status_code=400, detail=f"unknown setting key: {body.key!r}")
 
     result = await session.execute(select(Setting).where(Setting.key == body.key))
     row = result.scalar_one_or_none()
@@ -114,7 +112,7 @@ async def update_setting(
             detail=f"setting {body.key!r} not seeded; run lifespan first",
         )
 
-    new_value: Optional[str]
+    new_value: str | None
     if body.value is None or body.value == "":
         new_value = None
     elif entry.is_secret:

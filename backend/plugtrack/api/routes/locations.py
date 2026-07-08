@@ -25,9 +25,8 @@ Plus list / merge / delete:
 User-overrides (`override_total` / `override_per_kwh`) are sacred and
 NEVER touched by any of these endpoints.
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -37,7 +36,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...db import get_db
 from ...models import ChargingSession, Location, Setting
 from ...services.cost import compute_session_cost
-
 
 router = APIRouter(prefix="/api/locations", tags=["locations"])
 
@@ -50,40 +48,40 @@ class LocationLabelRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     is_home: bool = False
     is_free: bool = False
-    default_cost_per_kwh_p: Optional[float] = Field(default=None, ge=0)
-    default_charge_network: Optional[str] = Field(default=None, max_length=64)
+    default_cost_per_kwh_p: float | None = Field(default=None, ge=0)
+    default_charge_network: str | None = Field(default=None, max_length=64)
 
 
 class LocationPayload(BaseModel):
     id: int
-    name: Optional[str]
+    name: str | None
     centroid_lat: float
     centroid_lng: float
     radius_m: int
     is_home: bool
     is_free: bool
-    default_cost_per_kwh_p: Optional[float]
-    default_charge_network: Optional[str]
-    address: Optional[str]
+    default_cost_per_kwh_p: float | None
+    default_charge_network: str | None
+    address: str | None
 
 
 class LocationListPayload(BaseModel):
     """Extended payload for the admin list view — includes aggregates."""
 
     id: int
-    name: Optional[str]
+    name: str | None
     centroid_lat: float
     centroid_lng: float
     radius_m: int
     is_home: bool
     is_free: bool
-    default_cost_per_kwh_p: Optional[float]
-    default_charge_network: Optional[str]
-    address: Optional[str]
+    default_cost_per_kwh_p: float | None
+    default_charge_network: str | None
+    address: str | None
     visit_count: int
     total_kwh: float
     total_cost_pence: int
-    last_visited_at: Optional[str]
+    last_visited_at: str | None
 
 
 class LocationUpdateRequest(BaseModel):
@@ -94,12 +92,12 @@ class LocationUpdateRequest(BaseModel):
     "Recalculate past costs" button.
     """
 
-    name: Optional[str] = Field(default=None, max_length=128)
-    is_home: Optional[bool] = None
-    is_free: Optional[bool] = None
-    default_cost_per_kwh_p: Optional[float] = Field(default=None, ge=0)
-    default_charge_network: Optional[str] = Field(default=None, max_length=64)
-    radius_m: Optional[int] = Field(default=None, ge=1, le=10_000)
+    name: str | None = Field(default=None, max_length=128)
+    is_home: bool | None = None
+    is_free: bool | None = None
+    default_cost_per_kwh_p: float | None = Field(default=None, ge=0)
+    default_charge_network: str | None = Field(default=None, max_length=64)
+    radius_m: int | None = Field(default=None, ge=1, le=10_000)
 
 
 class LocationCreateRequest(BaseModel):
@@ -111,14 +109,14 @@ class LocationCreateRequest(BaseModel):
     (there is no history to recompute on a brand-new location).
     """
 
-    name: Optional[str] = Field(default=None, max_length=128)
+    name: str | None = Field(default=None, max_length=128)
     centroid_lat: float = Field(ge=-90, le=90)
     centroid_lng: float = Field(ge=-180, le=180)
     radius_m: int = Field(default=100, ge=1, le=10_000)
     is_home: bool = False
     is_free: bool = False
-    default_cost_per_kwh_p: Optional[float] = Field(default=None, ge=0)
-    default_charge_network: Optional[str] = Field(default=None, max_length=64)
+    default_cost_per_kwh_p: float | None = Field(default=None, ge=0)
+    default_charge_network: str | None = Field(default=None, max_length=64)
 
 
 class LocationMergeRequest(BaseModel):
@@ -188,14 +186,18 @@ async def _backfill_charge_network(
     if not location.default_charge_network:
         return 0
     rows = (
-        await session.execute(
-            select(ChargingSession).where(
-                ChargingSession.location_id == location.id,
-                ChargingSession.user_id == user_id,
-                ChargingSession.charge_network.is_(None),
+        (
+            await session.execute(
+                select(ChargingSession).where(
+                    ChargingSession.location_id == location.id,
+                    ChargingSession.user_id == user_id,
+                    ChargingSession.charge_network.is_(None),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for cs in rows:
         cs.charge_network = location.default_charge_network
     return len(rows)
@@ -217,14 +219,18 @@ async def _recompute_sessions_for_location(
     """
     home_rate = await _home_rate(session)
     rows = (
-        await session.execute(
-            select(ChargingSession).where(
-                ChargingSession.location_id == location.id,
-                ChargingSession.user_id == user_id,
-                ChargingSession.cost_basis.in_(bases),
+        (
+            await session.execute(
+                select(ChargingSession).where(
+                    ChargingSession.location_id == location.id,
+                    ChargingSession.user_id == user_id,
+                    ChargingSession.cost_basis.in_(bases),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     count = 0
     for cs in rows:
@@ -247,10 +253,7 @@ async def _recompute_sessions_for_location(
 def _location_cost_config_differs(a: Location, b: Location) -> bool:
     """Two locations differ for cost purposes if any precedence-relevant
     field differs."""
-    return (
-        a.is_free != b.is_free
-        or a.default_cost_per_kwh_p != b.default_cost_per_kwh_p
-    )
+    return a.is_free != b.is_free or a.default_cost_per_kwh_p != b.default_cost_per_kwh_p
 
 
 @router.get("", response_model=list[LocationListPayload])
@@ -273,9 +276,7 @@ async def list_locations(
             ChargingSession.location_id,
             func.count(ChargingSession.id).label("visit_count"),
             func.coalesce(func.sum(ChargingSession.kwh_added), 0.0).label("total_kwh"),
-            func.coalesce(func.sum(ChargingSession.cost_pence), 0).label(
-                "total_cost_pence"
-            ),
+            func.coalesce(func.sum(ChargingSession.cost_pence), 0).label("total_cost_pence"),
             func.max(ChargingSession.charge_end_at).label("last_visited_at"),
         )
         .where(ChargingSession.user_id == user_id)
@@ -285,15 +286,13 @@ async def list_locations(
     agg_by_id = {r.location_id: r for r in agg_rows if r.location_id is not None}
 
     locations = (
-        await session.execute(
-            select(Location).where(Location.user_id == user_id)
-        )
-    ).scalars().all()
+        (await session.execute(select(Location).where(Location.user_id == user_id))).scalars().all()
+    )
 
     out: list[LocationListPayload] = []
     for loc in locations:
         agg = agg_by_id.get(loc.id)
-        last_at: Optional[str] = None
+        last_at: str | None = None
         if agg is not None and agg.last_visited_at is not None:
             last_at = agg.last_visited_at.isoformat()
         out.append(
@@ -381,9 +380,7 @@ async def update_location(
     """
     user_id = _user_id(request)
     result = await session.execute(
-        select(Location).where(
-            Location.id == location_id, Location.user_id == user_id
-        )
+        select(Location).where(Location.id == location_id, Location.user_id == user_id)
     )
     loc = result.scalar_one_or_none()
     if loc is None:
@@ -415,9 +412,7 @@ async def recalculate_past_costs(
     """
     user_id = _user_id(request)
     result = await session.execute(
-        select(Location).where(
-            Location.id == location_id, Location.user_id == user_id
-        )
+        select(Location).where(Location.id == location_id, Location.user_id == user_id)
     )
     loc = result.scalar_one_or_none()
     if loc is None:
@@ -449,18 +444,14 @@ async def merge_locations(
 
     source = (
         await session.execute(
-            select(Location).where(
-                Location.id == location_id, Location.user_id == user_id
-            )
+            select(Location).where(Location.id == location_id, Location.user_id == user_id)
         )
     ).scalar_one_or_none()
     if source is None:
         raise HTTPException(status_code=404, detail="source location not found")
     target = (
         await session.execute(
-            select(Location).where(
-                Location.id == body.target_id, Location.user_id == user_id
-            )
+            select(Location).where(Location.id == body.target_id, Location.user_id == user_id)
         )
     ).scalar_one_or_none()
     if target is None:
@@ -469,13 +460,17 @@ async def merge_locations(
     cost_dirty = _location_cost_config_differs(source, target)
 
     sessions = (
-        await session.execute(
-            select(ChargingSession).where(
-                ChargingSession.location_id == source.id,
-                ChargingSession.user_id == user_id,
+        (
+            await session.execute(
+                select(ChargingSession).where(
+                    ChargingSession.location_id == source.id,
+                    ChargingSession.user_id == user_id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for cs in sessions:
         cs.location_id = target.id
 
@@ -483,9 +478,7 @@ async def merge_locations(
 
     recomputed = 0
     if cost_dirty:
-        recomputed = await _recompute_sessions_for_location(
-            session, target, user_id
-        )
+        recomputed = await _recompute_sessions_for_location(session, target, user_id)
 
     await session.delete(source)
     await session.commit()
@@ -515,22 +508,24 @@ async def delete_location(
     """
     user_id = _user_id(request)
     result = await session.execute(
-        select(Location).where(
-            Location.id == location_id, Location.user_id == user_id
-        )
+        select(Location).where(Location.id == location_id, Location.user_id == user_id)
     )
     loc = result.scalar_one_or_none()
     if loc is None:
         raise HTTPException(status_code=404, detail="location not found")
 
     sessions = (
-        await session.execute(
-            select(ChargingSession).where(
-                ChargingSession.location_id == loc.id,
-                ChargingSession.user_id == user_id,
+        (
+            await session.execute(
+                select(ChargingSession).where(
+                    ChargingSession.location_id == loc.id,
+                    ChargingSession.user_id == user_id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for cs in sessions:
         # Bake the location's frozen rate into a sacred per-kWh override so
         # detaching can never silently drop the charge to the home rate.
@@ -544,6 +539,7 @@ async def delete_location(
     await session.delete(loc)
     await session.commit()
     from fastapi import Response
+
     return Response(status_code=204)
 
 
@@ -557,9 +553,7 @@ async def label_location(
     user_id = _user_id(request)
 
     result = await session.execute(
-        select(Location).where(
-            Location.id == location_id, Location.user_id == user_id
-        )
+        select(Location).where(Location.id == location_id, Location.user_id == user_id)
     )
     loc = result.scalar_one_or_none()
     if loc is None:
@@ -570,10 +564,7 @@ async def label_location(
     if loc.name is not None:
         raise HTTPException(
             status_code=409,
-            detail=(
-                "location already labelled — use the locations admin "
-                "endpoint to edit"
-            ),
+            detail=("location already labelled — use the locations admin endpoint to edit"),
         )
 
     loc.name = body.name

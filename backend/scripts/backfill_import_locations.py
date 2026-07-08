@@ -4,11 +4,13 @@
 Run inside the API container:
     docker compose -f compose-dev.yaml exec plugtrack-api python -m scripts.backfill_import_locations
 """
+
 import asyncio
 
 from plugtrack.db import SessionLocal
 from plugtrack.services.ingest_location import (
-    backfill_import_session_locations, clean_location_name,
+    backfill_import_session_locations,
+    clean_location_name,
 )
 from plugtrack.services.telegram_ingest import BotConfig, load_bot_config
 
@@ -24,8 +26,9 @@ async def main() -> None:
             return await clean_location_name(network, label, address, api_key=key, model=model)
     else:
         # Fall back to the first user; no LLM cleaner (deterministic names only).
-        from sqlalchemy import select
         from plugtrack.models import User
+        from sqlalchemy import select
+
         async with SessionLocal() as s:
             user_id = (await s.execute(select(User.id).order_by(User.id))).scalars().first()
         if user_id is None:

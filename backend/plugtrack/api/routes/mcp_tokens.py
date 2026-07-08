@@ -7,10 +7,10 @@ These routes are NORMAL auth-gated endpoints (session cookie, CSRF
 required for mutating verbs) — they are NOT exempt from auth/CSRF.
 They do NOT expose the token_hash or plaintext (except once at mint).
 """
+
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
@@ -41,7 +41,7 @@ class TokenListItem(BaseModel):
     name: str
     scope: str
     created_at: datetime
-    last_used_at: Optional[datetime]
+    last_used_at: datetime | None
 
 
 class TokenCreateRequest(BaseModel):

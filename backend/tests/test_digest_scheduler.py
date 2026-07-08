@@ -3,14 +3,15 @@
 Verifies that the lifespan always registers an hourly "digest-tick" job on
 the app-level scheduler, regardless of whether backups are enabled.
 """
+
 from __future__ import annotations
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Test 1: digest-tick job is registered during lifespan boot
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_digest_tick_job_registered_in_lifespan(app):
@@ -27,6 +28,7 @@ async def test_digest_tick_job_registered_in_lifespan(app):
 # ---------------------------------------------------------------------------
 # Test 2: backup job is still registered when backups are enabled
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_backup_job_registered_when_backup_enabled(app):
@@ -45,20 +47,21 @@ async def test_backup_job_registered_when_backup_enabled(app):
 # Test 3: digest-tick is registered even when backups are disabled
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_digest_tick_registered_when_backup_disabled(app, test_sessionmaker):
     """digest-tick must be scheduled even when backup_enabled=false."""
-    from plugtrack.settings.seeds import seed_defaults
     from plugtrack.models.setting import Setting
+    from plugtrack.settings.seeds import seed_defaults
     from sqlalchemy import select as _select
 
     # Disable backups in DB.
     async with test_sessionmaker() as session:
         await seed_defaults(session)
         await session.commit()
-        row = (await session.execute(
-            _select(Setting).where(Setting.key == "backup_enabled")
-        )).scalar_one_or_none()
+        row = (
+            await session.execute(_select(Setting).where(Setting.key == "backup_enabled"))
+        ).scalar_one_or_none()
         if row is not None:
             row.value = "false"
         else:

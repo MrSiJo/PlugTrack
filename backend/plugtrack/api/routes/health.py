@@ -4,13 +4,13 @@ Returns a fixed payload including the short git SHA so the frontend
 build can show "you're running commit abc1234" without needing a build
 step.
 """
+
 from __future__ import annotations
 
 import subprocess
 from functools import lru_cache
 
 from fastapi import APIRouter
-
 
 router = APIRouter(prefix="/api", tags=["health"])
 

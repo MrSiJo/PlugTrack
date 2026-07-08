@@ -13,6 +13,7 @@ Seeds a temp demo DB in a pytest tmp_path and asserts:
 Runs in the default suite (no special env var needed) and is fast
 (in-memory seeding, no network calls).
 """
+
 from __future__ import annotations
 
 import os
@@ -20,7 +21,6 @@ import sys
 from pathlib import Path
 
 import pytest
-import pytest_asyncio
 
 # Ensure backend root is importable
 _BACKEND_ROOT = Path(__file__).resolve().parents[3]
@@ -40,6 +40,7 @@ async def test_seed_demo_smoke(tmp_path):
     demo_db = tmp_path / "demo_test.db"
 
     from plugtrack.scripts.seed_demo import seed
+
     await seed(demo_db)
 
     url = f"sqlite+aiosqlite:///{demo_db.as_posix()}"
@@ -74,17 +75,25 @@ async def test_seed_demo_smoke(tmp_path):
         # --- Mileage year ---
         active_cars = [c for c in cars if c.active]
         assert active_cars, "No active car found"
-        mileage_rows = (await s.execute(
-            select(CarMileageYear).where(CarMileageYear.car_id == active_cars[0].id)
-        )).scalars().all()
+        mileage_rows = (
+            (
+                await s.execute(
+                    select(CarMileageYear).where(CarMileageYear.car_id == active_cars[0].id)
+                )
+            )
+            .scalars()
+            .all()
+        )
         assert len(mileage_rows) >= 1, "Expected a CarMileageYear row for the active car"
 
         # --- window_totals aggregator ---
         from plugtrack.models import User
+
         user = (await s.execute(select(User))).scalars().first()
         assert user is not None
 
         from plugtrack.services.insights_stats import network_breakdown, window_totals
+
         totals = await window_totals(s, user_id=user.id, lo=None, hi=None)
         assert totals["sessions"] > 0, f"window_totals sessions == 0: {totals}"
 

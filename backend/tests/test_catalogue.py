@@ -1,4 +1,5 @@
 """Tests for the settings catalogue and seeding."""
+
 from __future__ import annotations
 
 import pytest
@@ -31,12 +32,14 @@ def test_theme_is_not_secret():
 def test_distance_unit_default_is_miles():
     """UK-default; users in metric markets flip to km via Settings UI."""
     from plugtrack.settings.catalogue import CATALOGUE
+
     by_key = {e.key: e for e in CATALOGUE}
     assert by_key["distance_unit"].default_value == "mi"
 
 
 def test_geocoding_api_key_is_marked_secret():
     from plugtrack.settings.catalogue import CATALOGUE
+
     by_key = {e.key: e for e in CATALOGUE}
     assert by_key["geocoding_api_key"].is_secret is True
 

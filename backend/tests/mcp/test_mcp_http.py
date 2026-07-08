@@ -10,16 +10,16 @@ Validates:
 - Cross-user: token for user A sees only A's charges via find_charges
 - Rate limit: many rapid requests from same token are throttled (429)
 """
+
 from __future__ import annotations
 
 import json
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-
-from plugtrack.models import Car, ChargingSession, Location, Setting, User
+from plugtrack.models import Car, ChargingSession, User
 from plugtrack.settings.seeds import seed_defaults
-
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -54,6 +54,7 @@ async def _seed_car(sm, user_id: int) -> int:
 
 async def _seed_session(sm, user_id: int, car_id: int, *, kwh: float = 20.0) -> int:
     import datetime as dt
+
     async with sm() as s:
         cs = ChargingSession(
             user_id=user_id,
@@ -75,6 +76,7 @@ async def _seed_session(sm, user_id: int, car_id: int, *, kwh: float = 20.0) -> 
 async def _mint_token(sm, user_id: int, name: str, scope: str) -> str:
     """Mint a real MCPToken and return the plaintext token."""
     from plugtrack.services import mcp_tokens
+
     async with sm() as s:
         _row, plaintext = await mcp_tokens.mint(s, user_id=user_id, name=name, scope=scope)
     return plaintext
@@ -127,7 +129,7 @@ def _parse_sse_json(body: str) -> list[dict]:
     for line in body.splitlines():
         line = line.strip()
         if line.startswith("data:"):
-            data = line[len("data:"):].strip()
+            data = line[len("data:") :].strip()
             if data and data != "[DONE]":
                 try:
                     results.append(json.loads(data))
@@ -145,7 +147,9 @@ def _parse_response(response) -> list[dict]:
     return [response.json()]
 
 
-async def _rpc(client: AsyncClient, payload: dict, *, token: str | None = None, session_id: str | None = None) -> tuple[int, list[dict]]:
+async def _rpc(
+    client: AsyncClient, payload: dict, *, token: str | None = None, session_id: str | None = None
+) -> tuple[int, list[dict]]:
     """Send one JSON-RPC request to /mcp/ and return (status_code, parsed_results)."""
     headers = dict(_RPC_HEADERS)
     if token:
@@ -279,7 +283,9 @@ async def test_mcp_readwrite_token_can_list_tools(mcp_client, mcp_seeds, test_se
 
 
 @pytest.mark.asyncio
-async def test_mcp_readwrite_find_charges_returns_own_data(mcp_client, mcp_seeds, test_sessionmaker):
+async def test_mcp_readwrite_find_charges_returns_own_data(
+    mcp_client, mcp_seeds, test_sessionmaker
+):
     """find_charges returns user A's charges when called with user A's token."""
     token = await _mint_token(test_sessionmaker, mcp_seeds["user_a_id"], "test-rw", "readwrite")
 
@@ -337,17 +343,22 @@ async def test_mcp_read_token_can_call_find_charges(mcp_client, mcp_seeds, test_
 
 
 @pytest.mark.asyncio
-async def test_mcp_read_token_cannot_call_propose_edit_charge(mcp_client, mcp_seeds, test_sessionmaker):
+async def test_mcp_read_token_cannot_call_propose_edit_charge(
+    mcp_client, mcp_seeds, test_sessionmaker
+):
     """A read-scoped token must be rejected when calling propose_edit_charge."""
     token = await _mint_token(test_sessionmaker, mcp_seeds["user_a_id"], "test-r", "read")
 
     await _initialize(mcp_client, token)
     status, msgs = await _rpc(
         mcp_client,
-        _call_tool_payload("propose_edit_charge", {
-            "charge_id": mcp_seeds["session_a_id"],
-            "notes": "test",
-        }),
+        _call_tool_payload(
+            "propose_edit_charge",
+            {
+                "charge_id": mcp_seeds["session_a_id"],
+                "notes": "test",
+            },
+        ),
         token=token,
     )
     # Either 403/401 HTTP error OR the tool result contains an error

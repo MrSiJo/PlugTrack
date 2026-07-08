@@ -6,15 +6,19 @@ prompt forbids invented figures and mandates a refuse-with-capability-hint
 fallback. Output is free text (no json_schema). Network I/O mirrors
 `screenshot_extraction.call_openai` (same retry-on-effort + incomplete check).
 """
+
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
 from .screenshot_extraction import (
-    RESPONSES_URL, Usage, extract_output_text, parse_usage,
+    RESPONSES_URL,
+    Usage,
+    extract_output_text,
+    parse_usage,
 )
 
 USAGE_SYSTEM_PROMPT = (
@@ -47,8 +51,12 @@ def build_usage_payload(question: str, snapshot: dict, *, model: str, today: str
 
 
 async def answer_usage_question(
-    question: str, snapshot: dict, *, api_key: str, model: str,
-    client: Optional[httpx.AsyncClient] = None,
+    question: str,
+    snapshot: dict,
+    *,
+    api_key: str,
+    model: str,
+    client: httpx.AsyncClient | None = None,
 ) -> tuple[str, Usage]:
     today = str(snapshot.get("today", ""))
     payload = build_usage_payload(question, snapshot, model=model, today=today)

@@ -21,8 +21,9 @@ def test_keys_present_with_types_and_groups():
 
 @pytest.mark.asyncio
 async def test_seed_inserts_new_keys(test_sessionmaker):
-    from sqlalchemy import select
     from plugtrack.models import Setting
+    from sqlalchemy import select
+
     async with test_sessionmaker() as s:
         await seed_defaults(s)
         await s.commit()

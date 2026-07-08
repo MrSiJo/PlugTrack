@@ -28,20 +28,19 @@ Usage (inside the plugtrack-api container):
 The --location-id is optional: omit it to leave the row unattached, and
 edit later via PUT /api/sessions/{id} once the location row exists.
 """
+
 from __future__ import annotations
 
 import argparse
 import asyncio
 import sys
-from datetime import date as date_cls, datetime
+from datetime import date as date_cls
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 # Ensure the backend package is importable when run via `docker exec`.
 sys.path.insert(0, "/app")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
-
-from sqlalchemy import select  # noqa: E402
 
 from plugtrack.db import SessionLocal  # noqa: E402
 from plugtrack.models import (  # noqa: E402
@@ -51,6 +50,7 @@ from plugtrack.models import (  # noqa: E402
     Setting,
 )
 from plugtrack.services.cost import compute_session_cost  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -68,67 +68,91 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Session date (YYYY-MM-DD).",
     )
     required.add_argument(
-        "--start-soc", type=int, required=True,
+        "--start-soc",
+        type=int,
+        required=True,
         help="Start SoC percentage (0-100).",
     )
     required.add_argument(
-        "--end-soc", type=int, required=True,
+        "--end-soc",
+        type=int,
+        required=True,
         help="End SoC percentage (0-100).",
     )
     required.add_argument(
-        "--kwh-added", type=float, required=True,
+        "--kwh-added",
+        type=float,
+        required=True,
         help="kWh delivered (charger reading, or compute from SoC delta).",
     )
 
     timing = p.add_argument_group("timing (optional, but recommended)")
     timing.add_argument(
-        "--start-at", type=datetime.fromisoformat, default=None,
+        "--start-at",
+        type=datetime.fromisoformat,
+        default=None,
         help="Charge start timestamp (ISO 8601, include tz). Optional.",
     )
     timing.add_argument(
-        "--end-at", type=datetime.fromisoformat, default=None,
+        "--end-at",
+        type=datetime.fromisoformat,
+        default=None,
         help="Charge end timestamp. Optional.",
     )
 
     cost = p.add_argument_group("cost (pick zero or one)")
     cost_group = cost.add_mutually_exclusive_group()
     cost_group.add_argument(
-        "--total-cost-p", type=int, default=None,
+        "--total-cost-p",
+        type=int,
+        default=None,
         help="Total cost override in pence (cost_basis=override_total).",
     )
     cost_group.add_argument(
-        "--per-kwh-p", type=float, default=None,
+        "--per-kwh-p",
+        type=float,
+        default=None,
         help="Per-kWh override in pence (cost_basis=override_per_kwh).",
     )
 
     meta = p.add_argument_group("metadata")
     meta.add_argument(
-        "--charging-type", choices=("ac", "dc", "unknown"), default="unknown",
+        "--charging-type",
+        choices=("ac", "dc", "unknown"),
+        default="unknown",
     )
     meta.add_argument(
-        "--charging-mode", default="unknown",
+        "--charging-mode",
+        default="unknown",
         help="Free-text charging mode label (default unknown).",
     )
     meta.add_argument("--charge-network", default=None)
     meta.add_argument(
-        "--location-id", type=int, default=None,
+        "--location-id",
+        type=int,
+        default=None,
         help="Optional Location.id to link the session to.",
     )
     meta.add_argument(
-        "--odometer-km", type=float, default=None,
+        "--odometer-km",
+        type=float,
+        default=None,
         help="Odometer reading at session in km.",
     )
     meta.add_argument(
-        "--label", default=None,
+        "--label",
+        default=None,
         help="Short user_label for the session (e.g. station name).",
     )
     meta.add_argument(
-        "--notes", default=None,
+        "--notes",
+        default=None,
         help="Free-text notes. Defaults to a 'backfilled' marker.",
     )
 
     p.add_argument(
-        "--commit", action="store_true",
+        "--commit",
+        action="store_true",
         help="Actually write to the DB. Without this flag the script does a dry run.",
     )
     return p
@@ -140,18 +164,14 @@ def _validate_soc(args: argparse.Namespace) -> None:
         if not 0 <= v <= 100:
             raise SystemExit(f"--{name.replace('_', '-')} must be 0..100, got {v}")
     if args.end_soc < args.start_soc:
-        raise SystemExit(
-            f"--end-soc ({args.end_soc}) is below --start-soc ({args.start_soc})"
-        )
+        raise SystemExit(f"--end-soc ({args.end_soc}) is below --start-soc ({args.start_soc})")
     if args.kwh_added <= 0:
         raise SystemExit("--kwh-added must be > 0")
 
 
 async def _home_rate(session) -> float:
     row = (
-        await session.execute(
-            select(Setting).where(Setting.key == "default_home_rate_p_per_kwh")
-        )
+        await session.execute(select(Setting).where(Setting.key == "default_home_rate_p_per_kwh"))
     ).scalar_one_or_none()
     if row is None or row.value is None:
         return 0.0
@@ -171,13 +191,11 @@ async def _run(args: argparse.Namespace) -> None:
             f"{car.make} {car.model} battery={car.battery_kwh} kWh"
         )
 
-        location: Optional[Location] = None
+        location: Location | None = None
         if args.location_id is not None:
             location = await s.get(Location, args.location_id)
             if location is None or location.user_id != car.user_id:
-                raise SystemExit(
-                    f"location id={args.location_id} not found for this user"
-                )
+                raise SystemExit(f"location id={args.location_id} not found for this user")
             print(f"location: id={location.id} name={location.name!r}")
         else:
             print("location: (none — link later via PUT /api/sessions/{id})")
@@ -192,10 +210,7 @@ async def _run(args: argparse.Namespace) -> None:
             },
             settings_default_home_rate_p_per_kwh=home_rate,
         )
-        print(
-            f"cost compute -> cost_pence={cost_pence} "
-            f"basis={cost_basis} tariff_p={tariff}"
-        )
+        print(f"cost compute -> cost_pence={cost_pence} basis={cost_basis} tariff_p={tariff}")
 
         notes = args.notes or (
             "backfilled - the sync pipeline did not observe the cable-connected window"
@@ -237,9 +252,7 @@ async def _run(args: argparse.Namespace) -> None:
         s.add(cs)
         await s.flush()
         print(f"prepared ChargingSession id={cs.id}:")
-        print(
-            f"  date={cs.date}  start={cs.charge_start_at}  end={cs.charge_end_at}"
-        )
+        print(f"  date={cs.date}  start={cs.charge_start_at}  end={cs.charge_end_at}")
         print(
             f"  soc {cs.start_soc} -> {cs.end_soc}  kwh_added={cs.kwh_added}  "
             f"type={cs.charging_type}"

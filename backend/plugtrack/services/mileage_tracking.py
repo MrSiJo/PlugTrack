@@ -14,17 +14,16 @@ by sync recency, not job recency.
 Distances are stored in km. The miles ↔ km conversion happens in this
 module since the user faces a miles-only form.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Optional
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import CarMileageYear, ChargingSession
-
 
 # Re-exported for existing importers; defined once in formatting (PLUG-L4).
 from .formatting import KM_PER_MILE  # noqa: E402
@@ -39,8 +38,8 @@ class MileagePeriod:
     period_start_date: date
     period_end_date: date
     opening_odometer_km: float
-    closing_odometer_km: Optional[float]
-    annual_mileage_target_km: Optional[float]
+    closing_odometer_km: float | None
+    annual_mileage_target_km: float | None
 
 
 @dataclass
@@ -50,13 +49,13 @@ class CurrentMileagePeriod:
     opening_odometer_km: float
     # Live max-odometer at-or-before today. Always >= opening.
     current_odometer_km: float
-    annual_mileage_target_km: Optional[float]
+    annual_mileage_target_km: float | None
 
 
 @dataclass
 class MileageStatus:
     enabled: bool
-    current_period: Optional[CurrentMileagePeriod]
+    current_period: CurrentMileagePeriod | None
     history: list[MileagePeriod]
 
 
@@ -78,15 +77,12 @@ async def max_odo_at_or_before(
     user_id: int,
     car_id: int,
     on_or_before: date,
-) -> Optional[float]:
-    stmt = (
-        select(func.max(ChargingSession.odometer_at_session_km))
-        .where(
-            ChargingSession.user_id == user_id,
-            ChargingSession.car_id == car_id,
-            ChargingSession.date <= on_or_before,
-            ChargingSession.odometer_at_session_km.isnot(None),
-        )
+) -> float | None:
+    stmt = select(func.max(ChargingSession.odometer_at_session_km)).where(
+        ChargingSession.user_id == user_id,
+        ChargingSession.car_id == car_id,
+        ChargingSession.date <= on_or_before,
+        ChargingSession.odometer_at_session_km.isnot(None),
     )
     val = (await session.execute(stmt)).scalar_one_or_none()
     return float(val) if val is not None else None
@@ -97,7 +93,7 @@ async def _load_active_row(
     *,
     user_id: int,
     car_id: int,
-) -> Optional[CarMileageYear]:
+) -> CarMileageYear | None:
     stmt = (
         select(CarMileageYear)
         .where(
@@ -160,12 +156,10 @@ async def get_status(
     *,
     user_id: int,
     car_id: int,
-    today: Optional[date] = None,
+    today: date | None = None,
 ) -> MileageStatus:
     today = today or date.today()
-    await _materialise_rollovers(
-        session, user_id=user_id, car_id=car_id, today=today
-    )
+    await _materialise_rollovers(session, user_id=user_id, car_id=car_id, today=today)
 
     # Pull every row, ordered newest-first so the active row (if any)
     # comes first.
@@ -183,9 +177,7 @@ async def get_status(
         return MileageStatus(enabled=False, current_period=None, history=[])
 
     # Active row = closing is NULL. There can only be zero or one.
-    active = next(
-        (r for r in rows if r.closing_odometer_km is None), None
-    )
+    active = next((r for r in rows if r.closing_odometer_km is None), None)
     history = [
         MileagePeriod(
             period_start_date=r.period_start_date,
@@ -198,7 +190,7 @@ async def get_status(
         if r.closing_odometer_km is not None
     ]
 
-    current: Optional[CurrentMileagePeriod] = None
+    current: CurrentMileagePeriod | None = None
     if active is not None:
         max_odo = await max_odo_at_or_before(
             session,
@@ -228,8 +220,8 @@ async def set_tracking(
     car_id: int,
     start_date: date,
     opening_miles: float,
-    annual_mileage_target_miles: Optional[float],
-    today: Optional[date] = None,
+    annual_mileage_target_miles: float | None,
+    today: date | None = None,
 ) -> MileageStatus:
     """Enable or replace mileage tracking for this car.
 
@@ -247,7 +239,7 @@ async def set_tracking(
         )
     )
 
-    target_km: Optional[float] = (
+    target_km: float | None = (
         miles_to_km(annual_mileage_target_miles)
         if annual_mileage_target_miles is not None
         else None
@@ -265,14 +257,10 @@ async def set_tracking(
     session.add(row)
     await session.flush()
 
-    return await get_status(
-        session, user_id=user_id, car_id=car_id, today=today
-    )
+    return await get_status(session, user_id=user_id, car_id=car_id, today=today)
 
 
-async def clear_tracking(
-    session: AsyncSession, *, user_id: int, car_id: int
-) -> None:
+async def clear_tracking(session: AsyncSession, *, user_id: int, car_id: int) -> None:
     await session.execute(
         delete(CarMileageYear).where(
             CarMileageYear.user_id == user_id,

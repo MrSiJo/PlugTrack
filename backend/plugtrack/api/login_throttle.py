@@ -14,13 +14,13 @@ attacker can deliberately lock a known username (an account-lockout DoS).
 That is acceptable for a single-user self-host where the per-IP limit
 still applies to every attempt; revisit if the threat model widens.
 """
+
 from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Dict
-
 
 # A username is locked after this many failures inside the rolling window.
 DEFAULT_MAX_FAILURES = 10
@@ -51,7 +51,7 @@ class LoginThrottle:
         self.lockout_seconds = lockout_seconds
         self.window_seconds = window_seconds
         self._time = time_func
-        self._entries: Dict[str, _Entry] = {}
+        self._entries: dict[str, _Entry] = {}
 
     @staticmethod
     def _key(username: str) -> str:
@@ -79,8 +79,10 @@ class LoginThrottle:
             # Already locked — don't extend the window on further attempts.
             return
 
-        if entry is None or entry.first_failure_at == 0.0 or (
-            now - entry.first_failure_at > self.window_seconds
+        if (
+            entry is None
+            or entry.first_failure_at == 0.0
+            or (now - entry.first_failure_at > self.window_seconds)
         ):
             entry = _Entry(failures=1, first_failure_at=now)
         else:

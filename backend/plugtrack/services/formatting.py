@@ -4,6 +4,7 @@ The frontend handles most display formatting (`frontend/src/utils/`),
 but a handful of API responses include pre-formatted strings (e.g.
 debug dumps, CLI exports) — those go through these helpers.
 """
+
 from __future__ import annotations
 
 # Single source of truth for the km<->mi factor (PLUG-L4).

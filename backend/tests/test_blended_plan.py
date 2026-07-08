@@ -2,15 +2,14 @@
 
 No DB, no fixtures — composes estimate_scenario (DC) + compute_charge_plan (home).
 """
+
 from __future__ import annotations
 
 import pytest
-
 from plugtrack.services.charge_planner import (
     build_blended_plan,
     build_dc_capability,
 )
-
 
 _WINDOW = {"window_minutes": 450, "window_start_str": "23:45"}
 

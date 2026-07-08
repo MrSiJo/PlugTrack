@@ -1,7 +1,6 @@
 """Tests for services/formatting.py helpers."""
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from plugtrack.services.formatting import format_currency
 

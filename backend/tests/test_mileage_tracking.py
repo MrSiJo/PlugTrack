@@ -11,12 +11,12 @@ Covers:
 - Target value is copied forward on rollover.
 - `clear_tracking` deletes everything.
 """
+
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
-
 from plugtrack.models import Car, ChargingSession, User
 from plugtrack.services import mileage_tracking
 from plugtrack.services.mileage_tracking import KM_PER_MILE
@@ -47,7 +47,9 @@ async def _make_car(sessionmaker, user_id: int) -> Car:
         return car
 
 
-async def _add_session(sessionmaker, *, user_id: int, car_id: int, when: date, odo_km: float) -> None:
+async def _add_session(
+    sessionmaker, *, user_id: int, car_id: int, when: date, odo_km: float
+) -> None:
     async with sessionmaker() as s:
         s.add(
             ChargingSession(
@@ -62,9 +64,7 @@ async def _add_session(sessionmaker, *, user_id: int, car_id: int, when: date, o
                 cost_basis="unknown",
                 source="manual",
                 odometer_at_session_km=odo_km,
-                charge_end_at=datetime.combine(when, datetime.min.time()).replace(
-                    tzinfo=timezone.utc
-                ),
+                charge_end_at=datetime.combine(when, datetime.min.time()).replace(tzinfo=UTC),
             )
         )
         await s.commit()
@@ -221,18 +221,12 @@ async def test_rollover_skips_two_years(test_sessionmaker):
     assert len(status.history) == 2
     history_sorted = sorted(status.history, key=lambda r: r.period_start_date)
     assert history_sorted[0].period_start_date == date(2025, 8, 1)
-    assert history_sorted[0].closing_odometer_km == pytest.approx(
-        9000.0 * KM_PER_MILE
-    )
+    assert history_sorted[0].closing_odometer_km == pytest.approx(9000.0 * KM_PER_MILE)
     assert history_sorted[1].period_start_date == date(2026, 8, 1)
-    assert history_sorted[1].closing_odometer_km == pytest.approx(
-        12000.0 * KM_PER_MILE
-    )
+    assert history_sorted[1].closing_odometer_km == pytest.approx(12000.0 * KM_PER_MILE)
     # Target copied forward.
     for row in history_sorted:
-        assert row.annual_mileage_target_km == pytest.approx(
-            10000.0 * KM_PER_MILE
-        )
+        assert row.annual_mileage_target_km == pytest.approx(10000.0 * KM_PER_MILE)
 
     cp = status.current_period
     assert cp is not None
@@ -296,15 +290,11 @@ async def test_clear_tracking_deletes_everything(test_sessionmaker):
         await session.commit()
 
     async with test_sessionmaker() as session:
-        await mileage_tracking.clear_tracking(
-            session, user_id=user.id, car_id=car.id
-        )
+        await mileage_tracking.clear_tracking(session, user_id=user.id, car_id=car.id)
         await session.commit()
 
     async with test_sessionmaker() as session:
-        status = await mileage_tracking.get_status(
-            session, user_id=user.id, car_id=car.id
-        )
+        status = await mileage_tracking.get_status(session, user_id=user.id, car_id=car.id)
     assert status.enabled is False
     assert status.current_period is None
     assert status.history == []
@@ -341,6 +331,4 @@ async def test_set_tracking_replaces_existing_history(test_sessionmaker):
     assert status.history == []
     assert status.current_period is not None
     assert status.current_period.period_start_date == date(2025, 8, 1)
-    assert status.current_period.opening_odometer_km == pytest.approx(
-        7022.0 * KM_PER_MILE
-    )
+    assert status.current_period.opening_odometer_km == pytest.approx(7022.0 * KM_PER_MILE)

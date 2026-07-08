@@ -1,4 +1,5 @@
 """Tests for the User model."""
+
 from __future__ import annotations
 
 import pytest

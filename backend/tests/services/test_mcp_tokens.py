@@ -8,16 +8,16 @@ Verifies:
   5. revoke() only deletes the caller's own token (other user's token_id → False/no-op).
   6. verify after revoke → None.
 """
+
 from __future__ import annotations
 
 import pytest
-
 from plugtrack.models import User
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 async def _make_user(sm, username: str) -> int:
     async with sm() as s:
@@ -31,6 +31,7 @@ async def _make_user(sm, username: str) -> int:
 # ---------------------------------------------------------------------------
 # 1. mint: returns plaintext + row with hashed token
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_mint_returns_plaintext_and_row(test_sessionmaker):
@@ -50,6 +51,7 @@ async def test_mint_returns_plaintext_and_row(test_sessionmaker):
 # ---------------------------------------------------------------------------
 # 2. verify: hit on correct token; None on wrong/old token
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_verify_correct_token_returns_row(test_sessionmaker):
@@ -104,6 +106,7 @@ async def test_verify_updates_last_used_at(test_sessionmaker):
 # 3. scope is persisted
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_scope_persisted_read(test_sessionmaker):
     from plugtrack.services.mcp_tokens import mint, verify
@@ -140,6 +143,7 @@ async def test_scope_persisted_readwrite(test_sessionmaker):
 # 4. list_for_user is user-scoped
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_list_for_user_is_user_scoped(test_sessionmaker):
     from plugtrack.services.mcp_tokens import list_for_user, mint
@@ -167,6 +171,7 @@ async def test_list_for_user_is_user_scoped(test_sessionmaker):
 # ---------------------------------------------------------------------------
 # 5. revoke: user-scoped; returns False for another user's token_id
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_revoke_own_token_returns_true(test_sessionmaker):
@@ -217,6 +222,7 @@ async def test_revoke_nonexistent_token_returns_false(test_sessionmaker):
 # ---------------------------------------------------------------------------
 # 6. verify after revoke → None
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_verify_after_revoke_returns_none(test_sessionmaker):

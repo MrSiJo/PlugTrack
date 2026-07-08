@@ -12,14 +12,14 @@ Fix 2 (Minor, spec-alignment): car-scope the AC home-actual history.
 
 All DB-backed tests use the shared fixtures (SQLite in tmp_path).
 """
+
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import pytest_asyncio
-
 from plugtrack.services.charge_planner import (
     DcCapability,
     DcSession,
@@ -27,7 +27,6 @@ from plugtrack.services.charge_planner import (
     estimate_scenario,
     resolve_plan_inputs,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fix 1a — build_dc_capability: zero-power curve points must be dropped
@@ -45,8 +44,8 @@ class TestBuildDcCapabilityDropsZeroPowerPoints:
         [100.0] → median = 100.0.
         """
         curve = [
-            [0, 55, 0.0],    # zero-power point — must be dropped
-            [30, 57, 100.0], # good point
+            [0, 55, 0.0],  # zero-power point — must be dropped
+            [30, 57, 100.0],  # good point
         ]
         sess = DcSession(
             start_soc=50,
@@ -67,8 +66,7 @@ class TestBuildDcCapabilityDropsZeroPowerPoints:
         # Without fix: median([0.0, 100.0]) == 50.0 (still non-zero but wrong).
         # The critical assertion is that the zero point was excluded:
         assert power == pytest.approx(100.0, abs=0.1), (
-            "zero-power curve point polluted the band median; "
-            f"expected 100.0 but got {power:.1f}"
+            f"zero-power curve point polluted the band median; expected 100.0 but got {power:.1f}"
         )
 
     def test_all_zero_curve_points_in_band_fall_through_to_average(self):
@@ -78,7 +76,7 @@ class TestBuildDcCapabilityDropsZeroPowerPoints:
         """
         curve = [
             [0, 55, 0.0],  # zero — dropped
-            [30, 58, 0.0], # zero — dropped
+            [30, 58, 0.0],  # zero — dropped
         ]
         sess = DcSession(
             start_soc=50,
@@ -104,7 +102,7 @@ class TestBuildDcCapabilityDropsZeroPowerPoints:
     def test_negative_power_curve_point_not_included(self):
         """Negative power_kw values (data errors) must also be excluded."""
         curve = [
-            [0, 35, -5.0],   # negative — must be dropped
+            [0, 35, -5.0],  # negative — must be dropped
             [30, 37, 90.0],  # good
         ]
         sess = DcSession(
@@ -260,7 +258,7 @@ async def two_car_user(test_sessionmaker):
             nominal_efficiency_mi_per_kwh=4.2,
             provider="manual",
             active=True,
-            max_ac_kw=None,   # no spec cap -> observed history matters
+            max_ac_kw=None,  # no spec cap -> observed history matters
             max_dc_kw=100.0,
         )
         car_b = Car(
@@ -292,7 +290,7 @@ async def two_car_user(test_sessionmaker):
 
         def _make_session(car_id, kwh, hours, day_offset):
             """Return a minimal AC home ChargingSession."""
-            start = datetime(2026, 1, day_offset, 23, 45, tzinfo=timezone.utc)
+            start = datetime(2026, 1, day_offset, 23, 45, tzinfo=UTC)
             end = start + timedelta(hours=hours)
             return ChargingSession(
                 user_id=user.id,

@@ -1,7 +1,8 @@
 """Unit tests for the curve-backfill pure logic: the shared curve mapper and
 the screenshot->session matcher. The CLI's network/DB orchestration is not
 exercised here."""
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from plugtrack.scripts.backfill_curves import pick_session
@@ -31,7 +32,7 @@ def test_pick_session_matches_by_time_within_tolerance():
         _cs(2, datetime(2026, 6, 18, 13, 17), 67, 80),
     ]
     # Screenshot start parsed as UTC-aware, 2 min off the stored naive time.
-    ext_start = datetime(2026, 6, 18, 11, 28, tzinfo=timezone.utc)
+    ext_start = datetime(2026, 6, 18, 11, 28, tzinfo=UTC)
     assert pick_session(cands, ext_start, 55, 90, 30).id == 1
 
 

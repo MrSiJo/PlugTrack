@@ -4,10 +4,11 @@ GET /api/insights/by-location
     auth required; date_from/date_to optional (absent = all-time).
     Returns {rows, totals} — see services/insights.py.
 """
+
 from __future__ import annotations
 
-from datetime import date as date_cls, datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
+from datetime import date as date_cls
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -24,15 +25,15 @@ from ...services.insights_stats import (
     network_breakdown,
     resolve_granularity,
     spend_energy_over_time,
-    window_totals,
 )
 from ...services.ownership_trends import (
     battery_health_summary,
-    capacity_trend as _capacity_trend,
     efficiency_by_month,
     seasonal_delta,
 )
-
+from ...services.ownership_trends import (
+    capacity_trend as _capacity_trend,
+)
 
 router = APIRouter(prefix="/api/insights", tags=["insights"])
 
@@ -47,9 +48,9 @@ def _user_id(request: Request) -> int:
 @router.get("/by-location")
 async def get_by_location(
     request: Request,
-    date_from: Optional[date_cls] = Query(default=None),
-    date_to: Optional[date_cls] = Query(default=None),
-    car_id: Optional[int] = Query(default=None),
+    date_from: date_cls | None = Query(default=None),
+    date_to: date_cls | None = Query(default=None),
+    car_id: int | None = Query(default=None),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     user_id = _user_id(request)
@@ -83,22 +84,28 @@ async def _effective_bounds(session, user_id, date_from, date_to):
     """Resolve concrete (lo, hi) for granularity. Missing bounds fall back
     to the user's min/max session date. Returns (None, None) if no data."""
     from sqlalchemy import func, select
+
     from ...models import ChargingSession
+
     lo, hi = date_from, date_to
     if lo is None:
-        lo = (await session.execute(
-            select(func.min(ChargingSession.date)).where(
-                ChargingSession.user_id == user_id))).scalar_one_or_none()
+        lo = (
+            await session.execute(
+                select(func.min(ChargingSession.date)).where(ChargingSession.user_id == user_id)
+            )
+        ).scalar_one_or_none()
     if hi is None:
-        hi = (await session.execute(
-            select(func.max(ChargingSession.date)).where(
-                ChargingSession.user_id == user_id))).scalar_one_or_none()
+        hi = (
+            await session.execute(
+                select(func.max(ChargingSession.date)).where(ChargingSession.user_id == user_id)
+            )
+        ).scalar_one_or_none()
     return lo, hi
 
 
 async def _resolve_trend_car(
-    session: AsyncSession, *, user_id: int, car_id: Optional[int]
-) -> Optional[Car]:
+    session: AsyncSession, *, user_id: int, car_id: int | None
+) -> Car | None:
     """Return the Car to use for ownership-trend aggregations.
 
     When car_id is provided, load that specific car (no active filter — it
@@ -122,9 +129,9 @@ async def _resolve_trend_car(
 @router.get("/overview")
 async def get_overview(
     request: Request,
-    date_from: Optional[date_cls] = Query(default=None),
-    date_to: Optional[date_cls] = Query(default=None),
-    car_id: Optional[int] = Query(default=None),
+    date_from: date_cls | None = Query(default=None),
+    date_to: date_cls | None = Query(default=None),
+    car_id: int | None = Query(default=None),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     user_id = _user_id(request)
@@ -132,15 +139,27 @@ async def get_overview(
     granularity = resolve_granularity(lo, hi) if lo is not None and hi is not None else "daily"
 
     over_time = await spend_energy_over_time(
-        session, user_id=user_id, date_from=date_from, date_to=date_to, granularity=granularity,
-        car_id=car_id)
+        session,
+        user_id=user_id,
+        date_from=date_from,
+        date_to=date_to,
+        granularity=granularity,
+        car_id=car_id,
+    )
     split = await home_public_split(
-        session, user_id=user_id, date_from=date_from, date_to=date_to, car_id=car_id)
+        session, user_id=user_id, date_from=date_from, date_to=date_to, car_id=car_id
+    )
     by_network = await network_breakdown(
-        session, user_id=user_id, date_from=date_from, date_to=date_to, car_id=car_id)
+        session, user_id=user_id, date_from=date_from, date_to=date_to, car_id=car_id
+    )
     efficiency = await efficiency_over_time(
-        session, user_id=user_id, date_from=date_from, date_to=date_to, granularity=granularity,
-        car_id=car_id)
+        session,
+        user_id=user_id,
+        date_from=date_from,
+        date_to=date_to,
+        granularity=granularity,
+        car_id=car_id,
+    )
 
     # Ownership-trend keys — inherently per-car; resolve the car to use.
     trend_car = await _resolve_trend_car(session, user_id=user_id, car_id=car_id)
@@ -168,17 +187,19 @@ async def get_overview(
         capacity_trend_data = []
         battery_health = None
 
-    return JSONResponse(content={
-        "granularity": granularity,
-        "over_time": over_time,
-        "split": split,
-        "by_network": by_network,
-        "efficiency": efficiency,
-        "seasonal_efficiency": seasonal_efficiency,
-        "capacity_trend": capacity_trend_data,
-        "seasonal_delta": seasonal_delta(seasonal_efficiency),
-        "battery_health": battery_health,
-    })
+    return JSONResponse(
+        content={
+            "granularity": granularity,
+            "over_time": over_time,
+            "split": split,
+            "by_network": by_network,
+            "efficiency": efficiency,
+            "seasonal_efficiency": seasonal_efficiency,
+            "capacity_trend": capacity_trend_data,
+            "seasonal_delta": seasonal_delta(seasonal_efficiency),
+            "battery_health": battery_health,
+        }
+    )
 
 
 @router.get("/mileage")
@@ -189,5 +210,6 @@ async def get_mileage(
 ) -> JSONResponse:
     user_id = _user_id(request)
     view = await mileage_allowance_view(
-        session, user_id=user_id, car_id=car_id, today=datetime.now(timezone.utc).date())
+        session, user_id=user_id, car_id=car_id, today=datetime.now(UTC).date()
+    )
     return JSONResponse(content=view)

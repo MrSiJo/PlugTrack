@@ -1,10 +1,10 @@
 """Tests for the double-submit CSRF middleware."""
+
 from __future__ import annotations
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-
 from plugtrack.security.csrf import (
     CSRF_COOKIE_NAME,
     CSRF_HEADER_NAME,

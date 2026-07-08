@@ -8,6 +8,7 @@ Covers:
 - rows_to_json: round-trips to a list of dicts, handles dates/datetimes as
   strings via default=str.
 """
+
 from __future__ import annotations
 
 import csv
@@ -16,8 +17,6 @@ import json
 from datetime import date
 
 import pytest
-import pytest_asyncio
-
 from plugtrack.services.export import (
     SESSION_EXPORT_COLUMNS,
     export_locations_rows,
@@ -26,10 +25,10 @@ from plugtrack.services.export import (
     rows_to_json,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers — seed two fully isolated users
 # ---------------------------------------------------------------------------
+
 
 async def _seed_two_users(sm):
     """Seed User A and User B, each with a Car, a Location, and a ChargingSession.
@@ -121,9 +120,12 @@ async def _seed_two_users(sm):
         await s.refresh(sess_b)
 
         return (
-            user_a.id, user_b.id,
-            sess_a.id, sess_b.id,
-            loc_a.id, loc_b.id,
+            user_a.id,
+            user_b.id,
+            sess_a.id,
+            sess_b.id,
+            loc_a.id,
+            loc_b.id,
         )
 
 
@@ -131,15 +133,34 @@ async def _seed_two_users(sm):
 # SESSION_EXPORT_COLUMNS
 # ---------------------------------------------------------------------------
 
+
 def test_session_export_columns_stable():
     """SESSION_EXPORT_COLUMNS must contain exactly the specified fields."""
     expected = [
-        "id", "date", "car_id", "charge_start_at", "charge_end_at",
-        "start_soc", "end_soc", "kwh_added", "kwh_calculated",
-        "odometer_at_session_km", "charging_type", "charging_mode",
-        "actual_charge_seconds", "interrupted", "cost_pence", "cost_basis",
-        "tariff_p_per_kwh", "cost_per_kwh_override_p", "total_cost_pence_override",
-        "location_id", "location_name", "user_label", "charge_network", "notes",
+        "id",
+        "date",
+        "car_id",
+        "charge_start_at",
+        "charge_end_at",
+        "start_soc",
+        "end_soc",
+        "kwh_added",
+        "kwh_calculated",
+        "odometer_at_session_km",
+        "charging_type",
+        "charging_mode",
+        "actual_charge_seconds",
+        "interrupted",
+        "cost_pence",
+        "cost_basis",
+        "tariff_p_per_kwh",
+        "cost_per_kwh_override_p",
+        "total_cost_pence_override",
+        "location_id",
+        "location_name",
+        "user_label",
+        "charge_network",
+        "notes",
         "source",
     ]
     assert SESSION_EXPORT_COLUMNS == expected
@@ -149,12 +170,11 @@ def test_session_export_columns_stable():
 # export_sessions_rows
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_export_sessions_rows_returns_only_own_rows(test_sessionmaker):
     """User A sees only their own session; User B's session is absent."""
-    user_a_id, user_b_id, sess_a_id, sess_b_id, *_ = await _seed_two_users(
-        test_sessionmaker
-    )
+    user_a_id, user_b_id, sess_a_id, sess_b_id, *_ = await _seed_two_users(test_sessionmaker)
 
     async with test_sessionmaker() as s:
         rows_a = await export_sessions_rows(s, user_a_id)
@@ -166,9 +186,7 @@ async def test_export_sessions_rows_returns_only_own_rows(test_sessionmaker):
 @pytest.mark.asyncio
 async def test_export_sessions_rows_user_b_isolation(test_sessionmaker):
     """User B sees only their own session; User A's session is absent."""
-    user_a_id, user_b_id, sess_a_id, sess_b_id, *_ = await _seed_two_users(
-        test_sessionmaker
-    )
+    user_a_id, user_b_id, sess_a_id, sess_b_id, *_ = await _seed_two_users(test_sessionmaker)
 
     async with test_sessionmaker() as s:
         rows_b = await export_sessions_rows(s, user_b_id)
@@ -265,12 +283,11 @@ async def test_export_sessions_rows_empty_for_unknown_user(test_sessionmaker):
 # export_locations_rows
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_export_locations_rows_isolation(test_sessionmaker):
     """User A sees only their location; User B's location is absent."""
-    user_a_id, user_b_id, _, _, loc_a_id, loc_b_id = await _seed_two_users(
-        test_sessionmaker
-    )
+    user_a_id, user_b_id, _, _, loc_a_id, loc_b_id = await _seed_two_users(test_sessionmaker)
 
     async with test_sessionmaker() as s:
         rows_a = await export_locations_rows(s, user_a_id)
@@ -288,8 +305,14 @@ async def test_export_locations_rows_expected_keys(test_sessionmaker):
     """Each location row must contain the expected export columns."""
     user_a_id, *_ = await _seed_two_users(test_sessionmaker)
     expected_keys = {
-        "id", "name", "address", "latitude", "longitude",
-        "is_free", "default_cost_per_kwh_p", "radius_m",
+        "id",
+        "name",
+        "address",
+        "latitude",
+        "longitude",
+        "is_free",
+        "default_cost_per_kwh_p",
+        "radius_m",
     }
 
     async with test_sessionmaker() as s:
@@ -301,6 +324,7 @@ async def test_export_locations_rows_expected_keys(test_sessionmaker):
 # ---------------------------------------------------------------------------
 # rows_to_csv
 # ---------------------------------------------------------------------------
+
 
 def test_rows_to_csv_header_and_one_row():
     """CSV output must start with the correct header and have one data row."""
@@ -361,6 +385,7 @@ def test_rows_to_csv_multiple_rows():
 # rows_to_json
 # ---------------------------------------------------------------------------
 
+
 def test_rows_to_csv_neutralises_formula_injection():
     """Cells beginning with a spreadsheet formula trigger are prefixed with '.
 
@@ -379,8 +404,12 @@ def test_rows_to_csv_neutralises_formula_injection():
 def test_rows_to_csv_leaves_benign_values_untouched():
     """Real-world values (apostrophes, commas, leading letters) are unchanged."""
     columns = ["user_label", "location_name"]
-    rows = [{"user_label": "Land's End Car Park, Penzance",
-             "location_name": "InstaVolt McDonald's (Yeovil)"}]
+    rows = [
+        {
+            "user_label": "Land's End Car Park, Penzance",
+            "location_name": "InstaVolt McDonald's (Yeovil)",
+        }
+    ]
     cell = list(csv.DictReader(io.StringIO(rows_to_csv(columns, rows))))[0]
     assert cell["user_label"] == "Land's End Car Park, Penzance"
     assert cell["location_name"] == "InstaVolt McDonald's (Yeovil)"

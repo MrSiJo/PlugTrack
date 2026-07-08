@@ -29,12 +29,11 @@ tokens degrade gracefully on restart).
 
 TTL is _TOKEN_TTL_SECONDS (10 min). commit_change checks expiry before applying.
 """
+
 from __future__ import annotations
 
 import datetime as dt
 import secrets
-from datetime import timezone
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,7 +45,6 @@ from ..services.formatting import KM_PER_MILE
 from ..services.geocoding import get_provider
 from ..services.location_clustering import find_or_create_location
 
-
 # ---------------------------------------------------------------------------
 # Money formatting (display convention for the conversational layer)
 #   - totals / spend / per-charge cost → pounds, "£X.XX"
@@ -56,14 +54,13 @@ from ..services.location_clustering import find_or_create_location
 # ---------------------------------------------------------------------------
 
 
-
-def _format_gbp(pence) -> Optional[str]:
+def _format_gbp(pence) -> str | None:
     if pence is None:
         return None
     return f"£{pence / 100:.2f}"
 
 
-def _format_rate(p) -> Optional[str]:
+def _format_rate(p) -> str | None:
     if p is None:
         return None
     return f"{p:.1f}p/kWh"
@@ -98,9 +95,10 @@ _TOKEN_TTL_SECONDS = 600  # 10 minutes
 
 def _evict_stale_tokens() -> None:
     """Remove expired and already-used entries from _CHANGE_STORE (lazy eviction)."""
-    now = dt.datetime.now(timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     stale = [
-        k for k, v in _CHANGE_STORE.items()
+        k
+        for k, v in _CHANGE_STORE.items()
         if v["used"] or (now - v["created_at"]).total_seconds() > _TOKEN_TTL_SECONDS
     ]
     for k in stale:
@@ -112,7 +110,7 @@ def _mint_token(user_id: int, kind: str, data: dict) -> str:
     token = secrets.token_urlsafe(12)
     _CHANGE_STORE[token] = {
         "user_id": user_id,
-        "created_at": dt.datetime.now(timezone.utc),
+        "created_at": dt.datetime.now(dt.UTC),
         "used": False,
         "kind": kind,
         "data": data,
@@ -130,7 +128,7 @@ def _validate_token(token: str, user_id: int) -> dict | None:
     if entry is None:
         return {"error": "unknown or already-consumed change token"}
 
-    age = (dt.datetime.now(timezone.utc) - entry["created_at"]).total_seconds()
+    age = (dt.datetime.now(dt.UTC) - entry["created_at"]).total_seconds()
     if age > _TOKEN_TTL_SECONDS:
         return {"error": "change token has expired"}
 
@@ -174,7 +172,7 @@ async def _get_owned_location(
     return result.scalar_one_or_none()
 
 
-def _format_odometer(km: Optional[float], unit: str) -> Optional[str]:
+def _format_odometer(km: float | None, unit: str) -> str | None:
     if km is None:
         return None
     if unit == "km":
@@ -182,13 +180,15 @@ def _format_odometer(km: Optional[float], unit: str) -> Optional[str]:
     return f"{round(km / KM_PER_MILE):,} mi"
 
 
-def _session_to_dict(cs: ChargingSession, *, location_name: Optional[str] = None, distance_unit: str = "mi") -> dict:
+def _session_to_dict(
+    cs: ChargingSession, *, location_name: str | None = None, distance_unit: str = "mi"
+) -> dict:
     return {
         "id": cs.id,
         "date": cs.date,
         "kwh": cs.kwh_added,
-        "cost": _format_gbp(cs.cost_pence),       # pounds, e.g. "£9.85"
-        "cost_pence": cs.cost_pence,              # raw, for reference
+        "cost": _format_gbp(cs.cost_pence),  # pounds, e.g. "£9.85"
+        "cost_pence": cs.cost_pence,  # raw, for reference
         "soc": {"start": cs.start_soc, "end": cs.end_soc},
         "location_id": cs.location_id,
         "location_name": location_name,
@@ -234,10 +234,10 @@ async def find_charges(
     session: AsyncSession,
     user_id: int,
     *,
-    query: Optional[str] = None,
-    date_from: Optional[dt.date] = None,
-    date_to: Optional[dt.date] = None,
-    location_id: Optional[int] = None,
+    query: str | None = None,
+    date_from: dt.date | None = None,
+    date_to: dt.date | None = None,
+    location_id: int | None = None,
     limit: int = 10,
 ) -> list[dict]:
     """Return recent charges for the user, most-recent first.
@@ -246,9 +246,9 @@ async def find_charges(
     The `query` param is reserved for future text search; currently ignored.
     """
     try:
-        dist_unit_row = (await session.execute(
-            select(Setting).where(Setting.key == "distance_unit")
-        )).scalar_one_or_none()
+        dist_unit_row = (
+            await session.execute(select(Setting).where(Setting.key == "distance_unit"))
+        ).scalar_one_or_none()
         dist_unit = (dist_unit_row.value if dist_unit_row else None) or "mi"
 
         stmt = (
@@ -266,7 +266,10 @@ async def find_charges(
         stmt = stmt.limit(_clamp_limit(limit))
 
         rows = (await session.execute(stmt)).all()
-        return [_session_to_dict(cs, location_name=loc_name, distance_unit=dist_unit) for cs, loc_name in rows]
+        return [
+            _session_to_dict(cs, location_name=loc_name, distance_unit=dist_unit)
+            for cs, loc_name in rows
+        ]
     except Exception as exc:
         return [{"error": str(exc)}]
 
@@ -289,9 +292,7 @@ async def get_charge(
             if loc is not None:
                 loc_name = loc.name
 
-        dist_unit_row = await session.execute(
-            select(Setting).where(Setting.key == "distance_unit")
-        )
+        dist_unit_row = await session.execute(select(Setting).where(Setting.key == "distance_unit"))
         dist_unit_row = dist_unit_row.scalar_one_or_none()
         dist_unit = (dist_unit_row.value if dist_unit_row else None) or "mi"
         return _session_to_dict(cs, location_name=loc_name, distance_unit=dist_unit)
@@ -303,8 +304,8 @@ async def get_insights(
     session: AsyncSession,
     user_id: int,
     *,
-    date_from: Optional[dt.date] = None,
-    date_to: Optional[dt.date] = None,
+    date_from: dt.date | None = None,
+    date_to: dt.date | None = None,
 ) -> dict:
     """Compose spec-03 aggregators into one insight dict."""
     try:
@@ -326,18 +327,22 @@ async def get_insights(
             granularity = insights_stats.resolve_granularity(date_from, date_to)
 
         over_time = await insights_stats.spend_energy_over_time(
-            session, user_id=user_id,
-            date_from=date_from, date_to=date_to,
+            session,
+            user_id=user_id,
+            date_from=date_from,
+            date_to=date_to,
             granularity=granularity,
         )
 
-        return _annotate_money({
-            "totals": totals,
-            "home_public_split": split,
-            "network_breakdown": networks,
-            "spend_energy_over_time": over_time,
-            "granularity": granularity,
-        })
+        return _annotate_money(
+            {
+                "totals": totals,
+                "home_public_split": split,
+                "network_breakdown": networks,
+                "spend_energy_over_time": over_time,
+                "granularity": granularity,
+            }
+        )
     except Exception as exc:
         return {"error": str(exc)}
 
@@ -350,9 +355,7 @@ async def get_insights(
 async def _geocoding_settings(session: AsyncSession) -> dict:
     """Read geocoding settings from the Setting table."""
     keys = ["geocoding_enabled", "geocoding_provider", "geocoding_api_key"]
-    rows = (
-        await session.execute(select(Setting).where(Setting.key.in_(keys)))
-    ).scalars().all()
+    rows = (await session.execute(select(Setting).where(Setting.key.in_(keys)))).scalars().all()
     return {r.key: r.value for r in rows}
 
 
@@ -360,10 +363,10 @@ async def propose_create_location(
     session: AsyncSession,
     user_id: int,
     *,
-    name: Optional[str] = None,
-    lat: Optional[float] = None,
-    lng: Optional[float] = None,
-    address: Optional[str] = None,
+    name: str | None = None,
+    lat: float | None = None,
+    lng: float | None = None,
+    address: str | None = None,
 ) -> dict:
     """Propose creating a new location.
 
@@ -382,7 +385,7 @@ async def propose_create_location(
         if lat is not None and lng is None:
             return {"error": "lng is required when lat is provided"}
 
-        resolved_address: Optional[str] = None
+        resolved_address: str | None = None
 
         if lat is None:
             # Address-only path: geocode at propose time
@@ -390,11 +393,7 @@ async def propose_create_location(
             provider = get_provider(settings_dict)
             result = await provider.forward(address)  # type: ignore[arg-type]
             if result is None:
-                return {
-                    "error": (
-                        f"could not geocode {address!r}; provide coordinates"
-                    )
-                }
+                return {"error": (f"could not geocode {address!r}; provide coordinates")}
             lat = result.lat
             lng = result.lng
             resolved_address = result.address
@@ -411,8 +410,7 @@ async def propose_create_location(
         coord_str = f"({lat:.4f}, {lng:.4f})"
         if resolved_address is not None:
             summary = (
-                f"Create location '{location_desc}' at {coord_str} "
-                f"(resolved: {resolved_address!r})"
+                f"Create location '{location_desc}' at {coord_str} (resolved: {resolved_address!r})"
             )
         else:
             summary = f"Create location '{location_desc}' at {coord_str}"
@@ -428,8 +426,8 @@ async def propose_set_location(
     user_id: int,
     *,
     charge_id: int,
-    location_id: Optional[int] = None,
-    location_name: Optional[str] = None,
+    location_id: int | None = None,
+    location_name: str | None = None,
 ) -> dict:
     """Propose setting the location on a charge session.
 
@@ -443,8 +441,8 @@ async def propose_set_location(
             return {"error": f"charge {charge_id} not found or not owned by this user"}
 
         # Resolve location
-        resolved_location_id: Optional[int] = None
-        resolved_location_name: Optional[str] = None
+        resolved_location_id: int | None = None
+        resolved_location_name: str | None = None
 
         if location_id:  # 0/None -> no filter (models pass 0 for unset optionals)
             loc = await _get_owned_location(session, location_id, user_id)
@@ -506,7 +504,7 @@ async def propose_attach_location(
         if cs is None:
             return {"error": f"charge {charge_id} not found or not owned by this user"}
 
-        place: Optional[str] = None
+        place: str | None = None
         try:
             provider = get_provider(await _geocoding_settings(session))
             result = await provider.reverse(lat, lng)
@@ -521,8 +519,7 @@ async def propose_attach_location(
 
         where = place or f"({lat:.4f}, {lng:.4f})"
         summary = (
-            f"Attach location {where} to charge #{charge_id} "
-            f"(date={cs.date}, {cs.kwh_added}kWh)"
+            f"Attach location {where} to charge #{charge_id} (date={cs.date}, {cs.kwh_added}kWh)"
         )
         token = _mint_token(user_id, "attach_location", data)
         return {"summary": summary, "change_token": token}
@@ -535,16 +532,16 @@ async def propose_edit_charge(
     user_id: int,
     *,
     charge_id: int,
-    kwh: Optional[float] = None,
-    price_p_per_kwh: Optional[float] = None,
-    total_cost_p: Optional[int] = None,
-    start_soc: Optional[int] = None,
-    end_soc: Optional[int] = None,
-    date: Optional[dt.date] = None,
-    network: Optional[str] = None,
-    notes: Optional[str] = None,
-    odometer: Optional[float] = None,
-    odometer_unit: Optional[str] = None,
+    kwh: float | None = None,
+    price_p_per_kwh: float | None = None,
+    total_cost_p: int | None = None,
+    start_soc: int | None = None,
+    end_soc: int | None = None,
+    date: dt.date | None = None,
+    network: str | None = None,
+    notes: str | None = None,
+    odometer: float | None = None,
+    odometer_unit: str | None = None,
 ) -> dict:
     """Propose editing fields on a charge session.
 
@@ -601,9 +598,8 @@ async def propose_edit_charge(
         if not changes:
             return {"error": "no changes specified"}
 
-        summary = (
-            f"Edit charge #{charge_id} (date={cs.date}, {cs.kwh_added}kWh): "
-            + "; ".join(changes)
+        summary = f"Edit charge #{charge_id} (date={cs.date}, {cs.kwh_added}kWh): " + "; ".join(
+            changes
         )
 
         token = _mint_token(user_id, "edit_charge", data)
@@ -653,9 +649,7 @@ async def commit_change(
         return {"error": f"commit failed: {exc}"}
 
 
-async def _apply_change(
-    session: AsyncSession, user_id: int, kind: str, data: dict
-) -> dict:
+async def _apply_change(session: AsyncSession, user_id: int, kind: str, data: dict) -> dict:
     """Dispatch and apply the change payload."""
 
     if kind == "create_location":
@@ -671,9 +665,14 @@ async def _apply_change(
 
 
 async def attach_coords_to_charge(
-    session: AsyncSession, user_id: int, *, charge_id: int,
-    lat: float, lng: float, name: Optional[str] = None,
-) -> Optional[Location]:
+    session: AsyncSession,
+    user_id: int,
+    *,
+    charge_id: int,
+    lat: float,
+    lng: float,
+    name: str | None = None,
+) -> Location | None:
     """Cluster coords into an existing nearby Location (or create one) and set
     it on the charge, re-deriving cost under the freeze invariant. Flushes but
     does NOT commit — the caller owns the transaction. Returns the Location, or
@@ -691,12 +690,14 @@ async def attach_coords_to_charge(
     return loc
 
 
-async def _apply_attach_location(
-    session: AsyncSession, user_id: int, data: dict
-) -> dict:
+async def _apply_attach_location(session: AsyncSession, user_id: int, data: dict) -> dict:
     loc = await attach_coords_to_charge(
-        session, user_id, charge_id=data["charge_id"],
-        lat=data["lat"], lng=data["lng"], name=data.get("name"),
+        session,
+        user_id,
+        charge_id=data["charge_id"],
+        lat=data["lat"],
+        lng=data["lng"],
+        name=data.get("name"),
     )
     if loc is None:
         return {"error": f"charge {data['charge_id']} not found or not owned by this user"}
@@ -704,9 +705,7 @@ async def _apply_attach_location(
     return {"ok": True, "charge_id": data["charge_id"], "location_id": loc.id, "name": loc.name}
 
 
-async def _apply_create_location(
-    session: AsyncSession, user_id: int, data: dict
-) -> dict:
+async def _apply_create_location(session: AsyncSession, user_id: int, data: dict) -> dict:
     name = data.get("name")
     lat = data.get("lat")
     lng = data.get("lng")
@@ -731,13 +730,11 @@ async def _apply_create_location(
         # Return an error guiding the caller.
         return {
             "error": "address-only location creation requires geocoding — "
-                     "provide lat/lng instead, or geocode the address first"
+            "provide lat/lng instead, or geocode the address first"
         }
 
 
-async def _apply_set_location(
-    session: AsyncSession, user_id: int, data: dict
-) -> dict:
+async def _apply_set_location(session: AsyncSession, user_id: int, data: dict) -> dict:
     charge_id: int = data["charge_id"]
     location_id: int = data["location_id"]
 
@@ -759,9 +756,7 @@ async def _apply_set_location(
     return {"ok": True, "charge_id": charge_id, "location_id": location_id}
 
 
-async def _apply_edit_charge(
-    session: AsyncSession, user_id: int, data: dict
-) -> dict:
+async def _apply_edit_charge(session: AsyncSession, user_id: int, data: dict) -> dict:
     charge_id: int = data["charge_id"]
 
     cs = await _get_owned_session(session, charge_id, user_id)
@@ -792,6 +787,7 @@ async def _apply_edit_charge(
 
     if "date" in data:
         import datetime as _dt
+
         cs.date = _dt.date.fromisoformat(data["date"])
 
     if "network" in data:
