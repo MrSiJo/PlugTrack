@@ -122,6 +122,7 @@ async def run_digest_tick(
         from .services.digest import build_monthly_digest as _bm
         _monthly_builder = _bm
 
+    client = None
     try:
         from sqlalchemy import select as _select
         from .models import Setting as _Setting, User as _User
@@ -190,7 +191,14 @@ async def run_digest_tick(
         # Current month string: "YYYY-MM"
         current_month = now_local.strftime("%Y-%m")
 
-        client = client_factory(token)
+        # PLUG-M4: construct the Telegram client lazily — only when a digest
+        # is actually due — and close it in the outer finally so an hourly
+        # tick can never leak an httpx connection pool.
+        def _client():
+            nonlocal client
+            if client is None:
+                client = client_factory(token)
+            return client
 
         # ── Delivery semantics (at-least-once) ───────────────────────────────
         # Send failure  → marker NOT advanced → tick retried next hourly run.
@@ -221,7 +229,7 @@ async def run_digest_tick(
 
                     if text is not None:
                         # Failure here raises → marker NOT committed → retried next tick.
-                        await client.send_message(chat_id=chat_id, text=text)
+                        await _client().send_message(chat_id=chat_id, text=text)
 
                     # Marker committed only after successful send (or empty period).
                     async with sessionmaker() as session:
@@ -261,7 +269,7 @@ async def run_digest_tick(
 
                     if text is not None:
                         # Failure here raises → marker NOT committed → retried next tick.
-                        await client.send_message(chat_id=chat_id, text=text)
+                        await _client().send_message(chat_id=chat_id, text=text)
 
                     # Marker committed only after successful send (or empty period).
                     async with sessionmaker() as session:
@@ -286,6 +294,14 @@ async def run_digest_tick(
 
     except Exception:  # noqa: BLE001
         _log.exception("run_digest_tick failed — swallowed to protect scheduler.")
+    finally:
+        # PLUG-M4: close the (lazily created) Telegram client so its
+        # httpx connection pool is released after every tick.
+        if client is not None:
+            aclose = getattr(client, "aclose", None)
+            if aclose is not None:
+                with contextlib.suppress(Exception):
+                    await aclose()
 
 
 def _assert_single_worker() -> None:

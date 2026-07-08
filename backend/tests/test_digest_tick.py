@@ -52,12 +52,16 @@ class FakeTelegramClient:
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.closed = False
 
     async def send_message(
         self, *, chat_id: int, text: str, reply_markup: Optional[dict] = None
     ) -> Optional[int]:
         self.calls.append({"chat_id": chat_id, "text": text, "reply_markup": reply_markup})
         return 1  # fake message_id
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 class FailingTelegramClient:
@@ -595,3 +599,56 @@ async def test_both_succeed_markers_set_to_correct_values(test_sessionmaker):
 
     monthly_marker = await _get_marker(test_sessionmaker, "digest_last_monthly_sent")
     assert monthly_marker == MONTH_MARKER_JUL  # "2026-07"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PLUG-M4 — client lifecycle: lazy construction + aclose after every tick
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_client_is_closed_after_a_send(test_sessionmaker):
+    """The Telegram client's aclose() runs after a tick that sent a digest."""
+    await _seed_user(test_sessionmaker)
+    await _seed_bot_settings(test_sessionmaker, weekly=True, monthly=False)
+
+    fake = FakeTelegramClient()
+
+    async def _fake_weekly(session, *, user_id, now):
+        return "weekly text"
+
+    async def _fake_monthly(session, *, user_id, now):
+        return None
+
+    await run_digest_tick(
+        now=MONDAY_AFTER,
+        sessionmaker=test_sessionmaker,
+        client_factory=lambda token: fake,
+        _weekly_builder=_fake_weekly,
+        _monthly_builder=_fake_monthly,
+    )
+
+    assert len(fake.calls) == 1
+    assert fake.closed is True
+
+
+@pytest.mark.asyncio
+async def test_client_not_constructed_when_nothing_due(test_sessionmaker):
+    """A tick with no digest due must not construct (or leak) a client."""
+    await _seed_user(test_sessionmaker)
+    await _seed_bot_settings(test_sessionmaker, weekly=True, monthly=False)
+    # Weekly already sent for this ISO week → nothing due.
+    await _upsert_setting(test_sessionmaker, "digest_last_weekly_sent", WEEK_MARKER)
+
+    constructed = []
+
+    def factory(token):
+        constructed.append(token)
+        return FakeTelegramClient()
+
+    await run_digest_tick(
+        now=MONDAY_AFTER,
+        sessionmaker=test_sessionmaker,
+        client_factory=factory,
+    )
+
+    assert constructed == []
