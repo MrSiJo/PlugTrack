@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Car, Setting
 from .formatting import format_currency, format_distance
-from .insights_stats import _miles_driven_km, home_public_split, window_totals
+from .insights_stats import miles_driven_km, home_public_split, window_totals
 from .mileage_tracking import KM_PER_MILE, get_status as mileage_get_status
 
 LONDON = ZoneInfo("Europe/London")
@@ -165,8 +165,8 @@ async def _core_block(
     """
     rep = await window_totals(session, user_id=user_id, lo=rep_lo, hi=rep_hi)
     prv = await window_totals(session, user_id=user_id, lo=prv_lo, hi=prv_hi)
-    rep_km = await _miles_driven_km(session, user_id=user_id, lo=rep_lo, hi=rep_hi)
-    prv_km = await _miles_driven_km(session, user_id=user_id, lo=prv_lo, hi=prv_hi)
+    rep_km = await miles_driven_km(session, user_id=user_id, lo=rep_lo, hi=rep_hi)
+    prv_km = await miles_driven_km(session, user_id=user_id, lo=prv_lo, hi=prv_hi)
     return rep, prv, rep_km, prv_km
 
 

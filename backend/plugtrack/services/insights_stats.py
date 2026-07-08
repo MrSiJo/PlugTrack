@@ -89,7 +89,7 @@ async def window_totals(
     }
 
 
-async def _miles_driven_km(
+async def miles_driven_km(
     session: AsyncSession, *, user_id: int,
     lo: Optional[dt.date], hi: Optional[dt.date],
     car_id: Optional[int] = None,

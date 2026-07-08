@@ -77,7 +77,7 @@ async def build_ha_payload(session, *, user_id: int, today: Optional[dt.date] = 
     split = await insights_stats.home_public_split(
         session, user_id=user_id, date_from=lo, date_to=hi, car_id=car_id
     )
-    month_miles_km = await insights_stats._miles_driven_km(
+    month_miles_km = await insights_stats.miles_driven_km(
         session, user_id=user_id, lo=lo, hi=hi, car_id=car_id
     )
     allowance = await insights_stats.mileage_allowance_view(

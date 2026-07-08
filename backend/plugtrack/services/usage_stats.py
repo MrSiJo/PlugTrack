@@ -19,7 +19,7 @@ from ..models import Car, ChargingSession, Setting
 from . import mileage_tracking
 from .insights_stats import (
     _base_filter,
-    _miles_driven_km,
+    miles_driven_km,
     home_public_split,
     window_totals,
 )
@@ -159,7 +159,7 @@ async def _window_stats(
     lo: Optional[date], hi: Optional[date], unit: str,
 ) -> WindowStats:
     t = await window_totals(session, user_id=user_id, lo=lo, hi=hi)
-    driven_km = await _miles_driven_km(session, user_id=user_id, lo=lo, hi=hi)
+    driven_km = await miles_driven_km(session, user_id=user_id, lo=lo, hi=hi)
     saving = await _petrol_saving_pence(session, user_id=user_id, lo=lo, hi=hi)
     return WindowStats(
         label=label,

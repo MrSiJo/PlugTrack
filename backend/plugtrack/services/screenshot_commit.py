@@ -61,7 +61,7 @@ def _map_extracted_curve(merged: MergedSession) -> Optional[list]:
     return map_curve_points(merged.power_curve, secs, merged.soc_start, merged.soc_end)
 
 
-async def _distance_unit(session: AsyncSession) -> str:
+async def distance_unit(session: AsyncSession) -> str:
     """The user-facing distance unit ('mi'/'km') from settings; default 'mi'."""
     from ..models import Setting
     row = (
@@ -182,7 +182,7 @@ async def _build_session(
 
     if merged.odometer is not None:
         from .mileage_tracking import miles_to_km
-        unit = (merged.odometer_unit or await _distance_unit(session)).lower()
+        unit = (merged.odometer_unit or await distance_unit(session)).lower()
         is_km = unit.startswith("k")
         cs.odometer_at_session_km = (
             float(merged.odometer) if is_km else miles_to_km(merged.odometer)

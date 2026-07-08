@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import Car, ChargingSession, Location
 from . import mileage_tracking
 from .mileage_tracking import KM_PER_MILE
-from .usage_stats import _miles_driven_km
+from .usage_stats import miles_driven_km
 
 
 @dataclass
@@ -274,7 +274,7 @@ async def dashboard_summary(
 
     # ---- Cost per mile (lifetime + rolling 30 days) ----
     # Numerators reuse the cost sums above; denominators come from
-    # `_miles_driven_km` (the single source of truth for windowed odometer
+    # `miles_driven_km` (the single source of truth for windowed odometer
     # deltas).
     def _ppm(cost_pence: int, miles_km: Optional[float]) -> Optional[float]:
         if not miles_km or miles_km <= 0:
@@ -291,10 +291,10 @@ async def dashboard_summary(
             )
         )
     ).scalar_one()
-    lifetime_miles_km = await _miles_driven_km(
+    lifetime_miles_km = await miles_driven_km(
         session, user_id=user_id, lo=None, hi=None
     )
-    rolling_miles_km = await _miles_driven_km(
+    rolling_miles_km = await miles_driven_km(
         session, user_id=user_id, lo=lo_30d, hi=today
     )
     summary.cost_per_mile = CostPerMile(

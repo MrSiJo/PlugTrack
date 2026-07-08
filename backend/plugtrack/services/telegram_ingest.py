@@ -19,9 +19,9 @@ from typing import Any, Awaitable, Callable, Optional
 from sqlalchemy import select
 
 from ..models import ScreenshotImport
-from .mileage_tracking import KM_PER_MILE, _max_odo_at_or_before
+from .mileage_tracking import KM_PER_MILE, max_odo_at_or_before
 from .screenshot_commit import commit_merged_session, preview_merged_session
-from .screenshot_commit import _distance_unit as _distance_unit_for
+from .screenshot_commit import distance_unit as _distance_unit_for
 from .screenshot_correlation import MergedSession, correlate_batch
 from .screenshot_extraction import Extraction, parse_extraction
 
@@ -586,7 +586,7 @@ async def _stage_and_card(
                     "cost_basis": cs.cost_basis,
                 }
                 if cs.odometer_at_session_km is not None:
-                    existing_max = await _max_odo_at_or_before(
+                    existing_max = await max_odo_at_or_before(
                         s, user_id=user_id, car_id=car_id, on_or_before=_date.today())
                     entry["odometer_km"] = cs.odometer_at_session_km
                     if existing_max is not None and cs.odometer_at_session_km < existing_max:
@@ -942,7 +942,7 @@ async def handle_callback(
                         "cost_basis": cs.cost_basis,
                     }
                     if cs.odometer_at_session_km is not None:
-                        existing_max = await _max_odo_at_or_before(
+                        existing_max = await max_odo_at_or_before(
                             s, user_id=user_id, car_id=chosen_car_id,
                             on_or_before=_date.today())
                         entry["odometer_km"] = cs.odometer_at_session_km

@@ -332,7 +332,7 @@ async def test_efficiency_over_time_car_id_filter(test_sessionmaker, seeded_user
       car1: odo 1000 → 1160.9344 km  (+100 mi), 25 kWh → 4.0 mi/kWh
       car2: odo 5000 → 5482.8032 km  (+300 mi), 60 kWh  (blended would dilute car1)
 
-    Without the fix, _miles_driven_km sums both cars' deltas (400 mi total)
+    Without the fix, miles_driven_km sums both cars' deltas (400 mi total)
     and the ratio is 400/25 = 16 mi/kWh — clearly wrong for car1 alone.
     With the fix the ratio is 100/25 = 4.0 mi/kWh.
     """

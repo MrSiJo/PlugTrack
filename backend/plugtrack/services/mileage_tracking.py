@@ -71,7 +71,7 @@ def period_end_for(start: date) -> date:
     return _add_year(start) - timedelta(days=1)
 
 
-async def _max_odo_at_or_before(
+async def max_odo_at_or_before(
     session: AsyncSession,
     *,
     user_id: int,
@@ -128,7 +128,7 @@ async def _materialise_rollovers(
         if active is None or active.period_end_date >= today:
             return
 
-        max_odo = await _max_odo_at_or_before(
+        max_odo = await max_odo_at_or_before(
             session,
             user_id=user_id,
             car_id=car_id,
@@ -199,7 +199,7 @@ async def get_status(
 
     current: Optional[CurrentMileagePeriod] = None
     if active is not None:
-        max_odo = await _max_odo_at_or_before(
+        max_odo = await max_odo_at_or_before(
             session,
             user_id=user_id,
             car_id=car_id,

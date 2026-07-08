@@ -11,7 +11,7 @@ from ..models import Car, ChargingSession
 from .insights_stats import (
     home_public_split,
     window_totals,
-    _miles_driven_km,
+    miles_driven_km,
     KM_PER_MILE,
 )
 from .ownership_trends import (
@@ -72,8 +72,8 @@ async def compute_car_lifetime(
     if costed_kwh > 0:
         lifetime_avg_p_per_kwh = round(total_cost_pence / costed_kwh, 2)
 
-    # lifetime mi/kWh — use _miles_driven_km with car_id, no date bounds
-    driven_km = await _miles_driven_km(
+    # lifetime mi/kWh — use miles_driven_km with car_id, no date bounds
+    driven_km = await miles_driven_km(
         session, user_id=user_id, lo=None, hi=None, car_id=car_id
     )
     lifetime_mi_per_kwh: Optional[float] = None

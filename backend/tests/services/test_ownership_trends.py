@@ -74,7 +74,7 @@ async def _mk(
 async def test_efficiency_by_month_basic(test_sessionmaker, seeded_user_car):
     """Two months of data: correct mi/kWh, derived_range_km, period keys.
 
-    The _miles_driven_km helper uses the max odometer BEFORE the window as
+    The miles_driven_km helper uses the max odometer BEFORE the window as
     the start anchor (date <= lo - 1day). So the anchor session must live in
     the month PRIOR to the window being tested.
     """
@@ -740,7 +740,7 @@ async def test_seasonal_range_span_min_max_avg(test_sessionmaker, seeded_user_ca
     """min/max/avg over months with non-None derived_range_km.
 
     Anchors must be in the month BEFORE the window under test (how
-    _miles_driven_km resolves start = max(odo WHERE date <= lo-1)).
+    miles_driven_km resolves start = max(odo WHERE date <= lo-1)).
     """
     uid, car = seeded_user_car
     battery_kwh = 58.0
