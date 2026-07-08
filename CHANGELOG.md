@@ -1,5 +1,37 @@
 # Changelog
 
+## [3.13.0](https://github.com/MrSiJo/PlugTrack/compare/v3.12.0...v3.13.0) (2026-07-08)
+
+
+### Features
+
+* **admin:** MQTT / Home Assistant settings card ([9c2df04](https://github.com/MrSiJo/PlugTrack/commit/9c2df0418ad2f8b0571d84613a59371e2cb9aa26))
+* **ha:** build HA MQTT summary payload from aggregators ([3fc27e6](https://github.com/MrSiJo/PlugTrack/commit/3fc27e69ce78aca833bcac82c82fc2a4225ab6e0))
+* **ha:** publish MQTT summary after a Telegram charge-save ([eca8aca](https://github.com/MrSiJo/PlugTrack/commit/eca8acaea7954244c05ee324901f0fdc80e1a48f))
+* **ha:** publish summary over MQTT via aiomqtt with a guarded tick ([e80a68f](https://github.com/MrSiJo/PlugTrack/commit/e80a68f2d58819c4e408046e118cc90644d06732))
+* **ha:** register hourly MQTT publish scheduler job ([37fbc12](https://github.com/MrSiJo/PlugTrack/commit/37fbc122899387976f57beb9d7864422166cb591))
+* **settings:** add MQTT/Home Assistant settings + encrypted password seed ([7adf658](https://github.com/MrSiJo/PlugTrack/commit/7adf658b6a341e5cd94d60370d9ddf09d86fa669))
+
+
+### Bug Fixes
+
+* apply SQLite busy_timeout via connect listener (PLUG-L1, partial) ([ee61ce8](https://github.com/MrSiJo/PlugTrack/commit/ee61ce830db76c2b5eddbb157d783ffa11ba5d6d))
+* dedupe OpenAI call paths and geocoding request boilerplate (PLUG-M6) ([44d2281](https://github.com/MrSiJo/PlugTrack/commit/44d2281465f7df97bf96fb8fcb605678053cb8af))
+* delete dead Cupra probe scripts, refresh backfill docstring (PLUG-M3) ([1150264](https://github.com/MrSiJo/PlugTrack/commit/115026454173880806422755c51383cd86f03e64))
+* drop unused git from the backend image (PLUG-L5) ([261546d](https://github.com/MrSiJo/PlugTrack/commit/261546d687ec248115edf49269004957ac23b7a6))
+* expire session cookies server-side (PLUG-L2) ([8430194](https://github.com/MrSiJo/PlugTrack/commit/84301949e4cd2f7d5c20182b0d1c7d546a3fddc6))
+* make cross-module service helpers public (PLUG-L3) ([4899413](https://github.com/MrSiJo/PlugTrack/commit/4899413f779f007bcf717836774a6854d13f92e1))
+* make Settings tests independent of a root .env (PLUG-H2) ([4d367ef](https://github.com/MrSiJo/PlugTrack/commit/4d367ef4b2e5de04762771716f1c0909dfc13eaa))
+* point placeholder-secret error at real guidance (PLUG-L7) ([7ae6313](https://github.com/MrSiJo/PlugTrack/commit/7ae63139ebe8f47e4b837e6c1fbfa7230689a0bb))
+* remove dead pycupra/live-sync surface (PLUG-M1) ([0ce3f96](https://github.com/MrSiJo/PlugTrack/commit/0ce3f96137b818bc02d6d2b85ffebee824e63c1a))
+* remove dead SSE plumbing (PLUG-M2) ([61ec159](https://github.com/MrSiJo/PlugTrack/commit/61ec159abfdc38bf7cd5e11bde01ec81f43cc83f))
+* remove eight unused scoped [@radix-ui](https://github.com/radix-ui) packages (PLUG-L6) ([f8f3e93](https://github.com/MrSiJo/PlugTrack/commit/f8f3e93ab23a9efdb4720a9a66ed0d6cbede9b48))
+* reply to user when screenshot extraction fails (PLUG-H1) ([afbd768](https://github.com/MrSiJo/PlugTrack/commit/afbd7681913be9b7dfd6652d00e58a3808a90f82))
+* share one Nominatim rate limiter process-wide (PLUG-H3) ([2e1f27e](https://github.com/MrSiJo/PlugTrack/commit/2e1f27e7a89bf5fd27e05a6c63bfb108d8cbd82c))
+* single source of truth for the km/mi factor (PLUG-L4) ([1014ac7](https://github.com/MrSiJo/PlugTrack/commit/1014ac7e2800b5b90118513064494d36bc951374))
+* stop leaking an httpx client on every digest tick (PLUG-M4) ([d410e8d](https://github.com/MrSiJo/PlugTrack/commit/d410e8d2a51b817e706901e9d97be9dad0f52673))
+* stop seeding personal MQTT broker credentials (PLUG-M5) ([873ed48](https://github.com/MrSiJo/PlugTrack/commit/873ed48cc2e1faee043eafa292ebfa0f655846ea))
+
 ## [3.12.0](https://github.com/MrSiJo/PlugTrack/compare/v3.11.0...v3.12.0) (2026-07-03)
 
 
