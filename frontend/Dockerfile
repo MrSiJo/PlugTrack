@@ -5,7 +5,7 @@
 # through nginx, which also reverse-proxies /api/* to the backend
 # container on the docker bridge network.
 
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
