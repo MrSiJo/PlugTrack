@@ -12,9 +12,9 @@ slowapi==0.1.10
 apscheduler==3.11.3
 httpx==0.28.1
 python-multipart==0.0.32
-# mcp held at 1.22.0: 1.23.0+ enables DNS-rebinding Host validation by default
-# and answers HTTP 421 for any Host not in an explicit allowlist (breaks the
-# /mcp tests and any reverse-proxied deployment). Upgrading past 1.22.0 needs
-# TransportSecuritySettings(allowed_hosts=[...]) wired into build_mcp_app().
-mcp==1.22.0
+# mcp >= 1.23 enables DNS-rebinding Host validation by default (HTTP 421 for
+# non-allowlisted Hosts). build_mcp_app() now passes explicit
+# TransportSecuritySettings driven by MCP_ALLOWED_HOSTS (see .env.example):
+# unset = validation disabled (LAN/reverse-proxy default), set = strict.
+mcp==1.28.1
 aiomqtt==2.5.1

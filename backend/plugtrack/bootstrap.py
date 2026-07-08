@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     database_url: str = Field(default=_DEFAULT_DB_URL, alias="DATABASE_URL")
     data_dir: str = Field(default=str(_DEFAULT_DATA_DIR), alias="DATA_DIR")
 
+    # MCP transport security (DNS-rebinding protection for /mcp).
+    # Empty (default): Host-header validation is explicitly DISABLED —
+    # appropriate for a LAN deployment reached via a reverse proxy on an
+    # internal FQDN, where /mcp is already guarded by bearer-token auth.
+    # Set to a comma-separated Host allowlist (e.g.
+    # "plugtrack.lan,localhost,127.0.0.1") to OPT INTO strict validation:
+    # any other Host header is answered with HTTP 421.
+    mcp_allowed_hosts: str = Field(default="", alias="MCP_ALLOWED_HOSTS")
+
     session_cookie_name: str = Field(default="plugtrack_session")
     csrf_cookie_name: str = Field(default="plugtrack_csrf")
     # Secure-by-default: the Set-Cookie Secure flag is on unless explicitly

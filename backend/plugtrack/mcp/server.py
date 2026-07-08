@@ -259,6 +259,53 @@ def require_readwrite() -> dict | None:
 _mcp_session_manager = None
 
 
+def _transport_security_settings():
+    """Build TransportSecuritySettings for the /mcp transport from env.
+
+    mcp >= 1.23 ships DNS-rebinding protection that validates the Host
+    header and answers HTTP 421 for anything not allowlisted. The SDK
+    matches allowlist entries EXACTLY against the raw Host header
+    (``host`` or ``host:port``), with one wildcard form: ``host:*``
+    matches ``host:<any port>`` (but NOT the bare port-less ``host``).
+
+    Behaviour here:
+
+    - ``MCP_ALLOWED_HOSTS`` unset/empty (the default): protection is
+      explicitly DISABLED. This is the LAN-appropriate default — the
+      production deployment is reached through nginx proxy manager on an
+      internal FQDN (frontend/nginx.conf forwards the original Host via
+      ``proxy_set_header Host $host``), which no static allowlist can
+      anticipate, and /mcp is already guarded by bearer-token auth.
+
+    - ``MCP_ALLOWED_HOSTS=<comma-separated hosts>``: strict validation is
+      ENABLED with exactly those entries. Convenience: a bare entry
+      without a port (no ``:``) is expanded to both ``entry`` and
+      ``entry:*`` so it matches with or without an explicit port. Entries
+      containing ``:`` (an explicit port, a ``:*`` wildcard, or an IPv6
+      literal) are passed through verbatim.
+    """
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    from ..bootstrap import get_settings
+
+    raw = get_settings().mcp_allowed_hosts.strip()
+    if not raw:
+        return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+    allowed_hosts: list[str] = []
+    for entry in raw.split(","):
+        host = entry.strip()
+        if not host:
+            continue
+        allowed_hosts.append(host)
+        if ":" not in host:
+            allowed_hosts.append(f"{host}:*")
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed_hosts,
+    )
+
+
 def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
     """Build the FastMCP app, register tools, and return the wrapped ASGI app.
 
@@ -282,11 +329,18 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
     # streamable_http_path="/" makes the Starlette route at "/" so that when
     # FastAPI mounts this ASGI app at /mcp the effective URL is exactly /mcp
     # (not /mcp/mcp which would be the default /mcp path within the sub-app).
+    #
+    # transport_security is ALWAYS passed explicitly: if left None, FastMCP
+    # (>= 1.23) auto-enables DNS-rebinding protection for its default
+    # host="127.0.0.1" with a localhost-only allowlist, which 421s any
+    # reverse-proxied Host. See _transport_security_settings for the
+    # env-driven policy.
     mcp = FastMCP(
         "PlugTrack",
         stateless_http=True,
         json_response=True,
         streamable_http_path="/",
+        transport_security=_transport_security_settings(),
     )
 
     # -------------------------------------------------------------------
