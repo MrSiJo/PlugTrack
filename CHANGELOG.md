@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.13.1](https://github.com/MrSiJo/PlugTrack/compare/v3.13.0...v3.13.1) (2026-07-19)
+
+
+### Bug Fixes
+
+* stop model-filled zeros wiping session fields on agent edit ([fd11304](https://github.com/MrSiJo/PlugTrack/commit/fd1130422368cfadb4132586b1d9a42b8b2ff159))
+
 ## [3.13.0](https://github.com/MrSiJo/PlugTrack/compare/v3.12.0...v3.13.0) (2026-07-08)
 
 
