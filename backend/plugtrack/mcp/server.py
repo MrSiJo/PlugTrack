@@ -497,11 +497,18 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
         date: str | None = None,
         network: str | None = None,
         notes: str | None = None,
+        clear_fields: list[str] | None = None,
     ) -> str:
         """Propose editing fields on a charge session (two-phase).
 
         Requires readwrite scope. Does NOT write to DB — call commit_change
         with the returned change_token to apply.
+
+        Pass ONLY the fields being changed — this is a sparse patch and every
+        omitted field keeps its current value. Do not pad the call with zeros
+        or empty strings for fields you are not changing; zero/blank values for
+        kwh, odometer, the cost overrides, network and notes are ignored, and
+        the response reports them under `ignored_fields`.
 
         Args:
             charge_id: The numeric ID of the charge session.
@@ -513,6 +520,9 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
             date: New date (ISO YYYY-MM-DD).
             network: Charge network name.
             notes: Free-text notes.
+            clear_fields: Fields to explicitly blank — any of notes, network,
+                odometer, price_p_per_kwh, total_cost_p. This is the only way
+                to erase a value.
 
         Returns:
             JSON with summary and change_token on success, or error dict.
@@ -537,6 +547,7 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
                 date=date_obj,
                 network=network,
                 notes=notes,
+                clear_fields=clear_fields,
             )
         return json.dumps(result, default=str)
 

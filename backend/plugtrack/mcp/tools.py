@@ -542,10 +542,21 @@ async def propose_edit_charge(
     notes: str | None = None,
     odometer: float | None = None,
     odometer_unit: str | None = None,
+    clear_fields: list[str] | None = None,
 ) -> dict:
     """Propose editing fields on a charge session.
 
     Validates ownership. Writes nothing. Returns {summary, change_token}.
+
+    An edit is a SPARSE PATCH: only the fields the caller names may change.
+    Because callers are LLMs that sometimes fill every parameter in the schema
+    with type-default values, a zero or empty string for a field where it is
+    meaningless (kWh, odometer, the two cost overrides, network, notes) is
+    treated as "not specified" rather than as an instruction to wipe the field.
+    Genuine blanking goes through ``clear_fields``, which is explicit and can
+    never be produced by a model padding out its arguments.
+
+    SoC is deliberately exempt: 0% is a physically real state of charge.
     """
     try:
         cs = await _get_owned_session(session, charge_id, user_id)
@@ -555,33 +566,53 @@ async def propose_edit_charge(
         # Build data for the pending change
         data: dict = {"charge_id": charge_id}
         changes: list[str] = []
+        ignored: list[str] = []
 
-        if kwh is not None:
+        def _positive(name: str, value: float | None) -> bool:
+            """True if the value is a real edit; records model-filled zeros."""
+            if value is None:
+                return False
+            if value <= 0:
+                ignored.append(name)
+                return False
+            return True
+
+        def _nonblank(name: str, value: str | None) -> bool:
+            if value is None:
+                return False
+            if not value.strip():
+                ignored.append(name)
+                return False
+            return True
+
+        if _positive("kwh", kwh):
             data["kwh"] = kwh
             changes.append(f"kWh {cs.kwh_added} → {kwh}")
-        if price_p_per_kwh is not None:
+        if _positive("price_p_per_kwh", price_p_per_kwh):
             data["price_p_per_kwh"] = price_p_per_kwh
-            changes.append(f"rate → {price_p_per_kwh}p/kWh")
-        if total_cost_p is not None:
+            before = _format_rate(cs.tariff_p_per_kwh) or "not set"
+            changes.append(f"rate {before} → {price_p_per_kwh}p/kWh")
+        if _positive("total_cost_p", total_cost_p):
             data["total_cost_p"] = total_cost_p
-            changes.append(f"total cost → {total_cost_p}p")
+            before = _format_gbp(cs.cost_pence) or "not set"
+            changes.append(f"total cost {before} → {total_cost_p}p")
         if start_soc is not None:
             data["start_soc"] = start_soc
-            changes.append(f"start SoC → {start_soc}%")
+            changes.append(f"start SoC {cs.start_soc}% → {start_soc}%")
         if end_soc is not None:
             data["end_soc"] = end_soc
-            changes.append(f"end SoC → {end_soc}%")
+            changes.append(f"end SoC {cs.end_soc}% → {end_soc}%")
         if date is not None:
             data["date"] = date.isoformat()
-            changes.append(f"date → {date}")
-        if network is not None:
+            changes.append(f"date {cs.date} → {date}")
+        if _nonblank("network", network):
             data["network"] = network
-            changes.append(f"network → {network!r}")
-        if notes is not None:
+            changes.append(f"network {cs.charge_network or 'not set'!r} → {network!r}")
+        if _nonblank("notes", notes):
             data["notes"] = notes
-            changes.append(f"notes → {notes!r}")
+            changes.append(f"notes {cs.notes or 'not set'!r} → {notes!r}")
 
-        if odometer is not None:
+        if _positive("odometer", odometer):
             # Resolve unit: use odometer_unit if given, else read distance_unit setting
             unit = (odometer_unit or "").lower().strip()
             if unit not in ("mi", "km"):
@@ -593,17 +624,45 @@ async def propose_edit_charge(
                 unit = (setting_row.value if setting_row else None) or "mi"
             odometer_km = odometer if unit == "km" else odometer * KM_PER_MILE
             data["odometer_km"] = odometer_km
-            changes.append(f"odometer → {odometer} {unit}")
+            before = _format_odometer(cs.odometer_at_session_km, unit) or "not set"
+            changes.append(f"odometer {before} → {odometer} {unit}")
+
+        # Explicit blanking — the only way to NULL a field.
+        for name in clear_fields or []:
+            key = name.strip().lower()
+            if key not in _CLEARABLE_FIELDS:
+                return {
+                    "error": (
+                        f"cannot clear {name!r}; clearable fields are "
+                        + ", ".join(sorted(_CLEARABLE_FIELDS))
+                    )
+                }
+            data.setdefault("clear", []).append(key)
+            changes.append(f"{key} → cleared")
 
         if not changes:
+            if ignored:
+                return {
+                    "error": (
+                        "no changes specified — ignored zero/blank values for "
+                        + ", ".join(ignored)
+                        + ". Pass a real value, or use clear_fields to blank a field."
+                    )
+                }
             return {"error": "no changes specified"}
 
-        summary = f"Edit charge #{charge_id} (date={cs.date}, {cs.kwh_added}kWh): " + "; ".join(
-            changes
-        )
+        summary = f"Edit charge #{charge_id} (date={cs.date}): " + "; ".join(changes)
 
         token = _mint_token(user_id, "edit_charge", data)
-        return {"summary": summary, "change_token": token}
+        result: dict = {"summary": summary, "change_token": token}
+        if ignored:
+            result["ignored_fields"] = ignored
+            result["note"] = (
+                "Ignored zero/blank values for "
+                + ", ".join(ignored)
+                + " — these fields are left unchanged. Tell the user if they meant to change them."
+            )
+        return result
     except Exception as exc:
         return {"error": str(exc)}
 
@@ -614,6 +673,17 @@ async def propose_edit_charge(
 
 # Override fields: editing these means override_changed=True for apply_cost
 _OVERRIDE_FIELDS = frozenset({"price_p_per_kwh", "total_cost_p"})
+
+# Fields that `clear_fields` may NULL, mapped to their model attribute.
+# SoC / date / kwh are absent deliberately: a charge without them is not a
+# charge, so there is no legitimate "clear" for them.
+_CLEARABLE_FIELDS: dict[str, str] = {
+    "notes": "notes",
+    "network": "charge_network",
+    "odometer": "odometer_at_session_km",
+    "price_p_per_kwh": "cost_per_kwh_override_p",
+    "total_cost_p": "total_cost_pence_override",
+}
 
 
 async def commit_change(
@@ -709,7 +779,6 @@ async def _apply_create_location(session: AsyncSession, user_id: int, data: dict
     name = data.get("name")
     lat = data.get("lat")
     lng = data.get("lng")
-    address = data.get("address")
 
     if lat is not None and lng is not None:
         # Explicit coords: use find_or_create_location (clusters within radius)
@@ -764,7 +833,8 @@ async def _apply_edit_charge(session: AsyncSession, user_id: int, data: dict) ->
         return {"error": f"charge {charge_id} not found or not owned by this user"}
 
     # Detect which fields are present in the payload
-    override_changed = bool(_OVERRIDE_FIELDS & data.keys())
+    cleared: list[str] = data.get("clear", [])
+    override_changed = bool(_OVERRIDE_FIELDS & data.keys()) or bool(_OVERRIDE_FIELDS & set(cleared))
     cost_dirty = False
 
     if "kwh" in data:
@@ -798,6 +868,11 @@ async def _apply_edit_charge(session: AsyncSession, user_id: int, data: dict) ->
 
     if "odometer_km" in data:
         cs.odometer_at_session_km = data["odometer_km"]
+
+    for name in cleared:
+        setattr(cs, _CLEARABLE_FIELDS[name], None)
+        if name in _OVERRIDE_FIELDS:
+            cost_dirty = True
 
     if cost_dirty:
         await apply_cost(session, cs, first_compute=False, override_changed=override_changed)

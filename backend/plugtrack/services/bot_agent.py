@@ -56,6 +56,10 @@ AGENT_SYSTEM_PROMPT = (
     "each field (start_soc, end_soc, kwh, total_cost_p, price_p_per_kwh, network, notes, "
     "date, odometer) is independent, so 'set the ending soc to 81 on session 34' changes "
     "only end_soc and leaves the rest untouched. "
+    "NEVER pass 0 or an empty string for a field the user did not mention — omit it "
+    "entirely. To erase a value, use clear_fields. If a propose_* result comes back with "
+    "ignored_fields, you sent padding values: tell the user plainly which fields were "
+    "left unchanged rather than presenting the edit as fully applied. "
     "Be concise, friendly, and use plain text (no Markdown, no asterisks). "
     "Dates are YYYY-MM-DD.\n"
     "MONEY FORMATTING: present totals and spend amounts in POUNDS as £X.XX "
@@ -88,7 +92,8 @@ def build_tool_catalogue() -> list[dict[str, Any]]:
                 "name": "find_charges",
                 "description": (
                     "Find charging sessions for the user. Returns a list of recent charges "
-                    "ordered most-recent first. Supports optional filtering by date range and location."
+                    "ordered most-recent first. Supports optional filtering by date range "
+                    "and location."
                 ),
                 "parameters": {
                     "type": "object",
@@ -185,7 +190,9 @@ def build_tool_catalogue() -> list[dict[str, Any]]:
                         },
                         "address": {
                             "type": "string",
-                            "description": "Address string (used for geocoding if lat/lng not given).",
+                            "description": (
+                                "Address string (used for geocoding if lat/lng not given)."
+                            ),
                         },
                     },
                     "additionalProperties": False,
@@ -234,7 +241,11 @@ def build_tool_catalogue() -> list[dict[str, Any]]:
                     "properties": {
                         "charge_id": {
                             "type": "integer",
-                            "description": "The charging session ID to edit.",
+                            "description": (
+                                "The charging session ID to edit. Pass ONLY this plus the "
+                                "fields being changed — omitted fields keep their current "
+                                "values. Never pad the call with zeros or empty strings."
+                            ),
                         },
                         "kwh": {
                             "type": "number",
@@ -270,11 +281,25 @@ def build_tool_catalogue() -> list[dict[str, Any]]:
                         },
                         "odometer": {
                             "type": "number",
-                            "description": "New odometer reading in the user's distance unit (miles unless they say km).",
+                            "description": (
+                                "New odometer reading in the user's distance unit "
+                                "(miles unless they say km)."
+                            ),
                         },
                         "odometer_unit": {
                             "type": "string",
-                            "description": "mi or km; defaults to the user's display unit if omitted.",
+                            "description": (
+                                "mi or km; defaults to the user's display unit if omitted."
+                            ),
+                        },
+                        "clear_fields": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "Fields to explicitly blank: notes, network, odometer, "
+                                "price_p_per_kwh, total_cost_p. The ONLY way to erase a value — "
+                                "never pass 0 or an empty string to clear something."
+                            ),
                         },
                     },
                     "required": ["charge_id"],
@@ -385,6 +410,7 @@ def make_tool_runner(session, user_id: int) -> Callable[[str, dict], Awaitable[A
                     notes=args.get("notes"),
                     odometer=args.get("odometer"),
                     odometer_unit=args.get("odometer_unit"),
+                    clear_fields=args.get("clear_fields"),
                 )
             elif tool_name == "commit_change":
                 return await tc.commit_change(session, user_id, str(args["change_token"]))

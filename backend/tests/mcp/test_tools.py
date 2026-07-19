@@ -166,7 +166,7 @@ async def test_find_charges_user_scoped(test_sessionmaker):
     user_a = await _seed_user(test_sessionmaker, "alice")
     user_b = await _seed_user(test_sessionmaker, "bob")
     car_a = await _seed_car(test_sessionmaker, user_a)
-    car_b = await _seed_car(test_sessionmaker, user_b)
+    await _seed_car(test_sessionmaker, user_b)
 
     await _seed_session(test_sessionmaker, user_a, car_a)
     await _seed_session(test_sessionmaker, user_a, car_a, date_offset=1)
@@ -642,7 +642,7 @@ async def test_propose_set_location_by_name(test_sessionmaker):
     await _seed_home_rate(test_sessionmaker, 7.5)
     user_id = await _seed_user(test_sessionmaker, "oscar")
     car_id = await _seed_car(test_sessionmaker, user_id)
-    loc_id = await _seed_location(test_sessionmaker, user_id, name="Workplace")
+    await _seed_location(test_sessionmaker, user_id, name="Workplace")
     cs_id = await _seed_session(test_sessionmaker, user_id, car_id)
 
     async with test_sessionmaker() as session:
@@ -1231,7 +1231,7 @@ async def test_find_charges_includes_odometer_display(test_sessionmaker):
     await _seed_home_rate(test_sessionmaker, 7.5)
     user_id = await _seed_user(test_sessionmaker, "odo_find_user")
     car_id = await _seed_car(test_sessionmaker, user_id)
-    cs_id = await _seed_session(test_sessionmaker, user_id, car_id, odometer_at_session_km=17800.0)
+    await _seed_session(test_sessionmaker, user_id, car_id, odometer_at_session_km=17800.0)
 
     # Set distance_unit to "mi"
     async with test_sessionmaker() as s:
@@ -1282,3 +1282,153 @@ async def test_get_charge_includes_odometer_display(test_sessionmaker):
     assert "mi" in r["odometer"]
     # 17800 km / 1.609344 ≈ 11060 miles (formatted with comma: "11,060 mi")
     assert "11060" in r["odometer"].replace(",", "")
+
+
+# ---------------------------------------------------------------------------
+# Regression: model-supplied zero/blank defaults must not wipe a session
+#
+# Real incident (prod session #36): the user asked only "update session 36 for
+# an soc end of 81%", but the model called propose_edit_charge with EVERY
+# parameter filled in — zeros for the numeric fields and "" for the text ones.
+# `if x is not None` let 0 and "" through as legitimate edits, and the commit
+# faithfully wiped kwh, odometer, cost and notes, flipping cost_basis to
+# override_total (£0.00).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_propose_edit_charge_ignores_zero_filled_defaults(test_sessionmaker):
+    """Zero/blank values for fields where they're meaningless must be ignored.
+
+    Only the field the user actually named (end_soc) may change.
+    """
+    from plugtrack.mcp.tools import commit_change, propose_edit_charge
+
+    await _seed_home_rate(test_sessionmaker, 19.26)
+    user_id = await _seed_user(test_sessionmaker, "simon")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(
+        test_sessionmaker,
+        user_id,
+        car_id,
+        kwh_added=13.9,
+        start_soc=59,
+        end_soc=80,
+        cost_pence=268,
+        cost_basis="location_rate",
+        tariff_p_per_kwh=19.26,
+        odometer_at_session_km=18193.63,
+        charge_network="Outfox Energy",
+        notes="original note",
+    )
+
+    # Exactly what the model sent in the incident.
+    async with test_sessionmaker() as session:
+        proposal = await propose_edit_charge(
+            session,
+            user_id,
+            charge_id=cs_id,
+            end_soc=81,
+            kwh=0,
+            price_p_per_kwh=0,
+            total_cost_p=0,
+            odometer=0,
+            network="",
+            notes="",
+        )
+
+    assert "error" not in proposal, f"propose failed: {proposal}"
+
+    async with test_sessionmaker() as session:
+        commit_result = await commit_change(session, user_id, proposal["change_token"])
+
+    assert "error" not in commit_result, f"commit failed: {commit_result}"
+
+    async with test_sessionmaker() as session:
+        row = await session.get(ChargingSession, cs_id)
+        # The one field the user actually asked for
+        assert row.end_soc == 81, "end_soc should be updated"
+        # Everything else must survive
+        assert row.kwh_added == 13.9, "kwh must NOT be zeroed"
+        assert row.odometer_at_session_km == 18193.63, "odometer must NOT be zeroed"
+        assert row.charge_network == "Outfox Energy", "network must NOT be blanked"
+        assert row.notes == "original note", "notes must NOT be blanked"
+        assert row.total_cost_pence_override is None, "no override should be created"
+        assert row.cost_per_kwh_override_p is None, "no override should be created"
+        assert row.cost_basis == "location_rate", "cost_basis must NOT flip to override_total"
+        assert row.cost_pence == 268, "cost must NOT be zeroed"
+
+
+@pytest.mark.asyncio
+async def test_propose_edit_charge_clear_fields_blanks_explicitly(test_sessionmaker):
+    """Genuine blanking is still possible, but only via the explicit clear_fields list."""
+    from plugtrack.mcp.tools import commit_change, propose_edit_charge
+
+    user_id = await _seed_user(test_sessionmaker, "clearer")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(
+        test_sessionmaker,
+        user_id,
+        car_id,
+        charge_network="Outfox Energy",
+        notes="original note",
+    )
+
+    async with test_sessionmaker() as session:
+        proposal = await propose_edit_charge(
+            session, user_id, charge_id=cs_id, clear_fields=["notes", "network"]
+        )
+
+    assert "error" not in proposal, f"propose failed: {proposal}"
+
+    async with test_sessionmaker() as session:
+        commit_result = await commit_change(session, user_id, proposal["change_token"])
+
+    assert "error" not in commit_result, f"commit failed: {commit_result}"
+
+    async with test_sessionmaker() as session:
+        row = await session.get(ChargingSession, cs_id)
+        assert row.notes is None, "notes should be cleared"
+        assert row.charge_network is None, "network should be cleared"
+
+
+@pytest.mark.asyncio
+async def test_propose_edit_charge_summary_is_before_after_diff(test_sessionmaker):
+    """The confirmation summary must show before → after so a wipe can't hide."""
+    from plugtrack.mcp.tools import propose_edit_charge
+
+    user_id = await _seed_user(test_sessionmaker, "differ")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(
+        test_sessionmaker, user_id, car_id, start_soc=59, end_soc=80, kwh_added=13.9
+    )
+
+    async with test_sessionmaker() as session:
+        proposal = await propose_edit_charge(session, user_id, charge_id=cs_id, end_soc=81)
+
+    summary = proposal["summary"]
+    assert "80" in summary and "81" in summary, f"summary must show before→after: {summary}"
+    # Untouched fields must not appear as changes
+    assert "13.9" not in summary.split(":", 1)[1], f"unchanged kwh leaked into changes: {summary}"
+
+
+@pytest.mark.asyncio
+async def test_propose_edit_charge_zero_start_soc_is_still_valid(test_sessionmaker):
+    """0% SoC is physically real — the zero-guard must not swallow SoC fields."""
+    from plugtrack.mcp.tools import commit_change, propose_edit_charge
+
+    user_id = await _seed_user(test_sessionmaker, "flat")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(test_sessionmaker, user_id, car_id, start_soc=20)
+
+    async with test_sessionmaker() as session:
+        proposal = await propose_edit_charge(session, user_id, charge_id=cs_id, start_soc=0)
+
+    assert "error" not in proposal, f"propose failed: {proposal}"
+
+    async with test_sessionmaker() as session:
+        await commit_change(session, user_id, proposal["change_token"])
+
+    async with test_sessionmaker() as session:
+        row = await session.get(ChargingSession, cs_id)
+        assert row.start_soc == 0, "an explicit 0% start SoC must be honoured"
