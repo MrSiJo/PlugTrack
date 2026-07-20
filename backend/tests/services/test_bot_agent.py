@@ -597,6 +597,63 @@ async def test_handle_text_proposal_renders_save_discard_buttons(
     buttons_data = [btn["callback_data"] for row in kb["inline_keyboard"] for btn in row]
     assert any("mcpcommit:tok_abc123" in d for d in buttons_data)
     assert any("mcpdiscard:tok_abc123" in d for d in buttons_data)
+    # The authoritative summary must be on the card alongside the model's prose.
+    assert "Set location to Home" in last["text"]
+
+
+@pytest.mark.asyncio
+async def test_handle_text_proposal_card_always_shows_the_tool_summary(
+    test_sessionmaker, seeded_user_car
+):
+    """The model's prose must never replace the tool's before→after diff.
+
+    Prod #37: the model narrated "only end SoC changed" over a proposal that
+    also zeroed start SoC. The card showed the narration and dropped the diff,
+    so the user pressed Save on a change they could not see.
+    """
+    import plugtrack.services.telegram_ingest as ti
+
+    user_id, car_id = seeded_user_car
+
+    async def fake_run_agent_turn(**kwargs):
+        return {
+            "reply_text": "I can set session 37 end SoC to 81%.",
+            "proposal": {
+                "summary": (
+                    "Edit charge #37 (date=2026-07-19): start SoC 60% → 0%; end SoC 80% → 81%"
+                ),
+                "change_token": "tok_s37",
+            },
+            "usage": {},
+        }
+
+    class FakeTg:
+        def __init__(self):
+            self.sent = []
+
+        async def send_message(self, *, chat_id, text, reply_markup=None):
+            self.sent.append({"text": text, "kb": reply_markup})
+            return 1
+
+    tg = FakeTg()
+    ctx = ti.IngestContext(
+        telegram=tg,
+        sessionmaker=test_sessionmaker,
+        extractor=None,
+        resolve_target=lambda: (user_id, car_id),
+        allowed_user_ids={42},
+        extractor_text=None,
+        agent_runner=fake_run_agent_turn,
+        ai_enabled=True,
+        openai_key="sk-test",
+        openai_model="gpt-5-mini",
+    )
+
+    await ti.handle_text(ctx, from_id=42, chat_id=99, text="Edit session 37 end soc to 81")
+
+    text = tg.sent[-1]["text"]
+    assert "start SoC 60% → 0%" in text, f"the diff must survive the model's prose: {text!r}"
+    assert "I can set session 37 end SoC to 81%." in text
 
 
 @pytest.mark.asyncio
@@ -711,7 +768,6 @@ async def test_handle_callback_mcpcommit_calls_commit_change(test_sessionmaker, 
     # commit_change was invoked via the tool runner with the token
     # (Implementation may use a different mechanism — check a reply was sent)
     assert tg.sent, "Expected a reply after mcpcommit"
-    reply = " ".join(tg.sent)
     # Should indicate success (or at least responded)
     assert tg.answered  # answer_callback was called
 
@@ -763,7 +819,7 @@ async def test_handle_callback_mcpdiscard_drops_token():
 async def test_handle_callback_existing_save_discard_paths_unchanged(
     test_sessionmaker, seeded_user_car
 ):
-    """The existing 'save'/'discard' callback paths are not broken by the new mcpcommit/mcpdiscard."""
+    """Existing 'save'/'discard' callbacks still work alongside mcpcommit/mcpdiscard."""
     import plugtrack.services.telegram_ingest as ti
 
     user_id, car_id = seeded_user_car
@@ -813,7 +869,6 @@ async def test_rolling_context_accumulates_turns(test_sessionmaker, seeded_user_
     )
 
     user_id, car_id = seeded_user_car
-    turn = 0
 
     async def extractor_text(text):
         e = Extraction(
@@ -880,15 +935,23 @@ async def test_rolling_context_accumulates_turns(test_sessionmaker, seeded_user_
 # ---------------------------------------------------------------------------
 
 
-def test_build_tool_catalogue_propose_edit_charge_has_odometer():
+def test_build_tool_catalogue_propose_edit_charge_takes_an_edits_map():
+    """The schema must expose one `edits` map, not a per-field slot per column.
+
+    Declared optional properties are what a model pads with type defaults
+    (prod #36, #37), so the catalogue is the place that regression is pinned.
+    """
     from plugtrack.services.bot_agent import build_tool_catalogue
 
     catalogue = build_tool_catalogue()
     edit_tool = next(t for t in catalogue if t["name"] == "propose_edit_charge")
     props = edit_tool["parameters"]["properties"]
-    assert "odometer" in props
-    assert props["odometer"]["type"] == "number"
-    assert "odometer_unit" in props
+
+    assert set(props) == {"charge_id", "edits", "odometer_unit"}
+    assert props["edits"]["type"] == "object"
+    assert edit_tool["parameters"]["required"] == ["charge_id", "edits"]
+    # Odometer is still supported — as a key inside the map, documented there.
+    assert "odometer" in props["edits"]["description"]
 
 
 # ---------------------------------------------------------------------------

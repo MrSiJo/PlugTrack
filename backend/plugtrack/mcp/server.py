@@ -489,40 +489,31 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
     @mcp.tool()
     async def propose_edit_charge(
         charge_id: int,
-        kwh: float | None = None,
-        price_p_per_kwh: float | None = None,
-        total_cost_p: int | None = None,
-        start_soc: int | None = None,
-        end_soc: int | None = None,
-        date: str | None = None,
-        network: str | None = None,
-        notes: str | None = None,
-        clear_fields: list[str] | None = None,
+        edits: dict,
+        odometer_unit: str | None = None,
     ) -> str:
         """Propose editing fields on a charge session (two-phase).
 
         Requires readwrite scope. Does NOT write to DB — call commit_change
         with the returned change_token to apply.
 
-        Pass ONLY the fields being changed — this is a sparse patch and every
-        omitted field keeps its current value. Do not pad the call with zeros
-        or empty strings for fields you are not changing; zero/blank values for
-        kwh, odometer, the cost overrides, network and notes are ignored, and
-        the response reports them under `ignored_fields`.
+        This is a sparse patch: `edits` must contain ONLY the fields being
+        changed, and every field you omit keeps its current value. Naming a
+        field is the whole intent signal, so values are taken literally — pass
+        `{"start_soc": 0}` only if you mean 0%.
 
         Args:
             charge_id: The numeric ID of the charge session.
-            kwh: New energy added (kWh).
-            price_p_per_kwh: Override rate (pence per kWh).
-            total_cost_p: Override total cost (pence).
-            start_soc: State-of-charge at charge start (%).
-            end_soc: State-of-charge at charge end (%).
-            date: New date (ISO YYYY-MM-DD).
-            network: Charge network name.
-            notes: Free-text notes.
-            clear_fields: Fields to explicitly blank — any of notes, network,
-                odometer, price_p_per_kwh, total_cost_p. This is the only way
-                to erase a value.
+            edits: Map of field name → new value. Valid names: kwh (float),
+                price_p_per_kwh (float, override rate in pence), total_cost_p
+                (int, override total in pence), start_soc (int %), end_soc
+                (int %), date (str, ISO YYYY-MM-DD), network (str), notes
+                (str), odometer (float, in the user's distance unit).
+                Example — to change only the ending SoC: {"end_soc": 81}.
+                A value of null erases the field, and is allowed only for
+                notes, network, odometer, price_p_per_kwh and total_cost_p.
+            odometer_unit: mi or km; applies only when editing odometer, and
+                defaults to the user's display unit.
 
         Returns:
             JSON with summary and change_token on success, or error dict.
@@ -530,24 +521,14 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
         err = require_readwrite()
         if err is not None:
             return json.dumps(err)
-        import datetime as dt
-
         user_id, _ = get_mcp_context()
-        date_obj = dt.date.fromisoformat(date) if date else None
         async with db_sessionmaker() as session:
             result = await _tools.propose_edit_charge(
                 session,
                 user_id,
                 charge_id=charge_id,
-                kwh=kwh,
-                price_p_per_kwh=price_p_per_kwh,
-                total_cost_p=total_cost_p,
-                start_soc=start_soc,
-                end_soc=end_soc,
-                date=date_obj,
-                network=network,
-                notes=notes,
-                clear_fields=clear_fields,
+                edits=edits,
+                odometer_unit=odometer_unit,
             )
         return json.dumps(result, default=str)
 

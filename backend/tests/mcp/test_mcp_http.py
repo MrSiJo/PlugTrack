@@ -186,7 +186,11 @@ async def mcp_client(app):
     """
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        # timeout is nominal — ASGITransport is in-process — but keeps bandit's
+        # request_without_timeout check satisfied.
+        async with AsyncClient(
+            transport=transport, base_url="http://testserver", timeout=30.0
+        ) as c:
             yield c
 
 
@@ -356,7 +360,7 @@ async def test_mcp_read_token_cannot_call_propose_edit_charge(
             "propose_edit_charge",
             {
                 "charge_id": mcp_seeds["session_a_id"],
-                "notes": "test",
+                "edits": {"notes": "test"},
             },
         ),
         token=token,
@@ -478,7 +482,8 @@ async def test_mcp_path_bypasses_session_cookie_auth(mcp_client):
         json=_init_payload(),
         headers=_RPC_HEADERS,  # No Authorization, no session cookie
     )
-    # Either way it's 401; but the body should NOT say "Authentication required" (session cookie msg)
+    # Either way it's 401; but the body should NOT say "Authentication required"
+    # (that is the session-cookie middleware's message)
     assert r.status_code == 401
     # The session-cookie middleware returns {"detail": "Authentication required"}
     # The MCP bearer-auth layer returns {"error": "unauthorized", "detail": "..."}

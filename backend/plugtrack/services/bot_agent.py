@@ -52,14 +52,11 @@ AGENT_SYSTEM_PROMPT = (
     "If you cannot answer from tool results, say so and offer to look it up. "
     "If the user asks for a change (add location, edit a charge), use the propose_* tools "
     "to prepare the change — the user must confirm with Save before anything is written. "
-    "To edit a session, call propose_edit_charge with only the fields the user named — "
-    "each field (start_soc, end_soc, kwh, total_cost_p, price_p_per_kwh, network, notes, "
-    "date, odometer) is independent, so 'set the ending soc to 81 on session 34' changes "
-    "only end_soc and leaves the rest untouched. "
-    "NEVER pass 0 or an empty string for a field the user did not mention — omit it "
-    "entirely. To erase a value, use clear_fields. If a propose_* result comes back with "
-    "ignored_fields, you sent padding values: tell the user plainly which fields were "
-    "left unchanged rather than presenting the edit as fully applied. "
+    "To edit a session, call propose_edit_charge with an `edits` map containing ONLY the "
+    "fields the user named — every field you leave out of the map keeps its current value. "
+    "So 'set the ending soc to 81 on session 34' is edits={\"end_soc\": 81}, nothing else. "
+    'Never add a field the user did not mention, and never use 0 or "" as a placeholder. '
+    "To erase a value, set it to null. "
     "Be concise, friendly, and use plain text (no Markdown, no asterisks). "
     "Dates are YYYY-MM-DD.\n"
     "MONEY FORMATTING: present totals and spend amounts in POUNDS as £X.XX "
@@ -241,68 +238,36 @@ def build_tool_catalogue() -> list[dict[str, Any]]:
                     "properties": {
                         "charge_id": {
                             "type": "integer",
+                            "description": "The charging session ID to edit.",
+                        },
+                        "edits": {
+                            "type": "object",
                             "description": (
-                                "The charging session ID to edit. Pass ONLY this plus the "
-                                "fields being changed — omitted fields keep their current "
-                                "values. Never pad the call with zeros or empty strings."
+                                "Map of field name to new value, containing ONLY the "
+                                "fields the user asked to change — every field you leave "
+                                "out keeps its current value. To set the ending SoC to "
+                                '81, send exactly {"end_soc": 81} and nothing else. '
+                                "Valid field names: kwh (number), price_p_per_kwh "
+                                "(number, pence per kWh), total_cost_p (integer, pence), "
+                                "start_soc (integer %), end_soc (integer %), date "
+                                "(string YYYY-MM-DD), network (string), notes (string), "
+                                "odometer (number, in the user's distance unit). "
+                                "Values are taken literally, so include a field only if "
+                                "the user named it. Use null as the value to erase a "
+                                "field — allowed for notes, network, odometer, "
+                                "price_p_per_kwh and total_cost_p only."
                             ),
-                        },
-                        "kwh": {
-                            "type": "number",
-                            "description": "New energy in kWh.",
-                        },
-                        "price_p_per_kwh": {
-                            "type": "number",
-                            "description": "New rate in pence per kWh.",
-                        },
-                        "total_cost_p": {
-                            "type": "integer",
-                            "description": "New total cost in pence.",
-                        },
-                        "start_soc": {
-                            "type": "integer",
-                            "description": "New start state of charge (%).",
-                        },
-                        "end_soc": {
-                            "type": "integer",
-                            "description": "New end state of charge (%).",
-                        },
-                        "date": {
-                            "type": "string",
-                            "description": "New date in YYYY-MM-DD format.",
-                        },
-                        "network": {
-                            "type": "string",
-                            "description": "Charging network name.",
-                        },
-                        "notes": {
-                            "type": "string",
-                            "description": "Notes for this session.",
-                        },
-                        "odometer": {
-                            "type": "number",
-                            "description": (
-                                "New odometer reading in the user's distance unit "
-                                "(miles unless they say km)."
-                            ),
+                            "additionalProperties": True,
                         },
                         "odometer_unit": {
                             "type": "string",
                             "description": (
-                                "mi or km; defaults to the user's display unit if omitted."
-                            ),
-                        },
-                        "clear_fields": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": (
-                                "Fields to explicitly blank: notes, network, odometer, "
-                                "price_p_per_kwh, total_cost_p. The ONLY way to erase a value — "
-                                "never pass 0 or an empty string to clear something."
+                                "mi or km; applies only when edits includes odometer. "
+                                "Defaults to the user's display unit if omitted."
                             ),
                         },
                     },
-                    "required": ["charge_id"],
+                    "required": ["charge_id", "edits"],
                     "additionalProperties": False,
                 },
             },
@@ -393,24 +358,12 @@ def make_tool_runner(session, user_id: int) -> Callable[[str, dict], Awaitable[A
                     location_name=args.get("location_name") or None,
                 )
             elif tool_name == "propose_edit_charge":
-                date = None
-                if args.get("date"):
-                    date = dt.date.fromisoformat(args["date"])
                 return await tc.propose_edit_charge(
                     session,
                     user_id,
                     charge_id=int(args["charge_id"]),
-                    kwh=args.get("kwh"),
-                    price_p_per_kwh=args.get("price_p_per_kwh"),
-                    total_cost_p=args.get("total_cost_p"),
-                    start_soc=args.get("start_soc"),
-                    end_soc=args.get("end_soc"),
-                    date=date,
-                    network=args.get("network"),
-                    notes=args.get("notes"),
-                    odometer=args.get("odometer"),
+                    edits=args.get("edits"),
                     odometer_unit=args.get("odometer_unit"),
-                    clear_fields=args.get("clear_fields"),
                 )
             elif tool_name == "commit_change":
                 return await tc.commit_change(session, user_id, str(args["change_token"]))

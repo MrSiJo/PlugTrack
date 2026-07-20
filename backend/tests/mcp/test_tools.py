@@ -424,7 +424,7 @@ async def test_propose_edit_charge_kwh_writes_nothing(test_sessionmaker):
     )
 
     async with test_sessionmaker() as session:
-        result = await propose_edit_charge(session, user_id, charge_id=cs_id, kwh=20.0)
+        result = await propose_edit_charge(session, user_id, charge_id=cs_id, edits={"kwh": 20.0})
 
     assert "error" not in result, f"Unexpected error: {result}"
     assert "summary" in result
@@ -457,7 +457,7 @@ async def test_commit_kwh_edit_rescales_at_frozen_tariff(test_sessionmaker):
     )
 
     async with test_sessionmaker() as session:
-        proposal = await propose_edit_charge(session, user_id, charge_id=cs_id, kwh=20.0)
+        proposal = await propose_edit_charge(session, user_id, charge_id=cs_id, edits={"kwh": 20.0})
 
     token = proposal["change_token"]
 
@@ -500,7 +500,9 @@ async def test_propose_edit_charge_price_writes_nothing(test_sessionmaker):
     )
 
     async with test_sessionmaker() as session:
-        result = await propose_edit_charge(session, user_id, charge_id=cs_id, price_p_per_kwh=25.0)
+        result = await propose_edit_charge(
+            session, user_id, charge_id=cs_id, edits={"price_p_per_kwh": 25.0}
+        )
 
     assert "error" not in result
     assert "change_token" in result
@@ -530,7 +532,7 @@ async def test_commit_price_edit_sets_override_per_kwh(test_sessionmaker):
 
     async with test_sessionmaker() as session:
         proposal = await propose_edit_charge(
-            session, user_id, charge_id=cs_id, price_p_per_kwh=25.0
+            session, user_id, charge_id=cs_id, edits={"price_p_per_kwh": 25.0}
         )
 
     async with test_sessionmaker() as session:
@@ -562,7 +564,9 @@ async def test_commit_total_cost_sets_override_total(test_sessionmaker):
     )
 
     async with test_sessionmaker() as session:
-        proposal = await propose_edit_charge(session, user_id, charge_id=cs_id, total_cost_p=500)
+        proposal = await propose_edit_charge(
+            session, user_id, charge_id=cs_id, edits={"total_cost_p": 500}
+        )
 
     async with test_sessionmaker() as session:
         await commit_change(session, user_id, proposal["change_token"])
@@ -904,7 +908,7 @@ async def test_propose_edit_charge_other_users_session_is_error(test_sessionmake
     cs_id = await _seed_session(test_sessionmaker, user_a, car_a)
 
     async with test_sessionmaker() as session:
-        result = await propose_edit_charge(session, user_b, charge_id=cs_id, kwh=20.0)
+        result = await propose_edit_charge(session, user_b, charge_id=cs_id, edits={"kwh": 20.0})
 
     assert "error" in result
 
@@ -1154,7 +1158,9 @@ async def test_propose_edit_charge_odometer_mi_default(test_sessionmaker):
     cs_id = await _seed_session(test_sessionmaker, user_id, car_id, odometer_at_session_km=None)
 
     async with test_sessionmaker() as session:
-        result = await propose_edit_charge(session, user_id, charge_id=cs_id, odometer=11056)
+        result = await propose_edit_charge(
+            session, user_id, charge_id=cs_id, edits={"odometer": 11056}
+        )
 
     assert "error" not in result, f"Unexpected error: {result}"
     assert "change_token" in result
@@ -1186,7 +1192,7 @@ async def test_propose_edit_charge_odometer_km_explicit(test_sessionmaker):
 
     async with test_sessionmaker() as session:
         result = await propose_edit_charge(
-            session, user_id, charge_id=cs_id, odometer=17800, odometer_unit="km"
+            session, user_id, charge_id=cs_id, edits={"odometer": 17800}, odometer_unit="km"
         )
 
     assert "error" not in result
@@ -1214,7 +1220,9 @@ async def test_propose_edit_charge_odometer_summary_line(test_sessionmaker):
     cs_id = await _seed_session(test_sessionmaker, user_id, car_id)
 
     async with test_sessionmaker() as session:
-        result = await propose_edit_charge(session, user_id, charge_id=cs_id, odometer=11056)
+        result = await propose_edit_charge(
+            session, user_id, charge_id=cs_id, edits={"odometer": 11056}
+        )
 
     assert "error" not in result
     summary = result["summary"]
@@ -1322,19 +1330,10 @@ async def test_propose_edit_charge_ignores_zero_filled_defaults(test_sessionmake
         notes="original note",
     )
 
-    # Exactly what the model sent in the incident.
+    # The user named exactly one field, so the edits map carries exactly one key.
     async with test_sessionmaker() as session:
         proposal = await propose_edit_charge(
-            session,
-            user_id,
-            charge_id=cs_id,
-            end_soc=81,
-            kwh=0,
-            price_p_per_kwh=0,
-            total_cost_p=0,
-            odometer=0,
-            network="",
-            notes="",
+            session, user_id, charge_id=cs_id, edits={"end_soc": 81}
         )
 
     assert "error" not in proposal, f"propose failed: {proposal}"
@@ -1376,7 +1375,7 @@ async def test_propose_edit_charge_clear_fields_blanks_explicitly(test_sessionma
 
     async with test_sessionmaker() as session:
         proposal = await propose_edit_charge(
-            session, user_id, charge_id=cs_id, clear_fields=["notes", "network"]
+            session, user_id, charge_id=cs_id, edits={"notes": None, "network": None}
         )
 
     assert "error" not in proposal, f"propose failed: {proposal}"
@@ -1404,7 +1403,9 @@ async def test_propose_edit_charge_summary_is_before_after_diff(test_sessionmake
     )
 
     async with test_sessionmaker() as session:
-        proposal = await propose_edit_charge(session, user_id, charge_id=cs_id, end_soc=81)
+        proposal = await propose_edit_charge(
+            session, user_id, charge_id=cs_id, edits={"end_soc": 81}
+        )
 
     summary = proposal["summary"]
     assert "80" in summary and "81" in summary, f"summary must show before→after: {summary}"
@@ -1413,8 +1414,114 @@ async def test_propose_edit_charge_summary_is_before_after_diff(test_sessionmake
 
 
 @pytest.mark.asyncio
+async def test_propose_edit_charge_has_no_per_field_parameters(test_sessionmaker):
+    """The padding surface must not come back.
+
+    Prod #37 happened because the signature offered ten optional scalar slots
+    for a model to fill. Naming a field in `edits` is now the only way to
+    change it, so there is nothing to pad — this pins that shape rather than
+    the value-sniffing heuristics that replaced it once and failed.
+    """
+    import inspect
+
+    from plugtrack.mcp.tools import propose_edit_charge
+
+    params = set(inspect.signature(propose_edit_charge).parameters)
+    leaked = params & {
+        "kwh",
+        "price_p_per_kwh",
+        "total_cost_p",
+        "start_soc",
+        "end_soc",
+        "date",
+        "network",
+        "notes",
+        "odometer",
+        "clear_fields",
+    }
+    assert not leaked, f"per-field parameters reintroduce the padding surface: {sorted(leaked)}"
+    assert "edits" in params
+
+
+@pytest.mark.asyncio
+async def test_propose_edit_charge_end_soc_leaves_start_soc_alone(test_sessionmaker):
+    """Prod #37: editing end SoC must not touch start SoC.
+
+    The model padded `start_soc=0` alongside a real `end_soc=81`; SoC was
+    exempt from the zero-guard, so a 60% start SoC was written to 0.
+    """
+    from plugtrack.mcp.tools import commit_change, propose_edit_charge
+
+    user_id = await _seed_user(test_sessionmaker, "s37")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(
+        test_sessionmaker, user_id, car_id, start_soc=60, end_soc=80, kwh_added=13.48
+    )
+
+    async with test_sessionmaker() as session:
+        proposal = await propose_edit_charge(
+            session, user_id, charge_id=cs_id, edits={"end_soc": 81}
+        )
+    async with test_sessionmaker() as session:
+        await commit_change(session, user_id, proposal["change_token"])
+
+    async with test_sessionmaker() as session:
+        row = await session.get(ChargingSession, cs_id)
+        assert row.end_soc == 81
+        assert row.start_soc == 60, "start SoC must survive an end-SoC-only edit"
+
+
+@pytest.mark.asyncio
+async def test_propose_edit_charge_rejects_unknown_field(test_sessionmaker):
+    """An invented or misspelled field is an error, never a silent no-op."""
+    from plugtrack.mcp.tools import propose_edit_charge
+
+    user_id = await _seed_user(test_sessionmaker, "typo")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(test_sessionmaker, user_id, car_id)
+
+    async with test_sessionmaker() as session:
+        result = await propose_edit_charge(session, user_id, charge_id=cs_id, edits={"soc_end": 81})
+
+    assert "soc_end" in result.get("error", ""), f"expected an unknown-field error: {result}"
+
+
+@pytest.mark.asyncio
+async def test_propose_edit_charge_empty_edits_is_an_error(test_sessionmaker):
+    """An empty map is inert — it must never mint a token that writes nothing."""
+    from plugtrack.mcp.tools import propose_edit_charge
+
+    user_id = await _seed_user(test_sessionmaker, "empty")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(test_sessionmaker, user_id, car_id)
+
+    async with test_sessionmaker() as session:
+        result = await propose_edit_charge(session, user_id, charge_id=cs_id, edits={})
+
+    assert "error" in result
+    assert "change_token" not in result
+
+
+@pytest.mark.asyncio
+async def test_propose_edit_charge_cannot_clear_a_required_field(test_sessionmaker):
+    """Null is an erase, and erasing SoC/kwh/date is not a legitimate edit."""
+    from plugtrack.mcp.tools import propose_edit_charge
+
+    user_id = await _seed_user(test_sessionmaker, "nuller")
+    car_id = await _seed_car(test_sessionmaker, user_id)
+    cs_id = await _seed_session(test_sessionmaker, user_id, car_id, start_soc=60)
+
+    async with test_sessionmaker() as session:
+        result = await propose_edit_charge(
+            session, user_id, charge_id=cs_id, edits={"start_soc": None}
+        )
+
+    assert "error" in result, f"clearing start_soc must be refused: {result}"
+
+
+@pytest.mark.asyncio
 async def test_propose_edit_charge_zero_start_soc_is_still_valid(test_sessionmaker):
-    """0% SoC is physically real — the zero-guard must not swallow SoC fields."""
+    """0% SoC is physically real — a named field is taken at face value."""
     from plugtrack.mcp.tools import commit_change, propose_edit_charge
 
     user_id = await _seed_user(test_sessionmaker, "flat")
@@ -1422,7 +1529,9 @@ async def test_propose_edit_charge_zero_start_soc_is_still_valid(test_sessionmak
     cs_id = await _seed_session(test_sessionmaker, user_id, car_id, start_soc=20)
 
     async with test_sessionmaker() as session:
-        proposal = await propose_edit_charge(session, user_id, charge_id=cs_id, start_soc=0)
+        proposal = await propose_edit_charge(
+            session, user_id, charge_id=cs_id, edits={"start_soc": 0}
+        )
 
     assert "error" not in proposal, f"propose failed: {proposal}"
 

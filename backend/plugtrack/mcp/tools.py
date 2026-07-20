@@ -532,87 +532,102 @@ async def propose_edit_charge(
     user_id: int,
     *,
     charge_id: int,
-    kwh: float | None = None,
-    price_p_per_kwh: float | None = None,
-    total_cost_p: int | None = None,
-    start_soc: int | None = None,
-    end_soc: int | None = None,
-    date: dt.date | None = None,
-    network: str | None = None,
-    notes: str | None = None,
-    odometer: float | None = None,
+    edits: dict | None = None,
     odometer_unit: str | None = None,
-    clear_fields: list[str] | None = None,
 ) -> dict:
     """Propose editing fields on a charge session.
 
     Validates ownership. Writes nothing. Returns {summary, change_token}.
 
-    An edit is a SPARSE PATCH: only the fields the caller names may change.
-    Because callers are LLMs that sometimes fill every parameter in the schema
-    with type-default values, a zero or empty string for a field where it is
-    meaningless (kWh, odometer, the two cost overrides, network, notes) is
-    treated as "not specified" rather than as an instruction to wipe the field.
-    Genuine blanking goes through ``clear_fields``, which is explicit and can
-    never be produced by a model padding out its arguments.
+    An edit is a SPARSE PATCH expressed as a map of field name → new value.
+    **The presence of a key is the intent signal** — a field absent from
+    ``edits`` cannot change, whatever its value would have been.
 
-    SoC is deliberately exempt: 0% is a physically real state of charge.
+    This shape exists because the callers are LLMs. A wide signature of
+    optional scalar parameters invites a model to fill every declared property
+    with a type default, and no amount of per-field value-sniffing can then
+    distinguish "the user asked for 0" from "I had a slot to fill" — that
+    ambiguity wiped prod sessions #36 and #37. A single free-form map has no
+    declared properties to pad: the caller must actively name each field it
+    intends to touch. Values are therefore taken at face value, so 0% SoC and
+    0 kWh mean exactly what they say.
+
+    A value of ``None`` clears the field (only for the fields in
+    ``_CLEARABLE_FIELDS``); unknown field names are rejected rather than
+    silently dropped.
     """
     try:
         cs = await _get_owned_session(session, charge_id, user_id)
         if cs is None:
             return {"error": f"charge {charge_id} not found or not owned by this user"}
 
+        edits = edits or {}
+        if not isinstance(edits, dict):
+            return {"error": "edits must be an object mapping field names to new values"}
+
+        unknown = sorted(set(edits) - _EDITABLE_FIELDS)
+        if unknown:
+            return {
+                "error": (
+                    f"unknown field(s) {', '.join(unknown)}; editable fields are "
+                    + ", ".join(sorted(_EDITABLE_FIELDS))
+                )
+            }
+
         # Build data for the pending change
         data: dict = {"charge_id": charge_id}
         changes: list[str] = []
-        ignored: list[str] = []
 
-        def _positive(name: str, value: float | None) -> bool:
-            """True if the value is a real edit; records model-filled zeros."""
-            if value is None:
-                return False
-            if value <= 0:
-                ignored.append(name)
-                return False
-            return True
+        # None means "erase this field" — allowed only where a NULL is meaningful.
+        for name, value in edits.items():
+            if value is None and name not in _CLEARABLE_FIELDS:
+                return {
+                    "error": (
+                        f"cannot clear {name!r}; a charge without it is not a charge. "
+                        "Clearable fields are " + ", ".join(sorted(_CLEARABLE_FIELDS))
+                    )
+                }
 
-        def _nonblank(name: str, value: str | None) -> bool:
-            if value is None:
-                return False
-            if not value.strip():
-                ignored.append(name)
-                return False
-            return True
+        def _cleared(name: str) -> bool:
+            """Record an explicit erase; True when the field needs no further handling."""
+            if name in edits and edits[name] is None:
+                data.setdefault("clear", []).append(name)
+                changes.append(f"{name} → cleared")
+                return True
+            return False
 
-        if _positive("kwh", kwh):
-            data["kwh"] = kwh
-            changes.append(f"kWh {cs.kwh_added} → {kwh}")
-        if _positive("price_p_per_kwh", price_p_per_kwh):
-            data["price_p_per_kwh"] = price_p_per_kwh
+        if "kwh" in edits and not _cleared("kwh"):
+            data["kwh"] = edits["kwh"]
+            changes.append(f"kWh {cs.kwh_added} → {edits['kwh']}")
+        if "price_p_per_kwh" in edits and not _cleared("price_p_per_kwh"):
+            data["price_p_per_kwh"] = edits["price_p_per_kwh"]
             before = _format_rate(cs.tariff_p_per_kwh) or "not set"
-            changes.append(f"rate {before} → {price_p_per_kwh}p/kWh")
-        if _positive("total_cost_p", total_cost_p):
-            data["total_cost_p"] = total_cost_p
+            changes.append(f"rate {before} → {edits['price_p_per_kwh']}p/kWh")
+        if "total_cost_p" in edits and not _cleared("total_cost_p"):
+            data["total_cost_p"] = edits["total_cost_p"]
             before = _format_gbp(cs.cost_pence) or "not set"
-            changes.append(f"total cost {before} → {total_cost_p}p")
-        if start_soc is not None:
-            data["start_soc"] = start_soc
-            changes.append(f"start SoC {cs.start_soc}% → {start_soc}%")
-        if end_soc is not None:
-            data["end_soc"] = end_soc
-            changes.append(f"end SoC {cs.end_soc}% → {end_soc}%")
-        if date is not None:
-            data["date"] = date.isoformat()
-            changes.append(f"date {cs.date} → {date}")
-        if _nonblank("network", network):
-            data["network"] = network
-            changes.append(f"network {cs.charge_network or 'not set'!r} → {network!r}")
-        if _nonblank("notes", notes):
-            data["notes"] = notes
-            changes.append(f"notes {cs.notes or 'not set'!r} → {notes!r}")
+            changes.append(f"total cost {before} → {edits['total_cost_p']}p")
+        if "start_soc" in edits:
+            data["start_soc"] = edits["start_soc"]
+            changes.append(f"start SoC {cs.start_soc}% → {edits['start_soc']}%")
+        if "end_soc" in edits:
+            data["end_soc"] = edits["end_soc"]
+            changes.append(f"end SoC {cs.end_soc}% → {edits['end_soc']}%")
+        if "date" in edits:
+            new_date = edits["date"]
+            if isinstance(new_date, str):
+                new_date = dt.date.fromisoformat(new_date)
+            data["date"] = new_date.isoformat()
+            changes.append(f"date {cs.date} → {new_date}")
+        if "network" in edits and not _cleared("network"):
+            data["network"] = edits["network"]
+            changes.append(f"network {cs.charge_network or 'not set'!r} → {edits['network']!r}")
+        if "notes" in edits and not _cleared("notes"):
+            data["notes"] = edits["notes"]
+            changes.append(f"notes {cs.notes or 'not set'!r} → {edits['notes']!r}")
 
-        if _positive("odometer", odometer):
+        if "odometer" in edits and not _cleared("odometer"):
+            odometer = edits["odometer"]
             # Resolve unit: use odometer_unit if given, else read distance_unit setting
             unit = (odometer_unit or "").lower().strip()
             if unit not in ("mi", "km"):
@@ -627,42 +642,13 @@ async def propose_edit_charge(
             before = _format_odometer(cs.odometer_at_session_km, unit) or "not set"
             changes.append(f"odometer {before} → {odometer} {unit}")
 
-        # Explicit blanking — the only way to NULL a field.
-        for name in clear_fields or []:
-            key = name.strip().lower()
-            if key not in _CLEARABLE_FIELDS:
-                return {
-                    "error": (
-                        f"cannot clear {name!r}; clearable fields are "
-                        + ", ".join(sorted(_CLEARABLE_FIELDS))
-                    )
-                }
-            data.setdefault("clear", []).append(key)
-            changes.append(f"{key} → cleared")
-
         if not changes:
-            if ignored:
-                return {
-                    "error": (
-                        "no changes specified — ignored zero/blank values for "
-                        + ", ".join(ignored)
-                        + ". Pass a real value, or use clear_fields to blank a field."
-                    )
-                }
             return {"error": "no changes specified"}
 
         summary = f"Edit charge #{charge_id} (date={cs.date}): " + "; ".join(changes)
 
         token = _mint_token(user_id, "edit_charge", data)
-        result: dict = {"summary": summary, "change_token": token}
-        if ignored:
-            result["ignored_fields"] = ignored
-            result["note"] = (
-                "Ignored zero/blank values for "
-                + ", ".join(ignored)
-                + " — these fields are left unchanged. Tell the user if they meant to change them."
-            )
-        return result
+        return {"summary": summary, "change_token": token}
     except Exception as exc:
         return {"error": str(exc)}
 
@@ -674,9 +660,26 @@ async def propose_edit_charge(
 # Override fields: editing these means override_changed=True for apply_cost
 _OVERRIDE_FIELDS = frozenset({"price_p_per_kwh", "total_cost_p"})
 
-# Fields that `clear_fields` may NULL, mapped to their model attribute.
-# SoC / date / kwh are absent deliberately: a charge without them is not a
-# charge, so there is no legitimate "clear" for them.
+# Field names `propose_edit_charge` accepts in its `edits` map. Anything else
+# is rejected, so a caller that invents or misspells a field is told rather
+# than having the edit silently dropped.
+_EDITABLE_FIELDS = frozenset(
+    {
+        "kwh",
+        "price_p_per_kwh",
+        "total_cost_p",
+        "start_soc",
+        "end_soc",
+        "date",
+        "network",
+        "notes",
+        "odometer",
+    }
+)
+
+# Fields that an explicit `None` in `edits` may NULL, mapped to their model
+# attribute. SoC / date / kwh are absent deliberately: a charge without them is
+# not a charge, so there is no legitimate "clear" for them.
 _CLEARABLE_FIELDS: dict[str, str] = {
     "notes": "notes",
     "network": "charge_network",

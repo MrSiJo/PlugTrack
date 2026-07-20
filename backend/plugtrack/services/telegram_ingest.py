@@ -271,7 +271,8 @@ class CarResolution:
 
     kind values:
       "auto"    — exactly one active car; car_id is set.
-      "matched" — caption uniquely identified a car (active-preferred, then archived); car_id is set.
+      "matched" — caption uniquely identified a car (active-preferred, then
+                  archived); car_id is set.
       "prompt"  — 2+ active cars and no unique caption match; active_cars lists them for the user.
       "none"    — zero active cars and no unique caption match; nothing can be done.
     """
@@ -521,7 +522,7 @@ async def _send_or_edit_card(ctx: IngestContext, *, chat_id: int, text: str) -> 
             await edit(chat_id=chat_id, message_id=mid, text=text, reply_markup=_kb())
             return
         except Exception:  # noqa: BLE001 — message too old / not modified / deleted
-            pass
+            logger.debug("card edit failed; falling back to a new message", exc_info=True)
     new_mid = await ctx.telegram.send_message(chat_id=chat_id, text=text, reply_markup=_kb())
     if new_mid is not None:
         ctx.card_ids[chat_id] = new_mid
@@ -703,11 +704,16 @@ async def _resolve_and_stage(
 
 
 def _extraction_to_edit_kwargs(extraction: Extraction) -> dict[str, Any]:
-    """Map Extraction fields → propose_edit_charge keyword arguments.
+    """Map Extraction fields → the `edits` map for propose_edit_charge.
 
-    Only includes fields that are not None. Date and notes are never set from
+    Only includes fields that are not None — the presence of a key is what
+    authorises the change, so a field the screenshot didn't yield must be
+    absent rather than present-and-zero. Date and notes are never set from
     a screenshot (updating an existing session shouldn't move its date).
     Cost: prefer total_cost_p when has_cost+cost_total_pence; else per-kwh rate.
+
+    `odometer_unit` is returned alongside the edits (it is a modifier, not an
+    editable field) and is split out by the caller.
     """
     kwargs: dict[str, Any] = {}
     if extraction.energy_kwh is not None:
@@ -787,8 +793,12 @@ async def _handle_photo_update_target(
             ctx.pending_edit_target[chat_id] = (target, time.time())
         return
 
+    edits = dict(kwargs)
+    unit = edits.pop("odometer_unit", None)
     async with ctx.sessionmaker() as s:
-        result = await propose_edit_charge(s, user_id, charge_id=target, **kwargs)
+        result = await propose_edit_charge(
+            s, user_id, charge_id=target, edits=edits, odometer_unit=unit
+        )
 
     if result.get("error"):
         await ctx.telegram.send_message(chat_id=chat_id, text=result["error"])
@@ -1087,7 +1097,7 @@ async def handle_callback(
         # Mark only the placeable rows committed; keep undated readings staged so
         # their app-screenshot companion can still arrive and place them.
         kept = 0
-        for row, ext in zip(staged, exts):
+        for row, ext in zip(staged, exts, strict=False):
             if id(ext) in unplaceable_ids:
                 kept += 1
                 continue
@@ -1293,8 +1303,15 @@ async def handle_text(ctx: IngestContext, *, from_id: int, chat_id: int, text: s
             ctx.pending_tokens[chat_id] = change_token
             kb = _proposal_kb(change_token)
             summary = proposal.get("summary", "")
-            msg = reply_text or f"Proposed change: {summary}"
-            await ctx.telegram.send_message(chat_id=chat_id, text=msg, reply_markup=kb)
+            # The tool's summary is the authoritative before→after diff and must
+            # ALWAYS reach the card. The model's prose is appended above it, never
+            # substituted for it: on prod session #37 the model narrated "only end
+            # SoC" over a proposal that also zeroed start SoC, and the user had no
+            # way to see the difference before pressing Save.
+            msg = f"{reply_text}\n\n{summary}".strip() if reply_text else summary
+            await ctx.telegram.send_message(
+                chat_id=chat_id, text=msg or "Proposed change.", reply_markup=kb
+            )
         else:
             await ctx.telegram.send_message(chat_id=chat_id, text=reply_text or "No reply.")
 
