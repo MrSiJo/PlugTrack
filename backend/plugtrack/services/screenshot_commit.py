@@ -33,9 +33,17 @@ def map_curve_points(
 ) -> list | None:
     """Map extracted [fraction, kw] points to the renderer's
     [t_seconds, soc, power_kw] triplets, interpolating SoC linearly across the
-    charge and stripping leading/trailing zero-power points (pre-charge lead-in
-    / terminal cutoff). Returns None when there is no usable curve. Shared by
-    commit and the backfill CLI."""
+    charge. Returns None when there is no usable curve. Shared by commit and
+    the backfill CLI.
+
+    Zero-power points are preserved, including the ones at each end. They were
+    previously stripped as "pre-charge lead-in / terminal cutoff", but on a
+    home/AC charge those points ARE the rising and falling edges of the trace:
+    dropping them turned a square top hat into a bare plateau that started and
+    ended mid-air, which is why prod #37's curve looked nothing like the source
+    graph. Interior zeros (the car pausing mid-charge) were always kept, and a
+    curve is only rejected when no sample carries any power at all.
+    """
     if not points or not secs or secs <= 0:
         return None
     s0 = soc_start if soc_start is not None else 0
@@ -45,11 +53,9 @@ def map_curve_points(
         t = int(round(float(frac) * secs))
         soc = round(s0 + float(frac) * (s1 - s0))
         triplets.append([t, soc, float(kw)])
-    while triplets and triplets[0][2] <= 0:
-        triplets.pop(0)
-    while triplets and triplets[-1][2] <= 0:
-        triplets.pop()
-    return triplets or None
+    if not any(t[2] > 0 for t in triplets):
+        return None
+    return triplets
 
 
 def _map_extracted_curve(merged: MergedSession) -> list | None:

@@ -165,10 +165,12 @@ async def test_dc_power_curve_mapped_to_triplets(test_sessionmaker, seeded_user_
     async with test_sessionmaker() as s:
         cs = await preview_merged_session(s, user_id=user_id, car_id=car_id, merged=merged)
     assert cs.charging_type == "dc"
-    # leading/trailing zero-power points stripped
-    assert cs.power_curve[0][2] > 0 and cs.power_curve[-1][2] > 0
-    # first retained point: fraction 0.2 -> t=round(0.2*1320)=264, soc=55+0.2*(90-55)=62
-    assert cs.power_curve[0] == [264, 62, 62]
+    # Edge zero-power points are KEPT — they are the rising and falling edges
+    # of the trace, and stripping them left the curve starting mid-air.
+    assert cs.power_curve[0] == [0, 55, 0.0]
+    assert cs.power_curve[-1] == [1320, 90, 0.0]
+    # fraction 0.2 -> t=round(0.2*1320)=264, soc=55+0.2*(90-55)=62
+    assert cs.power_curve[1] == [264, 62, 62]
 
 
 @pytest.mark.asyncio

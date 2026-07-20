@@ -401,6 +401,91 @@ describe('SessionDetail — charge curve approximation', () => {
   })
 })
 
+describe('SessionDetail — charge curve shape', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    useSettingsStore.setState({ settings: {}, loaded: true })
+    mockNoCars()
+  })
+
+  // Prod #37: a 2 kW granny charge that paused mid-way. In MyCupra this is a
+  // square top hat with a notch; drawn with straight segments between sparse
+  // samples it collapsed into a diagonal sawtooth.
+  const acCurve = [
+    [0, 60, 0],
+    [2542, 62, 2.0],
+    [7413, 67, 1.9],
+    [9319, 69, 0],
+    [10166, 70, 0],
+    [11225, 71, 2.1],
+    [17791, 77, 2.0],
+    [21180, 80, 0],
+  ]
+
+  function pathOf(section: HTMLElement) {
+    return section
+      .querySelector('[data-testid="curve-power-path"]')!
+      .getAttribute('d')!
+  }
+
+  it('draws an AC charge with square steps, not diagonal ramps', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({ power_curve: acCurve, charging_type: 'ac' }),
+    )
+
+    renderDetail()
+    const section = await screen.findByTestId('charge-curve')
+    const d = pathOf(section)
+
+    // A stepped path holds each level then moves vertically: every segment is
+    // axis-aligned, so consecutive points share an x or a y.
+    const pts = d
+      .split(/(?=[ML])/)
+      .map((seg) => seg.slice(1).split(',').map(Number))
+      .filter((p) => p.length === 2 && p.every((n) => !Number.isNaN(n)))
+    expect(pts.length).toBeGreaterThan(acCurve.length)
+    for (let i = 1; i < pts.length; i++) {
+      const [x0, y0] = pts[i - 1] as [number, number]
+      const [x1, y1] = pts[i] as [number, number]
+      const axisAligned = Math.abs(x1 - x0) < 0.05 || Math.abs(y1 - y0) < 0.05
+      expect(axisAligned).toBe(true)
+    }
+  })
+
+  it('draws a DC charge with a smooth taper (no forced steps)', async () => {
+    const dcCurve = [
+      [0, 20, 0],
+      [300, 35, 120],
+      [900, 60, 90],
+      [1500, 78, 45],
+      [1800, 80, 0],
+    ]
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({ power_curve: dcCurve, charging_type: 'dc' }),
+    )
+
+    renderDetail()
+    const section = await screen.findByTestId('charge-curve')
+    const d = pathOf(section)
+
+    // One move + one line per sample — the genuine taper must not be squared off.
+    expect((d.match(/L/g) ?? []).length).toBe(dcCurve.length - 1)
+  })
+
+  it('scales the power axis to a low-power AC charge instead of flooring at 5kW', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(
+      makeSession({ power_curve: acCurve, charging_type: 'ac' }),
+    )
+
+    renderDetail()
+    const section = await screen.findByTestId('charge-curve')
+
+    // A 2.1 kW peak squashed into a 0–5 kW axis sits in the bottom 40%; the
+    // axis should top out just above the peak instead.
+    expect(section).toHaveTextContent('2.5kW')
+  })
+})
+
 describe('SessionDetail — petrol comparison basis', () => {
   beforeEach(() => {
     vi.restoreAllMocks()

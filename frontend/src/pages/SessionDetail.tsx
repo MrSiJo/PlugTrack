@@ -61,12 +61,26 @@ function fmtPencePerMile(p: number | null): string {
   return `${p.toFixed(1)}p/mi`
 }
 
+/** Round a peak power up to a clean axis maximum, with a little headroom.
+ *
+ * Deliberately step-scaled rather than a fixed floor: a 2 kW granny charge and
+ * a 120 kW rapid both need to fill the plot. Flooring the axis at 5 kW (as this
+ * used to) squashed every home charge into the bottom of the chart. */
+function nicePowerMax(peak: number): number {
+  const withHeadroom = Math.max(peak, 0.1) * 1.05
+  const step =
+    withHeadroom <= 4 ? 0.5 : withHeadroom <= 20 ? 2 : withHeadroom <= 60 ? 5 : 10
+  return Number((Math.ceil(withHeadroom / step) * step).toFixed(2))
+}
+
 interface ChargeCurveProps {
   samples: number[][]
   approximate: boolean
+  /** 'ac' draws square steps; anything else keeps the smooth DC taper. */
+  chargingType?: string
 }
 
-function ChargeCurve({ samples, approximate }: ChargeCurveProps) {
+function ChargeCurve({ samples, approximate, chargingType }: ChargeCurveProps) {
   // Normalise the [delta_seconds, soc, power_kw] triplets to a typed
   // shape up-front so the rest of the function isn't littered with
   // index-access guards.
@@ -95,11 +109,10 @@ function ChargeCurve({ samples, approximate }: ChargeCurveProps) {
   const tMax = Math.max(...ts)
   const tSpan = tMax - tMin || 1
 
-  // Power axis auto-scales to the observed max (round up to nearest 5
-  // for a clean grid). SoC axis is fixed 0–100.
+  // Power axis auto-scales to the observed max. SoC axis is fixed 0–100.
   const powers = points.map((p) => p.kw)
-  const pMaxObserved = Math.max(...powers, 1)
-  const pMax = Math.max(5, Math.ceil(pMaxObserved / 5) * 5)
+  const pMaxObserved = Math.max(...powers, 0.1)
+  const pMax = nicePowerMax(pMaxObserved)
 
   const xAt = (t: number) =>
     PAD_L + ((t - tMin) / tSpan) * (W - PAD_L - PAD_R)
@@ -111,9 +124,28 @@ function ChargeCurve({ samples, approximate }: ChargeCurveProps) {
   const socPath = points
     .map((p, i) => `${i === 0 ? 'M' : 'L'}${xAt(p.t).toFixed(1)},${ySoc(p.soc).toFixed(1)}`)
     .join(' ')
-  const powerPath = points
-    .map((p, i) => `${i === 0 ? 'M' : 'L'}${xAt(p.t).toFixed(1)},${yPower(p.kw).toFixed(1)}`)
-    .join(' ')
+  // AC charges are switched on and off at a near-constant rate, so the true
+  // trace is a square wave — the car either draws its ~2 kW or nothing. Joining
+  // sparse samples with straight lines turned every vertical edge into a long
+  // diagonal ramp and a mid-charge pause into a V instead of a notch. Hold each
+  // level and move vertically at the next sample. DC keeps straight segments:
+  // its taper is a genuine curve, and squaring it off would be the same lie in
+  // the opposite direction.
+  const stepped = (chargingType ?? '').toLowerCase() === 'ac'
+  const powerPath = (() => {
+    const first = points[0]
+    if (!first) return ''
+    const segs = [`M${xAt(first.t).toFixed(1)},${yPower(first.kw).toFixed(1)}`]
+    let prev = first
+    for (const p of points.slice(1)) {
+      if (stepped) {
+        segs.push(`L${xAt(p.t).toFixed(1)},${yPower(prev.kw).toFixed(1)}`)
+      }
+      segs.push(`L${xAt(p.t).toFixed(1)},${yPower(p.kw).toFixed(1)}`)
+      prev = p
+    }
+    return segs.join(' ')
+  })()
 
   const durationMin = Math.round(tSpan / 60)
 
@@ -1100,6 +1132,7 @@ export default function SessionDetail() {
               <ChargeCurve
                 samples={session.power_curve}
                 approximate={session.power_curve_approximate ?? false}
+                chargingType={session.charging_type}
               />
             </Card>
           </section>
