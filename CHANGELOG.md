@@ -1,5 +1,17 @@
 # Changelog
 
+## [4.0.0](https://github.com/MrSiJo/PlugTrack/compare/v3.13.1...v4.0.0) (2026-07-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* propose_edit_charge replaces its per-field parameters with an `edits` object. External MCP clients calling it must be updated.
+
+### Bug Fixes
+
+* **curves:** keep the edges so a home charge reads as a square wave ([c168e89](https://github.com/MrSiJo/PlugTrack/commit/c168e893f9a029aaadcb51006795b009547c05a6))
+* make propose_edit_charge a sparse edits map so padding cannot wipe fields ([08c66ba](https://github.com/MrSiJo/PlugTrack/commit/08c66ba7b6ec21c748ba94799a737657ec3c9d40))
+
 ## [3.13.1](https://github.com/MrSiJo/PlugTrack/compare/v3.13.0...v3.13.1) (2026-07-19)
 
 
