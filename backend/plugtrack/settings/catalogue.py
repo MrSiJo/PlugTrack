@@ -47,6 +47,34 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         description="Comparable petrol vehicle's miles per gallon.",
         default_value="50.0",
     ),
+    CatalogueEntry(
+        key="eved_rate_p_per_mile",
+        value_type="float",
+        group_name="cost",
+        label="eVED rate (p/mile)",
+        description=(
+            "Proposed UK pay-per-mile rate for EVs from April 2028 "
+            "(3p/mile for battery EVs, ~1.5p/mile for plug-in hybrids). "
+            "Used for the indicative road-tax estimate on the dashboard."
+        ),
+        default_value="3.0",
+    ),
+    CatalogueEntry(
+        key="ved_annual_cost_gbp",
+        value_type="float",
+        group_name="cost",
+        label="Annual VED (£)",
+        description="Flat annual Vehicle Excise Duty, in pounds, added to the eVED estimate.",
+        default_value="200",
+    ),
+    CatalogueEntry(
+        key="ved_renewal_date",
+        value_type="string",
+        group_name="cost",
+        label="VED renewal date (MM-DD)",
+        description="Month-day the road tax falls due, e.g. 07-31. Display label only.",
+        default_value="07-31",
+    ),
     # Display
     CatalogueEntry(
         key="theme",
@@ -69,7 +97,10 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         value_type="enum",
         group_name="display",
         label="Distance unit",
-        description="Display unit for distances. Stored as km internally; converted at render. Default 'mi'.",
+        description=(
+            "Display unit for distances. Stored as km internally; converted at render. "
+            "Default 'mi'."
+        ),
         default_value="mi",
     ),
     CatalogueEntry(
@@ -104,7 +135,10 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         value_type="bool",
         group_name="locations",
         label="Reverse-geocode locations",
-        description="When enabled, charging locations are matched to a human-readable address via a third-party service. Disable for full privacy.",
+        description=(
+            "When enabled, charging locations are matched to a human-readable address "
+            "via a third-party service. Disable for full privacy."
+        ),
         default_value="true",
     ),
     CatalogueEntry(
@@ -112,7 +146,10 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         value_type="enum",
         group_name="locations",
         label="Geocoding provider",
-        description="Service used to look up addresses. 'nominatim' is free and no key needed; 'mapbox' / 'opencage' need geocoding_api_key.",
+        description=(
+            "Service used to look up addresses. 'nominatim' is free and no key needed; "
+            "'mapbox' / 'opencage' need geocoding_api_key."
+        ),
         default_value="nominatim",
     ),
     CatalogueEntry(
@@ -129,7 +166,9 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         value_type="int",
         group_name="locations",
         label="Location cluster radius (metres)",
-        description="GPS coords within this radius of an existing location are treated as the same place.",
+        description=(
+            "GPS coords within this radius of an existing location are treated as the same place."
+        ),
         default_value="100",
     ),
     # Home charge planner
@@ -286,7 +325,9 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         value_type="float",
         group_name="ai",
         label="OpenAI input price (pence / 1k tokens)",
-        description="Optional. Used to show £ cost per extraction. Leave blank to show tokens only.",
+        description=(
+            "Optional. Used to show £ cost per extraction. Leave blank to show tokens only."
+        ),
         default_value=None,
     ),
     CatalogueEntry(
@@ -294,7 +335,10 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         value_type="float",
         group_name="ai",
         label="OpenAI output price (pence / 1k tokens)",
-        description="Optional. Output tokens include reasoning tokens (≈0 here). Leave blank to show tokens only.",
+        description=(
+            "Optional. Output tokens include reasoning tokens (≈0 here). "
+            "Leave blank to show tokens only."
+        ),
         default_value=None,
     ),
     # Backup / export
@@ -303,7 +347,9 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         value_type="bool",
         group_name="backup",
         label="Scheduled backups enabled",
-        description="When enabled, PlugTrack automatically snapshots the database on a recurring schedule.",
+        description=(
+            "When enabled, PlugTrack automatically snapshots the database on a recurring schedule."
+        ),
         default_value="true",
     ),
     CatalogueEntry(
@@ -319,7 +365,10 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         value_type="int",
         group_name="backup",
         label="Backup retention (count)",
-        description="Keep this many of the most recent backup snapshots; older ones are pruned automatically. Default 7.",
+        description=(
+            "Keep this many of the most recent backup snapshots; older ones are "
+            "pruned automatically. Default 7."
+        ),
         default_value="7",
     ),
     # MQTT / Home Assistant publishing
