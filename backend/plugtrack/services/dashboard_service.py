@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import Car, ChargingSession, Location
 from . import mileage_tracking
 from .mileage_tracking import KM_PER_MILE
+from .road_tax import EvedProjection, eved_projection
 from .usage_stats import miles_driven_km
 
 
@@ -57,6 +58,9 @@ class CarPanel:
     # Active annual mileage tracking period — null when the user hasn't
     # enabled tracking on this car. See `services/mileage_tracking.py`.
     mileage_year: MileageYearSummary | None = None
+    # Indicative eVED (pay-per-mile, from Apr 2028) + VED estimate. Null when
+    # the car has no active mileage-tracking period. See services/road_tax.py.
+    eved: EvedProjection | None = None
 
 
 @dataclass
@@ -193,6 +197,8 @@ async def dashboard_summary(
                 annual_mileage_target_km=cp.annual_mileage_target_km,
             )
 
+        eved = await eved_projection(session, user_id=user_id, car_id=car.id, today=today)
+
         summary.cars.append(
             CarPanel(
                 id=car.id,
@@ -203,6 +209,7 @@ async def dashboard_summary(
                 last_soc=battery_level,
                 nominal_efficiency_mi_per_kwh=car.nominal_efficiency_mi_per_kwh,
                 mileage_year=mileage_year,
+                eved=eved,
             )
         )
 

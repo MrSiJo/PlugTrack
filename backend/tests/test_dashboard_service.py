@@ -16,6 +16,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from plugtrack.models import Car, ChargingSession, Location, User
+from plugtrack.services import mileage_tracking
 from plugtrack.services.dashboard_service import dashboard_summary
 from plugtrack.services.mileage_tracking import KM_PER_MILE
 
@@ -406,3 +407,55 @@ async def test_dashboard_summary_excludes_other_users(test_sessionmaker):
     assert bob_summary.lifetime_totals.sessions_count == 0
     assert bob_summary.recent_sessions == []
     assert bob_summary.top_locations == []
+
+
+@pytest.mark.asyncio
+async def test_dashboard_car_panel_carries_eved_when_tracking(test_sessionmaker):
+    """Car panel carries an EvedProjection when mileage tracking is active.
+
+    See services/road_tax.py for the eVED (pay-per-mile) projection itself —
+    this only asserts the dashboard wires it through.
+    """
+    user = await _make_user(test_sessionmaker)
+    car = await _make_car(test_sessionmaker, user.id)
+    await _make_session(
+        test_sessionmaker,
+        user_id=user.id,
+        car_id=car.id,
+        when=date(2026, 3, 1),
+        kwh=10.0,
+        cost_pence=100,
+        odometer_km=11_000 * KM_PER_MILE,
+    )
+    async with test_sessionmaker() as s:
+        await mileage_tracking.set_tracking(
+            s,
+            user_id=user.id,
+            car_id=car.id,
+            start_date=date(2026, 1, 1),
+            opening_miles=10_000,
+            annual_mileage_target_miles=6_000,
+            today=date(2026, 1, 1),
+        )
+        await s.commit()
+
+    async with test_sessionmaker() as session:
+        summary = await dashboard_summary(session, user.id, today=date(2026, 4, 11))
+
+    panel = next(c for c in summary.cars if c.id == car.id)
+    assert panel.eved is not None
+    assert panel.eved.rate_p_per_mile == 3.0
+    assert panel.eved.projected_pence > 0
+
+
+@pytest.mark.asyncio
+async def test_dashboard_car_panel_eved_none_without_tracking(test_sessionmaker):
+    """No active mileage-tracking period → panel.eved stays None."""
+    user = await _make_user(test_sessionmaker, username="bob")
+    car = await _make_car(test_sessionmaker, user.id)
+
+    async with test_sessionmaker() as session:
+        summary = await dashboard_summary(session, user.id, today=date(2026, 4, 11))
+
+    panel = next(c for c in summary.cars if c.id == car.id)
+    assert panel.eved is None
