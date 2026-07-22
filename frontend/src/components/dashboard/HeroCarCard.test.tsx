@@ -22,6 +22,7 @@ const baseCar: DashboardCarPanel = {
   last_soc: 62,
   nominal_efficiency_mi_per_kwh: 4.2,
   mileage_year: null,
+  eved: null,
 }
 
 const baseCharge: LatestCharge = {
@@ -124,5 +125,45 @@ describe('HeroCarCard', () => {
       />,
     )
     expect(screen.getByTestId('car-mileage-year')).toBeInTheDocument()
+  })
+
+  const evedCar: DashboardCarPanel = {
+    ...baseCar,
+    eved: {
+      rate_p_per_mile: 3.0,
+      running_miles: 1000,
+      running_pence: 3000,
+      projected_annual_miles: 3615,
+      projected_pence: 10845,
+      ved_pence: 20000,
+      total_due_pence: 30845,
+      renewal_date: '07-31',
+      low_confidence: false,
+    },
+  }
+
+  it('renders the eVED tile with running, projected and combined-due figures', () => {
+    render(<HeroCarCard car={evedCar} latestCharge={baseCharge} currency="GBP" />)
+    const tile = screen.getByTestId('car-eved')
+    expect(tile).toHaveTextContent(/eVED/i)
+    expect(tile).toHaveTextContent('£30.00') // running so far
+    expect(tile).toHaveTextContent('£108.45') // projected/yr
+    expect(tile).toHaveTextContent('£308.45') // combined total due
+    expect(tile).toHaveTextContent(/31 Jul/)
+  })
+
+  it('shows the low-confidence hint when flagged', () => {
+    render(
+      <HeroCarCard
+        car={{ ...evedCar, eved: { ...evedCar.eved!, low_confidence: true } }}
+        latestCharge={baseCharge}
+      />,
+    )
+    expect(screen.getByTestId('car-eved')).toHaveTextContent(/settles/i)
+  })
+
+  it('hides the eVED tile when eved is null', () => {
+    render(<HeroCarCard car={baseCar} latestCharge={baseCharge} />)
+    expect(screen.queryByTestId('car-eved')).not.toBeInTheDocument()
   })
 })

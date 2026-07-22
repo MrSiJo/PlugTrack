@@ -946,6 +946,19 @@ export interface DashboardMileageYear {
   annual_mileage_target_km: number | null
 }
 
+export interface DashboardEved {
+  rate_p_per_mile: number
+  running_miles: number
+  running_pence: number
+  projected_annual_miles: number
+  projected_pence: number
+  ved_pence: number
+  total_due_pence: number
+  /** Renewal date as MM-DD; label only. */
+  renewal_date: string
+  low_confidence: boolean
+}
+
 export interface DashboardCarPanel {
   id: number
   make: string
@@ -956,6 +969,7 @@ export interface DashboardCarPanel {
   last_soc: number | null
   nominal_efficiency_mi_per_kwh: number | null
   mileage_year: DashboardMileageYear | null
+  eved: DashboardEved | null
 }
 
 export interface DashboardSessionRow {

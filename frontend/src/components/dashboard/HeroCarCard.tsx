@@ -1,4 +1,4 @@
-import type { DashboardCarPanel, DashboardMileageYear } from '@/api/client'
+import type { DashboardCarPanel, DashboardEved, DashboardMileageYear } from '@/api/client'
 import { Card } from '@/components/ui/Card'
 import { GradientNumber } from '@/components/ui/GradientNumber'
 import { ProgressBar } from '@/components/ui/ProgressBar'
@@ -124,6 +124,8 @@ export function HeroCarCard({
       {car.mileage_year && (
         <MileageYearTile mileage={car.mileage_year} unit={unit} />
       )}
+
+      {car.eved && <EvedTile eved={car.eved} currency={currency} />}
     </Card>
   )
 }
@@ -199,6 +201,72 @@ function MileageYearTile({ mileage, unit }: MileageYearTileProps) {
           className="h-1.5"
           aria-label="Annual mileage used"
         />
+      )}
+    </div>
+  )
+}
+
+function formatRenewal(mmdd: string): string {
+  const parts = mmdd.split('-')
+  const month = Number(parts[0])
+  const day = Number(parts[1])
+  if (!month || !day) return mmdd
+  const d = new Date(Date.UTC(2000, month - 1, day))
+  return d.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  })
+}
+
+interface EvedTileProps {
+  eved: DashboardEved
+  currency: string
+}
+
+function EvedTile({ eved, currency }: EvedTileProps) {
+  return (
+    <div
+      className="flex flex-col gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/40"
+      data-testid="car-eved"
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+          eVED{' '}
+          <span className="normal-case tracking-normal text-slate-400 dark:text-slate-500">
+            est. from Apr 2028
+          </span>
+        </span>
+      </div>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+        <span>
+          <span className="text-slate-400 dark:text-slate-500">So far </span>
+          <span className="font-medium tabular-nums text-slate-700 dark:text-slate-200">
+            {formatCurrency(eved.running_pence, currency)}
+          </span>
+        </span>
+        <span>
+          <span className="text-slate-400 dark:text-slate-500">Projected </span>
+          <span className="font-medium tabular-nums text-slate-700 dark:text-slate-200">
+            {formatCurrency(eved.projected_pence, currency)}/yr
+          </span>
+        </span>
+      </div>
+      <div className="text-xs">
+        <span className="text-slate-400 dark:text-slate-500">
+          + {formatCurrency(eved.ved_pence, currency)} VED →{' '}
+        </span>
+        <span className="font-semibold tabular-nums text-slate-700 dark:text-slate-200">
+          ≈ {formatCurrency(eved.total_due_pence, currency)}
+        </span>
+        <span className="text-slate-400 dark:text-slate-500">
+          {' '}due {formatRenewal(eved.renewal_date)}
+        </span>
+      </div>
+      {eved.low_confidence && (
+        <p className="text-[10px] text-slate-400 dark:text-slate-500">
+          Estimate settles as the year progresses.
+        </p>
       )}
     </div>
   )

@@ -17,6 +17,7 @@ function fixtureSummary(): DashboardSummary {
         last_soc: 73,
         nominal_efficiency_mi_per_kwh: null,
         mileage_year: null,
+        eved: null,
       },
       {
         id: 2,
@@ -27,6 +28,7 @@ function fixtureSummary(): DashboardSummary {
         last_soc: 50,
         nominal_efficiency_mi_per_kwh: null,
         mileage_year: null,
+        eved: null,
       },
     ],
     recent_sessions: [
