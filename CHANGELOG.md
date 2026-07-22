@@ -1,5 +1,20 @@
 # Changelog
 
+## [4.1.0](https://github.com/MrSiJo/PlugTrack/compare/v4.0.0...v4.1.0) (2026-07-22)
+
+
+### Features
+
+* **dashboard:** attach eVED projection to each car panel ([b9f1f87](https://github.com/MrSiJo/PlugTrack/commit/b9f1f87e51eaab7726d49fce4c07fd5cb203ef8d))
+* **dashboard:** show eVED pay-per-mile estimate on the hero car card ([c16485d](https://github.com/MrSiJo/PlugTrack/commit/c16485d4f90142c5653a21d45929312f98d58dc3))
+* **road-tax:** add eVED + VED projection service ([a7607bb](https://github.com/MrSiJo/PlugTrack/commit/a7607bb034bfce365ac7a6ca2b73acac0e2145fe))
+* **settings:** add eVED rate, annual VED, and renewal-date settings ([c124b8f](https://github.com/MrSiJo/PlugTrack/commit/c124b8f75f69bc3298dc7cec0c3466128a1b00f5))
+
+
+### Bug Fixes
+
+* **settings:** surface eVED/VED settings in the Preferences UI ([5397b8d](https://github.com/MrSiJo/PlugTrack/commit/5397b8d72aa774a96daed7b970d10c16358ebed9))
+
 ## [4.0.0](https://github.com/MrSiJo/PlugTrack/compare/v3.13.1...v4.0.0) (2026-07-20)
 
 
