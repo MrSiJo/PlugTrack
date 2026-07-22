@@ -19,6 +19,9 @@ const PREFERENCE_GROUPS: { label: string; keys: string[] }[] = [
       'default_home_rate_p_per_kwh',
       'petrol_price_p_per_litre',
       'petrol_mpg',
+      'eved_rate_p_per_mile',
+      'ved_annual_cost_gbp',
+      'ved_renewal_date',
     ],
   },
   {
