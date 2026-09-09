@@ -492,3 +492,67 @@ async def test_mcp_path_bypasses_session_cookie_auth(mcp_client):
         "The /mcp/ path appears to be blocked by the session-cookie middleware "
         f"instead of the MCP bearer-auth layer. Body: {body[:300]}"
     )
+
+
+def _tool_json(messages):
+    return json.loads(
+        next(
+            item["text"]
+            for message in messages
+            for item in message.get("result", {}).get("content", [])
+            if item.get("type") == "text"
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_mcp_aster_tools_are_scoped_and_two_phase(mcp_client, mcp_seeds, test_sessionmaker):
+    from sqlalchemy import select
+
+    user = mcp_seeds["user_a_id"]
+    read_token = await _mint_token(test_sessionmaker, user, "aster-read", "read")
+    write_token = await _mint_token(test_sessionmaker, user, "aster-write", "readwrite")
+    _, messages = await _rpc(mcp_client, _list_tools_payload(), token=read_token)
+    schemas = {t["name"]: t["inputSchema"] for m in messages for t in m["result"]["tools"]}
+    assert "list_cars" in schemas and "propose_import_charge" in schemas
+    assert set(schemas["propose_import_charge"]["required"]) == {"car_id", "extractions"}
+    _, messages = await _rpc(mcp_client, _call_tool_payload("list_cars", {}), token=read_token)
+    cars = _tool_json(messages)
+    assert len(cars) == 1
+    args = {
+        "car_id": cars[0]["id"],
+        "extractions": [
+            {
+                "start_at": "2026-09-09T10:00:00Z",
+                "energy_kwh": 20,
+                "cost_total_pence": 700,
+            }
+        ],
+    }
+    _, messages = await _rpc(
+        mcp_client, _call_tool_payload("propose_import_charge", args), token=read_token
+    )
+    assert "readwrite" in _tool_json(messages)["error"]
+    _, messages = await _rpc(
+        mcp_client, _call_tool_payload("propose_import_charge", args), token=write_token
+    )
+    proposal = _tool_json(messages)
+    assert proposal["preview"][0]["source"] == "aster"
+    async with test_sessionmaker() as s:
+        assert len((await s.execute(select(ChargingSession))).scalars().all()) == 2
+    _, messages = await _rpc(
+        mcp_client,
+        _call_tool_payload("commit_change", {"change_token": proposal["change_token"]}),
+        token=read_token,
+    )
+    assert "readwrite" in _tool_json(messages)["error"]
+    _, messages = await _rpc(
+        mcp_client,
+        _call_tool_payload("commit_change", {"change_token": proposal["change_token"]}),
+        token=write_token,
+    )
+    result = _tool_json(messages)
+    assert result["ok"] and len(result["charge_ids"]) == 1
+    async with test_sessionmaker() as s:
+        row = await s.get(ChargingSession, result["charge_ids"][0])
+        assert row.user_id == user and row.source == "aster"

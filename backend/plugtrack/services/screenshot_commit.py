@@ -10,10 +10,11 @@ matches energy within tolerance.
 
 from __future__ import annotations
 
+import copy
 import logging
 from datetime import timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import ChargingSession
@@ -77,7 +78,14 @@ async def distance_unit(session: AsyncSession) -> str:
     return (row.value or "mi").lower() if row and row.value else "mi"
 
 
-async def _is_duplicate(session: AsyncSession, *, car_id: int, merged: MergedSession) -> bool:
+async def _is_duplicate(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    car_id: int,
+    merged: MergedSession,
+    expected_kwh: float | None = None,
+) -> bool:
     lo = merged.start_at - timedelta(minutes=DEDUPE_TIME_MIN)
     hi = merged.start_at + timedelta(minutes=DEDUPE_TIME_MIN)
     rows = (
@@ -85,6 +93,7 @@ async def _is_duplicate(session: AsyncSession, *, car_id: int, merged: MergedSes
             await session.execute(
                 select(ChargingSession).where(
                     ChargingSession.car_id == car_id,
+                    ChargingSession.user_id == user_id,
                     ChargingSession.charge_start_at.is_not(None),
                     ChargingSession.charge_start_at >= lo,
                     ChargingSession.charge_start_at <= hi,
@@ -94,7 +103,7 @@ async def _is_duplicate(session: AsyncSession, *, car_id: int, merged: MergedSes
         .scalars()
         .all()
     )
-    target = merged.energy_kwh
+    target = expected_kwh if expected_kwh is not None else merged.energy_kwh
     for r in rows:
         if target is None or abs((r.kwh_added or 0.0) - target) <= DEDUPE_KWH_TOL:
             return True
@@ -131,7 +140,12 @@ async def match_location_by_name(
 
 
 async def _build_session(
-    session: AsyncSession, *, user_id: int, car_id: int, merged: MergedSession
+    session: AsyncSession,
+    *,
+    user_id: int,
+    car_id: int,
+    merged: MergedSession,
+    source: str = "telegram",
 ) -> ChargingSession:
     """Build the ChargingSession a Save would create — classify type, match a
     named location, resolve delivered-vs-banked kWh, and apply cost. Does NOT
@@ -171,7 +185,7 @@ async def _build_session(
         notes=notes[:512] if notes else None,
         power_curve=_map_extracted_curve(merged),
         actual_charge_seconds=merged.actual_charge_seconds,
-        source="telegram",
+        source=source,
     )
 
     # Match a named location (e.g. caption "home") for rate-based costing.
@@ -206,21 +220,71 @@ async def _build_session(
 
 
 async def preview_merged_session(
-    session: AsyncSession, *, user_id: int, car_id: int, merged: MergedSession
+    session: AsyncSession,
+    *,
+    user_id: int,
+    car_id: int,
+    merged: MergedSession,
+    source: str = "telegram",
 ) -> ChargingSession:
     """The unsaved ChargingSession a Save would produce (kwh_added, cost_pence,
     cost_basis, charging_type), for the confirm card. Ignores dedupe; persists
     nothing."""
-    return await _build_session(session, user_id=user_id, car_id=car_id, merged=merged)
+    return await _build_session(
+        session, user_id=user_id, car_id=car_id, merged=merged, source=source
+    )
+
+
+class PreviewChangedError(ValueError):
+    """Current derived charge values no longer match the user's reviewed preview."""
+
+
+def preview_values(cs: ChargingSession) -> dict:
+    """Capture prepared charge values, excluding database-generated identity/timestamps."""
+    return copy.deepcopy(
+        {
+            col.key: getattr(cs, col.key)
+            for col in ChargingSession.__table__.columns
+            if col.key not in {"id", "created_at", "updated_at"}
+        }
+    )
 
 
 async def commit_merged_session(
-    session: AsyncSession, *, user_id: int, car_id: int, merged: MergedSession
+    session: AsyncSession,
+    *,
+    user_id: int,
+    car_id: int,
+    merged: MergedSession,
+    source: str = "telegram",
+    geocode: bool = True,
+    expected_values: dict | None = None,
 ) -> ChargingSession | None:
-    if await _is_duplicate(session, car_id=car_id, merged=merged):
+    # Reserve the SQLite writer transaction BEFORE dedupe, and retain it until
+    # the caller commits/rolls back. A process lock only around this helper would
+    # end at flush and let Telegram/Aster both insert before either commits.
+    # The scoped no-op changes no car values or timestamps, and works whether
+    # the caller already has a write transaction or only performed reads.
+    owned = await session.execute(
+        text("UPDATE car SET id = id WHERE id = :car_id AND user_id = :user_id"),
+        {"car_id": car_id, "user_id": user_id},
+    )
+    if owned.rowcount != 1:
+        raise ValueError("car not found or not owned by this user")
+    cs = await _build_session(session, user_id=user_id, car_id=car_id, merged=merged, source=source)
+    if await _is_duplicate(
+        session,
+        user_id=user_id,
+        car_id=car_id,
+        merged=merged,
+        # Retain the existing time-only safeguard when no meter reading was
+        # supplied; SoC-derived energy may differ from a prior measured charge.
+        expected_kwh=cs.kwh_added if merged.energy_kwh is not None else None,
+    ):
         return None
-    cs = await _build_session(session, user_id=user_id, car_id=car_id, merged=merged)
-    if cs.location_id is None and (merged.location_name or merged.location_address):
+    if expected_values is not None and preview_values(cs) != expected_values:
+        raise PreviewChangedError("charge details changed since preview")
+    if geocode and cs.location_id is None and (merged.location_name or merged.location_address):
         from .ingest_location import compose_location_name, resolve_ingested_location
 
         name = merged.location_short_name or compose_location_name(

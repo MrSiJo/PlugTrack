@@ -641,7 +641,7 @@ describe('Sessions page', () => {
   })
 
   describe('source filter', () => {
-    it('offers exactly All / Telegram / Manual / Cupra / Import — no Unconfirmed', async () => {
+    it('offers exactly All / Telegram / Aster / Manual / Cupra / Import — no Unconfirmed', async () => {
       vi.spyOn(api, 'getSessions').mockResolvedValue([makeSession({ id: 1 })])
 
       render(
@@ -658,7 +658,7 @@ describe('Sessions page', () => {
       const buttons = within(tabs)
         .getAllByRole('button')
         .map((b) => b.textContent?.trim())
-      expect(buttons).toEqual(['All', 'Telegram', 'Manual', 'Cupra', 'Import'])
+      expect(buttons).toEqual(['All', 'Telegram', 'Aster', 'Manual', 'Cupra', 'Import'])
       expect(tabs).not.toHaveTextContent('Unconfirmed')
       expect(screen.queryByTestId('unconfirmed-badge')).not.toBeInTheDocument()
     })
@@ -685,6 +685,30 @@ describe('Sessions page', () => {
       await waitFor(() => {
         const q = lastQuery(spy)
         expect(q.get('source')).toBe('telegram')
+      })
+    })
+    it('sends the selected source to the API (e.g. aster)', async () => {
+      const user = userEvent.setup()
+      const spy = vi
+        .spyOn(api, 'getSessions')
+        .mockResolvedValue([makeSession({ id: 1, source: 'aster' })])
+
+      render(
+        <MemoryRouter>
+          <Sessions />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('session-row')).toBeInTheDocument()
+      })
+
+      const tabs = screen.getByTestId('source-tabs')
+      await user.click(within(tabs).getByRole('button', { name: /Aster/i }))
+
+      await waitFor(() => {
+        const q = lastQuery(spy)
+        expect(q.get('source')).toBe('aster')
       })
     })
   })

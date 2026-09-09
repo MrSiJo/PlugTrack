@@ -663,6 +663,13 @@ describe('SessionDetail — source rendering', () => {
     mockNoCars()
   })
 
+  it('labels an Aster import as Aster', async () => {
+    vi.spyOn(api, 'getSession').mockResolvedValue(makeSession({ source: 'aster' }))
+    renderDetail()
+    expect(await screen.findByText('Aster')).toBeInTheDocument()
+    expect(screen.queryByText('Cupra')).not.toBeInTheDocument()
+  })
+
   it('does not render any unconfirmed review panel for a normal session', async () => {
     vi.spyOn(api, 'getSession').mockResolvedValue(
       makeSession({ source: 'manual' }),

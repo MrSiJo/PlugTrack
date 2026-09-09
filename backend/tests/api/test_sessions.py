@@ -1081,3 +1081,31 @@ async def test_reassign_session_car_only_does_not_alter_cost(authed_client):
     assert upd.json()["car_id"] == new_car_id
     assert upd.json()["cost_pence"] == original_cost
     assert upd.json()["cost_basis"] == original_basis
+
+
+@pytest.mark.asyncio
+async def test_list_sessions_accepts_aster_source(authed_client, test_sessionmaker):
+    from plugtrack.models import ChargingSession
+
+    car_id = await _create_car(authed_client)
+    r = await authed_client.post(
+        "/api/sessions",
+        json={
+            "car_id": car_id,
+            "date": date.today().isoformat(),
+            "start_soc": 20,
+            "end_soc": 80,
+            "kwh_added": 20,
+        },
+        headers=csrf_headers(authed_client),
+    )
+    assert r.status_code == 201
+    sid = r.json()["id"]
+    async with test_sessionmaker() as s:
+        row = await s.get(ChargingSession, sid)
+        row.source = "aster"
+        await s.commit()
+    r = await authed_client.get("/api/sessions?source=aster")
+    assert r.status_code == 200, r.text
+    assert [cs["id"] for cs in r.json()] == [sid]
+    assert (await authed_client.get("/api/sessions?source=telegram")).json() == []

@@ -943,7 +943,9 @@ export default function SessionDetail() {
         ? 'Telegram'
         : session.source === 'import'
           ? 'Import'
-          : 'Cupra'
+          : session.source === 'aster'
+            ? 'Aster'
+            : 'Cupra'
   const titleLocation = session.location_name ?? 'Session'
   const subtitleParts = [
     session.date,

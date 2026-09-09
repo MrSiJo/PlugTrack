@@ -1,0 +1,11 @@
+# Aster charge capture spec and implementation plan
+
+Approved scope: expose authenticated list_cars and two-phase propose_import_charge through the existing MCP endpoint. Aster performs extraction; PlugTrack validates structured records, correlates screenshots, previews cost and saves only after explicit commit_change. All car access and proposals are scoped to the authenticated user. Reuse screenshot services, preserve duplicate/cost safeguards, store source=aster and never touch Telegram staging. No model or external API calls are required by the new tools; unmatched locations remain text-only.
+
+Implementation: add constrained extraction input and import helper module; add optional source/geocoding controls to shared screenshot persistence with current Telegram defaults unchanged; register MCP tools and dispatch import tokens. Keep process-local proposals for ten minutes, serialize import commits and replay successful result within TTL. Restart invalidates proposals; retry via a fresh preview, with existing persisted charge deduplication. No schema changes, deployment or push in this task.
+
+Test plan: first add failing synthetic-data tests for list scoping, correlation/preview without writes, commit/replay/concurrency, duplicate preservation, malformed input, ownership revalidation and authenticated HTTP scope enforcement. Implement minimum behavior, run targeted tests then full backend and frontend suites plus pre-commit hooks. The Aster source must also appear in the API source allowlist and UI filters/labels; verify them in a local synthetic-data browser run. Commit one logical change in this isolated worktree.
+
+Review additions: compare all prepared charge values at commit and reject stale previews, dedupe against effective energy after SoC promotion, validate the merged time window, and expose duration/curve in the preview. Two baseline calendar-dependent mileage tests are pinned in a separate test-only commit.
+
+Cross-channel review: reserve the shared SQLite writer transaction before screenshot duplicate checks through caller commit, compare effective derived kWh, and normalize only new Aster timestamps to Europe/London. Keep legacy timestamp data unchanged. Synthetic browser QA uses available Chromium Edge; Chrome is not connected.

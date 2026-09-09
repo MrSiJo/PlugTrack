@@ -13,6 +13,7 @@ export type SortDir = 'asc' | 'desc'
 
 const SOURCE_TONE: Record<string, PillTone> = {
   telegram: 'green',
+  aster: 'cyan',
   manual: 'amber',
   synthesis: 'cyan',
   import: 'purple',
@@ -20,6 +21,7 @@ const SOURCE_TONE: Record<string, PillTone> = {
 
 export const SOURCE_LABEL: Record<string, string> = {
   telegram: 'Telegram',
+  aster: 'Aster',
   manual: 'Manual',
   synthesis: 'Cupra',
   import: 'Import',

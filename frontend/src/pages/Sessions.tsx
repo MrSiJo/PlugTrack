@@ -38,7 +38,7 @@ import {
   type SortDir,
 } from '@/components/sessions/SessionsTable'
 
-type SourceFilter = 'all' | 'telegram' | 'manual' | 'synthesis' | 'import'
+type SourceFilter = 'all' | 'telegram' | 'aster' | 'manual' | 'synthesis' | 'import'
 
 type DateRange =
   | 'this_month'
@@ -546,7 +546,7 @@ export default function Sessions() {
       )}
 
       <div className="mb-4 flex flex-wrap gap-2" data-testid="source-tabs">
-        {(['all', 'telegram', 'manual', 'synthesis', 'import'] as SourceFilter[]).map(
+        {(['all', 'telegram', 'aster', 'manual', 'synthesis', 'import'] as SourceFilter[]).map(
           (f) => (
             <button
               key={f}

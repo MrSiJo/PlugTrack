@@ -293,7 +293,7 @@ async def _get_owned_location(
 # deprecated legacy synthesis source — dropped from the filter allow-list as it
 # is no longer offered in the UI; 'telegram'/'import' are the standalone-pivot
 # ingest sources.
-_VALID_SOURCES = frozenset({"manual", "synthesis", "telegram", "import"})
+_VALID_SOURCES = frozenset({"manual", "synthesis", "telegram", "import", "aster"})
 _VALID_SORTS = frozenset({"date", "cost", "energy", "saved", "efficiency"})
 _VALID_DIRS = frozenset({"asc", "desc"})
 

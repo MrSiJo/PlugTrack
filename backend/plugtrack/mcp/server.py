@@ -348,6 +348,17 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
     # -------------------------------------------------------------------
 
     @mcp.tool()
+    async def list_cars() -> str:
+        """List the authenticated user's cars (id, name, make, model, battery_kwh, active).
+
+        Select an active car explicitly before proposing an Aster charge import.
+        """
+        user_id, _ = get_mcp_context()
+        async with db_sessionmaker() as session:
+            result = await _tools.list_cars(session, user_id)
+        return json.dumps(result, default=str)
+
+    @mcp.tool()
     async def find_charges(
         limit: int = 10,
         date_from: str | None = None,
@@ -423,6 +434,43 @@ def build_mcp_app(db_sessionmaker: Any) -> ASGIApp:
     # -------------------------------------------------------------------
     # READWRITE tools — rejected for read-scoped tokens
     # -------------------------------------------------------------------
+
+    from typing import Annotated
+
+    from pydantic import Field
+
+    from .charge_import import ChargeExtraction
+
+    @mcp.tool()
+    async def propose_import_charge(
+        car_id: int,
+        extractions: Annotated[list[ChargeExtraction], Field(min_length=1, max_length=10)],
+    ) -> str:
+        """Preview one Aster charge from already-extracted screenshot readings.
+
+        Requires readwrite scope. Does not save a charge or call a model/API.
+        Provide an explicit active car_id from list_cars and 1-10 readings for
+        exactly one charge. Times must include a timezone offset; money is pence.
+        Energy is kWh; odometer requires an explicit mi/km unit. Unknown fields
+        are rejected. An untimed meter reading can join one timed app reading.
+        Returns summary, change_token (expires in 600 seconds or on restart),
+        preview array and warnings. Show these to the user and obtain explicit
+        confirmation before calling commit_change. Commit retries replay the
+        result within the token lifetime; fresh proposals retain charge dedupe.
+        Unmatched locations are saved as text without external geocoding.
+        """
+        err = require_readwrite()
+        if err is not None:
+            return json.dumps(err)
+        user_id, _ = get_mcp_context()
+        async with db_sessionmaker() as session:
+            result = await _tools.propose_import_charge(
+                session,
+                user_id,
+                car_id=car_id,
+                extractions=[record.model_dump(mode="json") for record in extractions],
+            )
+        return json.dumps(result, default=str)
 
     @mcp.tool()
     async def propose_create_location(

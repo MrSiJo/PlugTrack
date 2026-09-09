@@ -44,6 +44,7 @@ from ..services.cost_apply import apply_cost
 from ..services.formatting import KM_PER_MILE
 from ..services.geocoding import get_provider
 from ..services.location_clustering import find_or_create_location
+from .charge_import import list_cars, propose_import_charge  # noqa: F401 — public tool core
 
 # ---------------------------------------------------------------------------
 # Money formatting (display convention for the conversational layer)
@@ -99,7 +100,8 @@ def _evict_stale_tokens() -> None:
     stale = [
         k
         for k, v in _CHANGE_STORE.items()
-        if v["used"] or (now - v["created_at"]).total_seconds() > _TOKEN_TTL_SECONDS
+        if (v["used"] and v["kind"] != "import_charge")
+        or (now - v["created_at"]).total_seconds() > _TOKEN_TTL_SECONDS
     ]
     for k in stale:
         del _CHANGE_STORE[k]
@@ -705,6 +707,12 @@ async def commit_change(
     Applies the change and marks the token as used.
     Returns {"ok": True, ...} on success, {"error": "..."} on failure.
     """
+    entry = _CHANGE_STORE.get(change_token)
+    if entry and entry["kind"] == "import_charge":
+        from .charge_import import commit_import
+
+        return await commit_import(session, user_id, change_token)
+
     error = _validate_token(change_token, user_id)
     if error is not None:
         return error
