@@ -34,7 +34,7 @@ def _build_app() -> FastAPI:
 async def test_exempt_path_works_unauthenticated():
     assert "/api/health" in EXEMPT_PATHS
     transport = ASGITransport(app=_build_app())
-    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+    async with AsyncClient(transport=transport, base_url="http://testserver", timeout=30.0) as c:
         r = await c.get("/api/health")
         assert r.status_code == 200
 
@@ -42,7 +42,7 @@ async def test_exempt_path_works_unauthenticated():
 @pytest.mark.asyncio
 async def test_non_exempt_path_returns_401_without_cookie():
     transport = ASGITransport(app=_build_app())
-    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+    async with AsyncClient(transport=transport, base_url="http://testserver", timeout=30.0) as c:
         r = await c.get("/api/private")
         assert r.status_code == 401
 
@@ -52,7 +52,7 @@ async def test_non_exempt_path_returns_200_with_valid_cookie():
     serializer = make_serializer(SECRET)
     token = serializer.dumps({"user_id": 1})
     transport = ASGITransport(app=_build_app())
-    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+    async with AsyncClient(transport=transport, base_url="http://testserver", timeout=30.0) as c:
         c.cookies.set(SESSION_COOKIE_NAME, token)
         r = await c.get("/api/private")
         assert r.status_code == 200
@@ -63,10 +63,12 @@ async def test_non_exempt_path_returns_200_with_valid_cookie():
 async def test_tampered_cookie_returns_401():
     serializer = make_serializer(SECRET)
     token = serializer.dumps({"user_id": 1})
-    # Tamper by flipping the last char
-    bad = token[:-1] + ("a" if token[-1] != "a" else "b")
+    # Flip a significant signature character. The final base64 character can
+    # differ only in unused padding bits and still decode to the same signature.
+    payload, signature = token.rsplit(".", 1)
+    bad = payload + "." + ("a" if signature[0] != "a" else "b") + signature[1:]
     transport = ASGITransport(app=_build_app())
-    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+    async with AsyncClient(transport=transport, base_url="http://testserver", timeout=30.0) as c:
         c.cookies.set(SESSION_COOKIE_NAME, bad)
         r = await c.get("/api/private")
         assert r.status_code == 401
@@ -77,7 +79,7 @@ async def test_cookie_signed_with_other_secret_returns_401():
     other = make_serializer("y" * 48)
     token = other.dumps({"user_id": 1})
     transport = ASGITransport(app=_build_app())
-    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+    async with AsyncClient(transport=transport, base_url="http://testserver", timeout=30.0) as c:
         c.cookies.set(SESSION_COOKIE_NAME, token)
         r = await c.get("/api/private")
         assert r.status_code == 401
@@ -96,7 +98,7 @@ async def test_expired_cookie_returns_401():
 
     token = make_serializer(SECRET).dumps({"user_id": 1})
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+    async with AsyncClient(transport=transport, base_url="http://testserver", timeout=30.0) as c:
         c.cookies.set(SESSION_COOKIE_NAME, token)
         r = await c.get("/api/private")
         assert r.status_code == 401
@@ -110,7 +112,7 @@ async def test_legacy_untimed_cookie_returns_401():
 
     legacy = URLSafeSerializer(SECRET, salt="session").dumps({"user_id": 1})
     transport = ASGITransport(app=_build_app())
-    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+    async with AsyncClient(transport=transport, base_url="http://testserver", timeout=30.0) as c:
         c.cookies.set(SESSION_COOKIE_NAME, legacy)
         r = await c.get("/api/private")
         assert r.status_code == 401
