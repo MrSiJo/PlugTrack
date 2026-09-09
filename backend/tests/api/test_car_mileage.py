@@ -36,7 +36,17 @@ async def test_get_mileage_starts_disabled(authed_client):
 
 
 @pytest.mark.asyncio
-async def test_put_then_get_mileage(authed_client):
+async def test_put_then_get_mileage(authed_client, monkeypatch):
+    from datetime import date
+
+    from plugtrack.services import mileage_tracking
+
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2025, 8, 2)
+
+    monkeypatch.setattr(mileage_tracking, "date", FixedDate)
     car_id = await _create_car(authed_client)
     r = await authed_client.put(
         f"/api/cars/{car_id}/mileage",

@@ -313,6 +313,7 @@ async def test_set_tracking_replaces_existing_history(test_sessionmaker):
             start_date=date(2024, 1, 1),
             opening_miles=5000.0,
             annual_mileage_target_miles=None,
+            today=date(2025, 8, 2),
         )
         await session.commit()
 
@@ -325,6 +326,7 @@ async def test_set_tracking_replaces_existing_history(test_sessionmaker):
             start_date=date(2025, 8, 1),
             opening_miles=7022.0,
             annual_mileage_target_miles=None,
+            today=date(2025, 8, 2),
         )
         await session.commit()
 
