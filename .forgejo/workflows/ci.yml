@@ -42,6 +42,9 @@ jobs:
     runs-on: docker
     container:
       image: node:22-bookworm
+    # Date tests expect UK formatting ("31 Jul"); Node takes its default locale from LANG.
+    env:
+      LANG: en_GB.UTF-8
     steps:
       - name: Check out
         run: |
