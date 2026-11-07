@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.2.0](https://github.com/MrSiJo/PlugTrack/compare/v4.1.0...v4.2.0) (2026-11-07)
+
+
+### Features
+
+* add confirmed Aster charge capture through authenticated MCP ([f5d9f2d](https://github.com/MrSiJo/PlugTrack/commit/f5d9f2d05426c9b7f4601d187f976701fbf52065))
+
 ## [4.1.0](https://github.com/MrSiJo/PlugTrack/compare/v4.0.0...v4.1.0) (2026-07-22)
 
 
