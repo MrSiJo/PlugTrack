@@ -6,6 +6,10 @@
 
 FROM python:3.12-slim AS base
 
+# The docker host's weekly prune keeps keep=true images (rollback targets);
+# CI deploys pin exact tags, so WUD and Watchtower must leave it alone.
+LABEL keep="true" wud.watch="false" com.centurylinklabs.watchtower.enable="false"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \

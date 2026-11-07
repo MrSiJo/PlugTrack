@@ -1,0 +1,62 @@
+# Tests on every push to a branch other than main, on the Forgejo runner
+# (pelops CT155). main runs them through deploy.yml instead.
+# Jobs get no Docker socket and no host folders. GitHub ignores .forgejo/
+# (its own workflows build the GHCR images and run release-please).
+# Template: simon/ci-deploy templates/ci.yml.
+#
+# No lint steps yet: on main (2026-11-07) `ruff check .` has 28 findings and
+# `npm run lint` 25 errors (react-hooks/set-state-in-effect, react-refresh),
+# all from before CI. Add `ruff check .` and `npm run lint` once cleared.
+name: ci
+
+on:
+  push:
+    branches-ignore: [main]
+    paths-ignore: ['docs/**', '**/*.md']
+  workflow_call:
+
+jobs:
+  backend:
+    runs-on: docker
+    container:
+      image: python:3.12-bookworm
+    steps:
+      - name: Check out
+        run: |
+          git clone -q --no-checkout "${{ vars.CI_FORGEJO_URL }}/${{ github.repository }}.git" src
+          git -C src checkout -q "${{ github.sha }}"
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: http.extraHeader
+          GIT_CONFIG_VALUE_0: "Authorization: token ${{ github.token }}"
+      - name: Install
+        working-directory: src
+        run: pip install -q -r backend/requirements.txt pytest pytest-asyncio
+      - name: Pytest
+        working-directory: src
+        # pytest.ini at the root: testpaths backend/tests, pythonpath backend.
+        # backend/tests/integration is skipped unless INTEGRATION=1.
+        run: python -m pytest -q
+
+  frontend:
+    runs-on: docker
+    container:
+      image: node:22-bookworm
+    steps:
+      - name: Check out
+        run: |
+          git clone -q --no-checkout "${{ vars.CI_FORGEJO_URL }}/${{ github.repository }}.git" src
+          git -C src checkout -q "${{ github.sha }}"
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: http.extraHeader
+          GIT_CONFIG_VALUE_0: "Authorization: token ${{ github.token }}"
+      - name: Test and build
+        working-directory: src/frontend
+        # A wider per test timeout: the runner takes two jobs at a time and a
+        # few page tests overrun vitest's default 5 s on a loaded box.
+        # build is `tsc -b && vite build`: the strict typecheck runs here.
+        run: |
+          npm ci --no-audit --no-fund
+          npm run test -- --testTimeout=20000
+          npm run build

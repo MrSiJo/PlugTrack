@@ -1,0 +1,32 @@
+# Deploy on every push to main (and the Run workflow button): tests,
+# then .83's ci-deploy deploys this commit. The CI key can do nothing else on
+# .83 (forced command). ci-deploy deploys only the branch tip, re-pins and
+# restarts only this app's services, and rolls back if a check fails.
+# Template: simon/ci-deploy templates/deploy.yml.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**', '**/*.md']
+  workflow_dispatch:
+
+jobs:
+  tests:
+    uses: ./.forgejo/workflows/ci.yml
+
+  deploy:
+    needs: tests
+    runs-on: docker
+    container:
+      image: node:22-bookworm
+    steps:
+      - name: Deploy ${{ github.sha }}
+        env:
+          KEY: ${{ secrets.CI_DEPLOY_KEY }}
+        run: |
+          [ "${{ github.ref }}" = "refs/heads/main" ] || { echo "deploy runs from main only"; exit 1; }
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          echo "${{ vars.CI_DEPLOY_HOST_KEY }}" > ~/.ssh/known_hosts
+          ssh -o StrictHostKeyChecking=yes -o BatchMode=yes root@${{ vars.CI_DEPLOY_HOST }} "plugtrack ${{ github.sha }}"

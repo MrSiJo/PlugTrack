@@ -23,6 +23,10 @@ RUN npm run build
 
 FROM nginx:alpine AS runtime
 
+# The docker host's weekly prune keeps keep=true images (rollback targets);
+# CI deploys pin exact tags, so WUD and Watchtower must leave it alone.
+LABEL keep="true" wud.watch="false" com.centurylinklabs.watchtower.enable="false"
+
 # Drop the stock site config so our SPA fallback / proxy block is the
 # only one in /etc/nginx/conf.d.
 RUN rm /etc/nginx/conf.d/default.conf

@@ -1,0 +1,92 @@
+# PlugTrack PRODUCTION stack on docker-host. Source of truth for
+# /dockerdata/compose-stacks/plugtrack/compose.yaml on the host.
+#
+# A push to main on Forgejo IS the deploy: .forgejo/workflows/deploy.yml runs
+# the tests, then the host's ci-deploy (`plugtrack` block, deploy/ci-deploy-block.sh)
+# builds plugtrack-api:main-<sha7> and plugtrack-ui:main-<sha7> from that
+# commit, re-pins the two image lines below and brings up only plugtrack-api
+# and plugtrack-ui. ci-deploy does NOT copy this file to the host: any other
+# change here is made by hand there too, after `cp compose.yaml compose.yaml.bak-<ts>`.
+#
+# The image tags below are placeholders; ci-deploy rewrites them on every deploy.
+# This is not the public `compose.yaml` (GHCR images) or `compose-dev.yaml`
+# (local build); those stay for other users of the repo.
+#
+# Files on the host:
+#   /dockerdata/plugtrack/.env   0600, APP_SECRET_KEY (also the at rest encryption
+#                                key: never regenerate) and COOKIE_SECURE.
+#                                Same content as the repo root .env it replaced.
+#
+# Network: the daemon's default address pools are exhausted, so the stack never
+# creates a network. It joins the existing `plugtrack_default` (created by the
+# laptop deploys before the CI cutover) as external. The `aster` container from
+# its own stack is also attached to it and reaches the API as plugtrack-api:9278,
+# so the network must never be removed or recreated.
+#
+# Same project name, container names, ports and bind mounts as the laptop
+# deploys from compose-dev.yaml, so compose adopts the running containers.
+
+name: plugtrack
+
+services:
+  plugtrack-api:
+    image: plugtrack-api:main-0000000
+    pull_policy: never
+    container_name: plugtrack-api
+    restart: unless-stopped
+    env_file: /dockerdata/plugtrack/.env
+    environment:
+      DATA_DIR: /app/data
+      DATABASE_URL: sqlite+aiosqlite:////app/data/plugtrack.db
+    volumes:
+      - /dockerdata/plugtrack/data:/app/data
+      - /dockerdata/plugtrack/logs:/app/logs
+    ports:
+      # Loopback only: the UI reaches the API over the bridge as plugtrack-api:9278.
+      # /mcp (bearer token gated, tokens kept in the app's own database) is served
+      # on this same port.
+      - "127.0.0.1:9278:9278"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9278/api/health', timeout=3).status == 200 else 1)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    labels:
+      wud.watch: "false"
+      com.centurylinklabs.watchtower.enable: "false"
+
+  plugtrack-ui:
+    image: plugtrack-ui:main-0000000
+    pull_policy: never
+    container_name: plugtrack-ui
+    restart: unless-stopped
+    depends_on:
+      plugtrack-api:
+        condition: service_healthy
+    ports:
+      - "9279:80"
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --quiet
+        - --tries=1
+        - --spider
+        - http://localhost/
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    labels:
+      wud.watch: "false"
+      com.centurylinklabs.watchtower.enable: "false"
+
+networks:
+  default:
+    name: plugtrack_default
+    external: true

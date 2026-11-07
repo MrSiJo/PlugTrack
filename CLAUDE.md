@@ -56,15 +56,16 @@ python -m plugtrack.scripts.backfill_curves                 # match + attach pow
 python -m plugtrack.scripts.seed_demo                       # seed demo data
 ```
 
-### Deploy
+### Deploy: a push to `main` on Forgejo IS the production deploy
 
-```bash
-docker context use <your-remote-context>   # NEVER deploy against `default`
-scripts/deploy.ps1                          # PowerShell
-scripts/deploy.sh                           # bash
-```
+`.forgejo/workflows/deploy.yml` runs backend pytest and the frontend tests and build (no lint yet: ruff and eslint findings on main predate CI) on the Forgejo runner, then calls the docker host's `ci-deploy` (`plugtrack` block, copy in `deploy/ci-deploy-block.sh`): online SQLite snapshot with an integrity check (`/dockerdata/plugtrack/data/ci-backups/`), build `plugtrack-api:main-<sha7>` and `plugtrack-ui:main-<sha7>`, compose backup, re-pin, `compose up` of `plugtrack-api` and `plugtrack-ui` only, checks (both healthy, `/api/health` 200, `POST :9278/mcp/` 401, UI 200), automatic rollback on failure. Other branches only run the tests (`.forgejo/workflows/ci.yml`); a push touching only `docs/` or `*.md` deploys nothing. GitHub keeps its own workflows (GHCR images, release-please) on its copy.
 
-The deploy scripts hard-fail when the active Docker context is `default`.
+* Stack: `/dockerdata/compose-stacks/plugtrack/compose.yaml` (project `plugtrack`). Source of truth: `deploy/compose.yaml`. ci-deploy re-pins the image tags but does NOT copy the file: any other change is made by hand on the host too, after `cp compose.yaml compose.yaml.bak-<ts>`.
+* Network `plugtrack_default` is external: never remove or recreate it (the host has no free address pools, and the `aster` container is attached to it).
+* Secrets: `/dockerdata/plugtrack/.env` (root 0600) with `APP_SECRET_KEY` and `COOKIE_SECURE`; copied from the repo root `.env`. Never regenerate `APP_SECRET_KEY` (it encrypts stored secrets).
+* Every Dockerfile carries `LABEL keep="true" wud.watch="false" com.centurylinklabs.watchtower.enable="false"` so the host's weekly prune keeps rollback images.
+* Logs: `/dockerdata/ci-deploy/logs/plugtrack-<ts>.log` on the host. Changing the block means editing `C:\code\infra\ci-deploy\ci-deploy` and `.\ci-host.ps1 install` there.
+* `compose.yaml` (GHCR) and `compose-dev.yaml` remain for other users. `scripts/deploy.{ps1,sh}` (laptop build via a remote context, refuses `default`) are a fallback only: they bypass ci-deploy and the host stack, so do not use them against production.
 
 ## High-Level Architecture
 
